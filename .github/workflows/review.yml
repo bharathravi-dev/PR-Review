@@ -1,0 +1,56 @@
+name: AI PR review
+
+# Run from the Actions tab (or the GitHub mobile app): Actions → AI PR review → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR URL, e.g. https://github.com/KB-iGOT/sunbird-cb-portal/pull/2549'
+        required: true
+      post:
+        description: 'Post the review on the PR (as you)'
+        type: boolean
+        default: false
+      event:
+        description: 'Review type when posting'
+        type: choice
+        options: [COMMENT, REQUEST_CHANGES]
+        default: COMMENT
+      model:
+        description: 'Claude model'
+        type: choice
+        options: [claude-sonnet-5-5, claude-opus-5-5]
+        default: claude-sonnet-5-5
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Review PR
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GH_REVIEW_TOKEN }}
+          PR: ${{ inputs.pr }}
+          POST: ${{ inputs.post }}
+          EVENT: ${{ inputs.event }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+          args=("$PR" --yes --event "$EVENT" --model "$MODEL" --out reviews)
+          if [ "$POST" = "true" ]; then args+=(--post); fi
+          node review.mjs "${args[@]}"
+          cat reviews/*.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: review
+          path: reviews/
+          if-no-files-found: ignore
