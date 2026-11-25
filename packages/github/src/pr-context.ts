@@ -21,7 +21,7 @@ interface ApiFile {
   patch?: string
 }
 interface ApiReview { id: number; user: ApiUser | null; state: string; body: string | null; submitted_at?: string }
-interface ApiComment { id: number; user: ApiUser | null; body: string | null; path?: string; line?: number | null; created_at: string; html_url?: string }
+interface ApiComment { id: number; user: ApiUser | null; body: string | null; path?: string; line?: number | null; position?: number | null; in_reply_to_id?: number; created_at: string; html_url?: string }
 
 const BINARY_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|icns|pdf|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|exe|dll|so|dylib|bin|woff2?|ttf|otf|eot|mp3|mp4|mov|avi|webm|wav|ogg|psd|sketch|fig)$/i
 const CONTENT_CONCURRENCY = 6
@@ -71,12 +71,49 @@ export class GitHubPrReader implements GitHubReader {
     if (!reviews.ok) return reviews
     if (!inline.ok) return inline
     if (!comments.ok) return comments
-    const item = (c: ApiComment) => ({ id: c.id, authorId: c.user?.id, body: c.body ?? '', createdAt: c.created_at, ...(c.html_url ? { url: c.html_url } : {}) })
+    const item = (c: ApiComment) => ({
+      id: c.id,
+      authorId: c.user?.id,
+      ...(c.user?.login ? { authorLogin: c.user.login } : {}),
+      body: c.body ?? '',
+      createdAt: c.created_at,
+      ...(c.html_url ? { url: c.html_url } : {}),
+    })
     return ok({
       reviews: reviews.value.items.map((r) => ({ id: r.id, authorId: r.user?.id, body: r.body ?? '', state: r.state })),
-      reviewComments: inline.value.items.map(item),
+      reviewComments: inline.value.items.map((c) => ({
+        ...item(c),
+        ...(c.in_reply_to_id !== undefined ? { inReplyTo: c.in_reply_to_id } : {}),
+        outdated: c.line === null || c.line === undefined ? c.position === null : false,
+      })),
       issueComments: comments.value.items.map(item),
     })
+  }
+
+  async listThumbsDown(ref: PrRef, commentId: number): Promise<Result<string[]>> {
+    const res = await this.client.paginate<{ user: ApiUser | null; content: string }>(
+      `/repos/${enc(ref.owner)}/${enc(ref.repo)}/pulls/comments/${commentId}/reactions?content=-1&per_page=100`,
+    )
+    return res.ok ? ok(res.value.items.filter((r) => r.content === '-1').flatMap((r) => (r.user?.login ? [r.user.login] : []))) : res
+  }
+
+  async searchCommentedPulls(
+    login: string,
+    sinceIso: string,
+    repo?: { owner: string; repo: string },
+    limit = 200,
+  ): Promise<Result<Array<{ owner: string; repo: string; number: number; title: string; author: string }>>> {
+    const q = [`is:pr`, `commenter:${login}`, `updated:>=${sinceIso.slice(0, 10)}`, ...(repo ? [`repo:${repo.owner}/${repo.repo}`] : [])].join(' ')
+    const res = await this.client.json<{ items: Array<{ number: number; title: string; repository_url: string; user: ApiUser | null }> }>(
+      `/search/issues?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=${Math.min(100, limit)}`,
+    )
+    if (!res.ok) return res
+    return ok(
+      res.value.data.items.flatMap((i) => {
+        const m = /\/repos\/([^/]+)\/([^/]+)$/.exec(i.repository_url)
+        return m ? [{ owner: decodeURIComponent(m[1]!), repo: decodeURIComponent(m[2]!), number: i.number, title: i.title, author: i.user?.login ?? 'ghost' }] : []
+      }),
+    )
   }
 
   async getPrContext(ref: PrRef, limits: ContextLimits): Promise<Result<PrContext>> {

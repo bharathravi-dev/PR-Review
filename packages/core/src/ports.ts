@@ -12,6 +12,11 @@ export interface PublishedItem {
   state?: string | undefined
   createdAt?: string | undefined
   url?: string | undefined
+  authorLogin?: string | undefined
+  /** Inline review comments only: the comment this one replies to. */
+  inReplyTo?: number | undefined
+  /** Inline review comments only: GitHub no longer maps it to a line because the code there changed. */
+  outdated?: boolean | undefined
 }
 
 export interface PublishedItems {
@@ -41,6 +46,10 @@ export interface GitHubReader {
   getHeadSha(ref: PrRef): Promise<Result<string>>
   /** Reviews, inline review comments, and issue comments on the PR, for marker-based self-recognition (AD-11). */
   listPublished(ref: PrRef): Promise<Result<PublishedItems>>
+  /** Logins that reacted 👎 to an inline review comment (Finding feedback, FR-20b). */
+  listThumbsDown(ref: PrRef, commentId: number): Promise<Result<string[]>>
+  /** PRs the user commented on, updated since an ISO date, optionally in one repository (FR-25a). */
+  searchCommentedPulls(login: string, sinceIso: string, repo?: { owner: string; repo: string }, limit?: number): Promise<Result<Array<{ owner: string; repo: string; number: number; title: string; author: string }>>>
 }
 
 export interface InlineComment {

@@ -9,6 +9,9 @@ import {
   fetchContext,
   ok,
   hunksFromContext,
+  feedbackStats,
+  FPV,
+  ownInlineComments,
   parseRepoRef,
   planPublish,
   publish,
@@ -66,6 +69,7 @@ Review GitHub pull requests with deterministic checks and the AI provider of you
 Commands:
   review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
+  stats              How your posted findings fared: resolved, dismissed, still open
   context <pr>       Load a PR's context from GitHub
   config show        Print the resolved configuration and where each value came from
   config path        Print the user config file location
@@ -92,6 +96,13 @@ Exit codes: 0 PASSED, 1 PASSED_WITH_WARNINGS, 2 FAILED, 3 INCOMPLETE, 4 ERROR, 5
 list options:
   --limit <n>        How many open PRs to show (default 30)
   --json             Print the list as JSON (no prompt)
+
+stats options:
+  --since <date>     Count PRs updated since this date, YYYY-MM-DD (default: 30 days ago)
+  --repo <repo>      Only this repository (owner/repo)
+  --json             Print the numbers as JSON
+
+Dismiss a finding by reacting 👎 to its comment or replying "/dismiss"; it won't be posted again.
 
 context options:
   --json             Print the full context as JSON
@@ -144,6 +155,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'context') return contextCommand(rest, io, deps, secrets)
   if (first === 'review') return reviewCommand(rest, io, deps, secrets)
   if (first === 'list') return listCommand(rest, io, deps, secrets)
+  if (first === 'stats') return statsCommand(rest, io, deps, secrets)
   if (first === 'config') return configCommand(rest, io, deps)
 
   const kind = first.startsWith('-') ? 'option' : 'command'
@@ -292,19 +304,20 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
     userAgent: `pr-reviewer/${pkg.version}`,
   })
 
-  // Posting needs the Reviewer Identity up front: it is part of the idempotency key (AD-11).
+  // The Reviewer Identity is part of the idempotency key (AD-11) and lets the review honour Finding feedback.
+  // Posting requires it; plain reviews use it when a token is available.
   let reviewerId: number | undefined
-  if (post) {
-    if (!token.ok) {
-      io.stderr(`Cannot post: ${token.error.message}\n`)
-      return EXIT_CODES.error
-    }
+  if (post && !token.ok) {
+    io.stderr(`Cannot post: ${token.error.message}\n`)
+    return EXIT_CODES.error
+  }
+  if (token.ok) {
     const viewer = await github.reader.viewer()
-    if (!viewer.ok) {
+    if (viewer.ok) reviewerId = viewer.value.id
+    else if (post) {
       io.stderr(`Cannot post: ${viewer.error.message}\n`)
       return EXIT_CODES.error
     }
-    reviewerId = viewer.value.id
   }
 
   const provider = await buildProvider(config, parsed.values.provider, parsed.values.model, deps, secrets)
@@ -516,6 +529,85 @@ async function listCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Se
   }
   const passthrough = parsed.values.profile ? ['--profile', parsed.values.profile] : []
   return reviewCommand([`${repo.value.owner}/${repo.value.repo}#${chosen.number}`, ...(repo.value.host !== (gh.host ?? 'github.com') ? ['--host', repo.value.host] : []), ...passthrough], io, deps, secrets)
+}
+
+async function statsCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: false,
+      options: { since: { type: 'string' }, repo: { type: 'string' }, json: { type: 'boolean' }, host: { type: 'string' }, 'api-url': { type: 'string' }, profile: { type: 'string' } },
+    })
+  } catch (e) {
+    return usageError(io, (e as Error).message)
+  }
+  const sinceText = parsed.values.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sinceText) || Number.isNaN(Date.parse(sinceText))) return usageError(io, '--since must be a date like 2026-11-01')
+
+  const config = resolveConfig(io, deps, parsed.values.profile, { host: parsed.values.host, apiUrl: parsed.values['api-url'] })
+  if (typeof config === 'number') return config
+  const gh = config.settings.github ?? {}
+  const host = gh.host ?? 'github.com'
+  const repo = parsed.values.repo ? parseRepoRef(parsed.values.repo, host) : undefined
+  if (repo && !repo.ok) return usageError(io, repo.error.message)
+
+  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host })
+  if (!token.ok) {
+    io.stderr(`stats needs a GitHub token: ${token.error.message}\n`)
+    return EXIT_CODES.error
+  }
+  secrets.push(token.value)
+  const { reader } = createGitHub({ apiUrl: gh.apiUrl ?? apiUrlForHost(host), token: token.value.reveal(), fetch: deps.fetch, userAgent: `pr-reviewer/${pkg.version}` })
+  const viewer = await reader.viewer()
+  if (!viewer.ok) {
+    io.stderr(`Could not identify you on GitHub: ${viewer.error.message}\n`)
+    return EXIT_CODES.error
+  }
+  const pulls = await reader.searchCommentedPulls(viewer.value.login, sinceText, repo?.ok ? repo.value : undefined)
+  if (!pulls.ok) {
+    io.stderr(`Could not search PRs: ${pulls.error.message}\n`)
+    return EXIT_CODES.error
+  }
+
+  const rows: Array<{ pr: string; title: string } & ReturnType<typeof feedbackStats>> = []
+  for (const p of pulls.value) {
+    const ref = { host, owner: p.owner, repo: p.repo, number: p.number }
+    const published = await reader.listPublished(ref)
+    if (!published.ok) continue
+    const own = ownInlineComments(published.value, viewer.value.id, FPV)
+    const thumbs = new Map<number, string[]>()
+    for (const c of own) {
+      const t = await reader.listThumbsDown(ref, c.id)
+      if (t.ok) thumbs.set(c.id, t.value)
+    }
+    const st = feedbackStats(published.value, viewer.value.id, FPV, p.author, thumbs)
+    if (st.posted + st.summaryOnly > 0) rows.push({ pr: `${p.owner}/${p.repo}#${p.number}`, title: p.title, ...st })
+  }
+  const total = rows.reduce(
+    (t, r) => ({ posted: t.posted + r.posted, resolved: t.resolved + r.resolved, dismissed: t.dismissed + r.dismissed, open: t.open + r.open, summaryOnly: t.summaryOnly + r.summaryOnly }),
+    { posted: 0, resolved: 0, dismissed: 0, open: 0, summaryOnly: 0 },
+  )
+  if (parsed.values.json) {
+    io.stdout(`${JSON.stringify({ since: sinceText, reviewer: viewer.value.login, prs: rows, total }, null, 2)}\n`)
+    return EXIT_CODES.passed
+  }
+  if (rows.length === 0) {
+    io.stdout(`No PRs reviewed with pr-reviewer since ${sinceText}.\n`)
+    return EXIT_CODES.passed
+  }
+  const pct = (n: number) => (total.posted ? ` (${Math.round((100 * n) / total.posted)}%)` : '')
+  const lines = [
+    `Reviews by ${viewer.value.login} since ${sinceText}: ${rows.length} PR(s)`,
+    '',
+    ...rows.map((r) => `  ${r.pr.padEnd(36)} posted ${String(r.posted).padStart(3)}  resolved ${String(r.resolved).padStart(3)}  dismissed ${String(r.dismissed).padStart(3)}  open ${String(r.open).padStart(3)}  summary-only ${r.summaryOnly}`),
+    '',
+    `Inline findings posted: ${total.posted} — resolved ${total.resolved}${pct(total.resolved)}, dismissed ${total.dismissed}${pct(total.dismissed)}, still open ${total.open}${pct(total.open)}.`,
+    `Summary-only findings in latest summaries: ${total.summaryOnly}.`,
+    'Resolved means the code at the comment changed afterwards. Computed from GitHub only; nothing is sent anywhere.',
+  ]
+  io.stdout(`${lines.join('\n')}\n`)
+  return EXIT_CODES.passed
 }
 
 function configCommand(args: string[], io: CliIo, deps: CliDeps): number {

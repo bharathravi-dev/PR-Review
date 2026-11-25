@@ -18,6 +18,7 @@ export * from './pipeline.js'
 export * from './marker.js'
 export * from './sanitize.js'
 export * from './publish.js'
+export * from './feedback.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1

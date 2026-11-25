@@ -1,6 +1,7 @@
 import { runAiReview, type ReviewProvider } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
+import { applyDismissals, ownInlineComments, readDismissals } from './feedback.js'
 import { fetchContext } from './fetch-context.js'
 import type { Finding, LayerId, LayerResult } from './findings.js'
 import type { PrRef } from './pr-ref.js'
@@ -138,9 +139,41 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   }
 
   const normalized = normalize(ctx, [...scan.findings, ...aiFindings])
-  const deduped = await dedupe(ctx, normalized)
+  let deduped = await dedupe(ctx, normalized)
+
+  // Finding feedback (FR-20b, AD-11): only knowable when the Reviewer Identity is known.
+  if (input.reviewerId !== undefined) {
+    const feedback = await readFeedback(ports.github, input.ref, input.reviewerId, ctx.author)
+    if (feedback.ok) deduped = applyDismissals(deduped, feedback.dismissals)
+    else limitations.push(`Finding feedback could not be read: ${feedback.reason}`)
+  }
   const report = await assemble({ input, ports, startedAt, configHash, ctx, layers, findings: deduped, limitations, redactions: scan.values.length, ...(ai ? { ai } : {}) })
   return { report, context: ctx }
+}
+
+async function readFeedback(
+  github: GitHubReader,
+  ref: PrRef,
+  rid: number,
+  prAuthor: string,
+): Promise<{ ok: true; dismissals: ReturnType<typeof readDismissals> } | { ok: false; reason: string }> {
+  const published = await github.listPublished(ref)
+  if (!published.ok) return { ok: false, reason: published.error.message }
+  const own = ownInlineComments(published.value, rid, FPV)
+  const thumbs = new Map<number, string[]>()
+  let next = 0
+  let failure: string | undefined
+  const worker = async () => {
+    while (next < own.length) {
+      const c = own[next++]!
+      const res = await github.listThumbsDown(ref, c.id)
+      if (res.ok) thumbs.set(c.id, res.value)
+      else failure = res.error.message
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(5, own.length) }, worker))
+  if (failure) return { ok: false, reason: failure }
+  return { ok: true, dismissals: readDismissals(published.value, rid, FPV, prAuthor, thumbs) }
 }
 
 function elapsed(ports: EnginePorts, since: number): number {
