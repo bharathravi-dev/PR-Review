@@ -37,6 +37,7 @@ asked to confirm; use `--yes` in scripts.
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: addressed, dismissed, still open, by severity and by source |
 | `fix <pr>` | Have your own Claude Code or Codex fix your open findings in your checkout of the PR |
+| `learnings <owner/repo>` | What reviews learned from feedback on earlier comments, and how to undo it |
 | `mcp` | Run as an MCP server so your coding agent can review a PR and read its open findings; never posts |
 | `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
@@ -114,6 +115,13 @@ recommended route for automatic reviews.
 - **Your team's existing guidance is used**: `REVIEW.md`, `AGENTS.md`, `CLAUDE.md`,
   `.github/copilot-instructions.md`, `.cursor/BUGBOT.md`, `.gemini/styleguide.md`, and `.coderabbit.yaml`
   are read from the base branch, so a PR cannot change how it is reviewed.
+- **It learns from your feedback.** On any pr-reviewer comment, react 👎 or reply `/dismiss <why>` to say
+  it was not useful, or reply `/remember <what to know>` to teach it something about the repository; later
+  reviews of every PR in that repository take it into account. Only feedback from you and from people who
+  can push to the repository counts. Reply `/forget` (or remove the 👎) to undo. `pr-reviewer learnings
+  owner/repo` lists what it has learned. Learnings are read from GitHub on each review (the last 180 days,
+  at most 30). They never remove a finding by themselves or touch tool checks: they only guide the AI, which
+  is told to still raise BLOCKER and CRITICAL problems. `ai.learn: false` turns this off.
 
 **Fixing findings.** In a checkout of the PR at its latest commit (e.g. after `gh pr checkout 123`),
 `pr-reviewer fix 123` hands your open findings (not fixed, not dismissed) to your own Claude Code or Codex.
@@ -238,6 +246,7 @@ validators:
 ai:
   toolResults: true           # false: keep compile, lint, audit, and CI results out of the AI prompt
   verify: false               # true: a second AI call checks each finding and drops what it can't confirm
+  learn: true                 # false: ignore 👎, /dismiss, and /remember feedback from earlier reviews
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20

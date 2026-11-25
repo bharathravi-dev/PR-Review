@@ -66,9 +66,10 @@ export const Settings = z.strictObject({
   /** Local result cache (AD-26). */
   /**
    * How the AI review runs. toolResults: false leaves compile, lint, audit, and CI results out of the prompt;
-   * verify: true adds a second call that checks each AI finding and drops the ones it cannot confirm.
+   * verify: true adds a second call that checks each AI finding and drops the ones it cannot confirm;
+   * learn: false stops using the repository's feedback on earlier comments (👎, /dismiss, /remember).
    */
-  ai: z.strictObject({ toolResults: z.boolean().optional(), verify: z.boolean().optional() }).optional(),
+  ai: z.strictObject({ toolResults: z.boolean().optional(), verify: z.boolean().optional(), learn: z.boolean().optional() }).optional(),
   cache: z.strictObject({ enabled: z.boolean().optional(), maxMB: z.number().int().positive().optional() }).optional(),
   /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */
   reviewRules: z.array(z.string()).optional(),

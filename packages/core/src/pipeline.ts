@@ -8,6 +8,7 @@ import { filterPaths, parseRepoConfig, REPO_CONFIG_PATH, REPO_RULES_DIR, type Re
 import { parseRulesChecklist } from './rules.js'
 import { executeValidators, type AdvisoryPort, type CachePort, type SandboxPort, type SandboxStep, type Validator, type ValidatorContext } from './validator.js'
 import { applyDismissals, ownInlineComments, readDismissals } from './feedback.js'
+import { readLearnings, type Learning } from './learnings.js'
 import { fetchContext } from './fetch-context.js'
 import type { Finding, LayerId, LayerResult } from './findings.js'
 import type { PrRef } from './pr-ref.js'
@@ -56,6 +57,8 @@ export interface ReviewSettings {
   toolResults?: boolean | undefined
   /** true runs a second AI call that checks each AI finding and drops the ones it cannot confirm. */
   verify?: boolean | undefined
+  /** false ignores what the repository's maintainers said about earlier comments (learning from feedback). */
+  learn?: boolean | undefined
 }
 
 export interface ReviewInput {
@@ -85,7 +88,7 @@ export interface ReviewInput {
 
 /** configHash = H(review-affecting settings, defaults omitted) (AD-12). */
 export function computeConfigHash(review: ReviewSettings = {}): Promise<string> {
-  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined, verify: review.verify === true ? true : undefined })
+  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined, verify: review.verify === true ? true : undefined, learn: review.learn === false ? false : undefined })
 }
 
 /** idempotencyKey = H({host, repoId, pr, headSha, configHash, engineMajor, rid}) (AD-11). */
@@ -150,6 +153,15 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   const linked = ports.github.linkedIssues ? await ports.github.linkedIssues(input.ref) : undefined
   if (linked && !linked.ok) limitations.push(`Linked issues could not be read: ${linked.error.message}`)
   const linkedIssues = linked?.ok ? linked.value.slice(0, MAX_LINKED_ISSUES) : []
+  // What the repository's maintainers said about earlier comments; needs the Reviewer Identity to find them.
+  let learnings: Learning[] = []
+  if (input.reviewerId !== undefined && input.review?.learn !== false) {
+    const read = await readLearnings(ports.github, repoRef, input.reviewerId, FPV, ports.now())
+    if (read.ok) {
+      learnings = read.value.learnings
+      limitations.push(...read.value.notes)
+    } else limitations.push(`Feedback from earlier reviews could not be read: ${read.error.message}`)
+  }
   limitations.push(...repoConfig.warnings)
   if (repoConfig.ignored.length) limitations.push(`Repository settings ignored (not allowed in ${REPO_CONFIG_PATH}): ${repoConfig.ignored.join(', ')}.`)
   const repoSettings = repoConfig.settings
@@ -226,6 +238,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       rules: input.review?.rules ?? [],
       repoRules,
       guidance: repoConfig.guidance.map((g) => ({ path: g.path, text: redactText(g.text, scan.values) })),
+      learnings: learnings.map((l) => ({ kind: l.kind, text: redactText(l.text, scan.values) })),
       linkedIssues: linkedIssues.map((i) => ({ number: i.number, repo: i.repo, title: redactText(i.title, scan.values), body: redactText(capText(i.body, MAX_ISSUE_CHARS), scan.values) })),
       toolResults:
         input.review?.toolResults === false
@@ -273,6 +286,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     projects: detected.projects,
     repo: { sha: ctx.baseSha, settings: repoSettings, ignored: repoConfig.ignored, rules: repoRules, guidance: repoConfig.guidance.map((g) => g.path) },
     ...(walkthrough ? { walkthrough } : {}),
+    ...(learnings.length ? { learnings: learnings.map((l) => ({ ...l, text: redactText(l.text, scan.values) })) } : {}),
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
   })
   return { report, context: ctx }
@@ -392,6 +406,7 @@ async function assemble(a: {
   projects?: ProjectInfo[]
   repo?: { sha: string; settings: RepoSettings; ignored: string[]; rules: string[]; guidance: string[] }
   walkthrough?: Walkthrough
+  learnings?: Learning[]
   sandbox?: { planHash: string; imageDigest: string; ran: boolean }
 }): Promise<Report> {
   const { input, ctx } = a
@@ -441,6 +456,7 @@ async function assemble(a: {
     rulesChecklist: [...(input.review?.rules ?? []), ...(a.repo?.rules ?? []).map((r) => `(repository) ${r}`)],
     ...(a.projects ? { projects: a.projects } : {}),
     ...(a.walkthrough ? { walkthrough: a.walkthrough } : {}),
+    ...(a.learnings?.length ? { learnings: a.learnings } : {}),
     ...(a.repo?.guidance.length ? { guidanceFiles: a.repo.guidance } : {}),
     ...(a.sandbox ? { sandbox: a.sandbox } : {}),
     audit: {

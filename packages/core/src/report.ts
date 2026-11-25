@@ -80,6 +80,10 @@ export const Report = z.looseObject({
       issues: z.array(z.object({ number: z.number().int(), repo: z.string(), title: z.string(), status: z.enum(['RESOLVED', 'PARTLY', 'NOT_RESOLVED', 'UNCLEAR']), note: z.string() })).optional(),
     })
     .optional(),
+  /** What the repository's maintainers said about earlier comments, as given to the AI (untrusted text). */
+  learnings: z
+    .array(z.object({ kind: z.enum(['REMEMBER', 'DISMISSED']), text: z.string(), by: z.string(), pr: z.number().int(), url: z.string().optional() }))
+    .optional(),
   /** Repository guidance files the review read at the base commit. */
   guidanceFiles: z.array(z.string()).optional(),
   /** Projects the PR touches, with their detected stack (FR-3). */
@@ -246,6 +250,9 @@ export function renderMarkdown(report: Report): string {
     const d = report.ai.droppedFindings
     if (d.schema + d.grounding > 0) out.push(`_${d.grounding} AI finding(s) dropped for locations outside the Head Commit._`)
     if (d.verification) out.push(`_${d.verification} AI finding(s) dropped by the verification pass._`)
+  }
+  if (report.learnings?.length) {
+    out.push('', `## Learned from this repository's feedback (${report.learnings.length})`, ...report.learnings.map((l) => `- ${l.kind === 'REMEMBER' ? 'Remember' : 'Dismissed'}: ${l.text.replace(/^Dismissed /, '')} (${l.by}, #${l.pr})`))
   }
   if (report.rulesChecklist.length > 0) {
     out.push('', `## Review Rules checked (${report.rulesChecklist.length})`, ...report.rulesChecklist.map((r) => `- ${r}`))

@@ -1,4 +1,4 @@
-import { err, ok, type CheckResult, type ContextLimits, type GitHubReader, type LinkedIssue, type PrContext, type PrRef, type PublishedItems, type PullSummary, type RepoRef, type Result, type TreeEntry } from '@pr-reviewer/core'
+import { err, ok, type CheckResult, type ContextLimits, type GitHubReader, type LinkedIssue, type PrContext, type PrRef, type PublishedItems, type PullSummary, type RepoRef, type RepoReviewComment, type Result, type TreeEntry } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
 interface ApiUser { login: string; id?: number }
@@ -173,6 +173,43 @@ export class GitHubPrReader implements GitHubReader {
       `/repos/${enc(ref.owner)}/${enc(ref.repo)}/pulls/comments/${commentId}/reactions?content=-1&per_page=100`,
     )
     return res.ok ? ok(res.value.items.filter((r) => r.content === '-1').flatMap((r) => (r.user?.login ? [r.user.login] : []))) : res
+  }
+
+  async listRepoReviewComments(repo: RepoRef, opts: { sinceIso: string; max: number }): Promise<Result<{ items: RepoReviewComment[]; complete: boolean }>> {
+    const res = await this.client.paginate<ApiComment & { pull_request_url?: string; reactions?: { '-1'?: number } }>(
+      `/repos/${enc(repo.owner)}/${enc(repo.repo)}/pulls/comments?sort=updated&direction=desc&since=${enc(opts.sinceIso)}&per_page=100`,
+      opts.max,
+    )
+    if (!res.ok) return res
+    const items = res.value.items.flatMap((c) => {
+      const pr = Number(/\/pulls\/(\d+)$/.exec(c.pull_request_url ?? '')?.[1])
+      if (!Number.isInteger(pr)) return []
+      return [
+        {
+          id: c.id,
+          pr,
+          authorId: c.user?.id,
+          ...(c.user?.login ? { authorLogin: c.user.login } : {}),
+          body: c.body ?? '',
+          createdAt: c.created_at,
+          ...(c.html_url ? { url: c.html_url } : {}),
+          ...(c.in_reply_to_id !== undefined ? { inReplyTo: c.in_reply_to_id } : {}),
+          ...(c.path ? { path: c.path } : {}),
+          ...(c.reactions?.['-1'] ? { thumbsDownCount: c.reactions['-1'] } : {}),
+        },
+      ]
+    })
+    return ok({ items, complete: res.value.complete })
+  }
+
+  async canPush(repo: RepoRef, login: string): Promise<Result<boolean>> {
+    const res = await this.client.json<{ permission?: string; user?: { permissions?: { push?: boolean } } }>(
+      `/repos/${enc(repo.owner)}/${enc(repo.repo)}/collaborators/${enc(login)}/permission`,
+    )
+    // Not a collaborator, or this token may not ask: either way their feedback does not count.
+    if (!res.ok) return res.error.code === 'github_no_access' ? ok(false) : res
+    const d = res.value.data
+    return ok(d.user?.permissions?.push ?? ['admin', 'maintain', 'write'].includes(d.permission ?? ''))
   }
 
   async searchCommentedPulls(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, runAiReview, VERIFY_JSON_SCHEMA, type ReviewProvider, type ReviewRequest } from './ai-review.js'
+import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, buildVerifyRequest, runAiReview, VERIFY_JSON_SCHEMA, type ReviewProvider, type ReviewRequest } from './ai-review.js'
 import type { Finding, LayerResult } from './findings.js'
 import { redactContext } from './redact.js'
 import { err, ok } from './result.js'
@@ -312,5 +312,22 @@ describe('linked issues', () => {
     const answer = { summary: 's', files: [], effort: 1, issues: [{ number: 12, status: 'PARTLY', note: 'Restart path still skips the cache.' }, { number: 99, status: 'RESOLVED', note: 'invented' }], findings: [] }
     const out = await runAiReview(redacted(), recordingProvider(answer), { linkedIssues })
     expect(out.walkthrough?.issues).toEqual([{ number: 12, repo: 'octo/app', title: 'Cache misses on restart', status: 'PARTLY', note: 'Restart path still skips the cache.' }])
+  })
+})
+
+describe('review learnings', () => {
+  it('puts what the maintainers said inside the untrusted data, for the review and the verification pass', () => {
+    const learnings = [
+      { kind: 'REMEMBER' as const, text: 'Our http client already retries with jitter.' },
+      { kind: 'DISMISSED' as const, text: 'Dismissed "Unbounded cache" (MINOR performance in src/cache.ts): sized by config.' },
+    ]
+    const req = buildReviewRequest(redacted(), { learnings })
+    const pr = req.prompt.slice(req.prompt.indexOf('<pr_data>'), req.prompt.indexOf('</pr_data>'))
+    expect(pr).toContain('<review_learnings>')
+    expect(pr).toContain('- [remember] Our http client already retries with jitter.')
+    expect(pr).toContain('- [dismissed] Dismissed "Unbounded cache"')
+    expect(req.system).toContain('<review_learnings> is feedback')
+    expect(buildVerifyRequest(req, []).prompt).toContain('- [remember] Our http client already retries with jitter.')
+    expect(buildReviewRequest(redacted()).prompt).not.toContain('<review_learnings>')
   })
 })

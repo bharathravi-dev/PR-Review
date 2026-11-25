@@ -23,6 +23,14 @@ export interface PublishedItem {
   startLine?: number | undefined
 }
 
+/** An inline review comment anywhere in a repository, for learning from feedback. */
+export interface RepoReviewComment extends PublishedItem {
+  /** The PR it was posted on. */
+  pr: number
+  /** GitHub's 👎 count on it (who reacted is read separately, and only when this is above zero). */
+  thumbsDownCount?: number | undefined
+}
+
 export interface PublishedItems {
   reviews: PublishedItem[]
   reviewComments: PublishedItem[]
@@ -94,6 +102,10 @@ export interface GitHubReader {
   listPublished(ref: PrRef): Promise<Result<PublishedItems>>
   /** Logins that reacted 👎 to an inline review comment (Finding feedback, FR-20b). */
   listThumbsDown(ref: PrRef, commentId: number): Promise<Result<string[]>>
+  /** Inline review comments across the repository's PRs updated since a date, newest first, up to `max` (learning). */
+  listRepoReviewComments?(repo: RepoRef, opts: { sinceIso: string; max: number }): Promise<Result<{ items: RepoReviewComment[]; complete: boolean }>>
+  /** Whether a user can push to the repository (write, maintain, or admin); decides whose feedback teaches the reviewer. */
+  canPush?(repo: RepoRef, login: string): Promise<Result<boolean>>
   /** PRs the user commented on, updated since an ISO date, optionally in one repository (FR-25a). */
   searchCommentedPulls(login: string, sinceIso: string, repo?: { owner: string; repo: string }, limit?: number): Promise<Result<Array<{ owner: string; repo: string; number: number; title: string; author: string }>>>
 }
