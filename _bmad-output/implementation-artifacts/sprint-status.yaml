@@ -35,8 +35,8 @@ project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
-  epic-1: backlog
-  1-1-install-and-run-the-cli-skeleton: backlog
+  epic-1: in-progress
+  1-1-install-and-run-the-cli-skeleton: done
   1-2-fetch-a-pr-s-full-context-from-github: backlog
   1-3-user-configuration-and-credentials-without-leaks: backlog
   1-4-secrets-never-reach-the-ai: backlog
