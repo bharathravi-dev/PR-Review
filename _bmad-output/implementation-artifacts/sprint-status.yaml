@@ -44,9 +44,9 @@ development_status:
   1-6-end-to-end-review-with-a-report-and-exit-codes: done
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-publish-a-review-with-inline-comments: backlog
-  2-2-preview-before-posting: backlog
+  epic-2: in-progress
+  2-1-publish-a-review-with-inline-comments: done
+  2-2-preview-before-posting: done
   2-3-re-review-without-duplicates: backlog
   2-4-list-prs-and-see-what-s-been-reviewed: backlog
   2-5-finding-feedback-and-local-stats: backlog

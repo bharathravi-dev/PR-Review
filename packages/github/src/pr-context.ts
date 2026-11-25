@@ -1,7 +1,7 @@
-import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type Result } from '@pr-reviewer/core'
+import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItem, type Result } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
-interface ApiUser { login: string }
+interface ApiUser { login: string; id?: number }
 interface ApiPull {
   title: string
   body: string | null
@@ -32,6 +32,30 @@ const encPath = (p: string) => p.split('/').map(enc).join('/')
 /** Implements the read port with the GitHub REST API. */
 export class GitHubPrReader implements GitHubReader {
   constructor(private readonly client: GitHubClient) {}
+
+  async viewer(): Promise<Result<{ id: number; login: string }>> {
+    const res = await this.client.json<{ id: number; login: string }>('/user')
+    return res.ok ? ok({ id: res.value.data.id, login: res.value.data.login }) : res
+  }
+
+  async getHeadSha(ref: PrRef): Promise<Result<string>> {
+    const res = await this.client.json<ApiPull>(`/repos/${enc(ref.owner)}/${enc(ref.repo)}/pulls/${ref.number}`)
+    return res.ok ? ok(res.value.data.head.sha) : res
+  }
+
+  async listPublished(ref: PrRef): Promise<Result<{ reviews: PublishedItem[]; issueComments: PublishedItem[] }>> {
+    const repoPath = `/repos/${enc(ref.owner)}/${enc(ref.repo)}`
+    const [reviews, comments] = await Promise.all([
+      this.client.paginate<ApiReview>(`${repoPath}/pulls/${ref.number}/reviews?per_page=100`),
+      this.client.paginate<ApiComment>(`${repoPath}/issues/${ref.number}/comments?per_page=100`),
+    ])
+    if (!reviews.ok) return reviews
+    if (!comments.ok) return comments
+    return ok({
+      reviews: reviews.value.items.map((r) => ({ id: r.id, authorId: r.user?.id, body: r.body ?? '', state: r.state })),
+      issueComments: comments.value.items.map((c) => ({ id: c.id, authorId: c.user?.id, body: c.body ?? '', createdAt: c.created_at })),
+    })
+  }
 
   async getPrContext(ref: PrRef, limits: ContextLimits): Promise<Result<PrContext>> {
     const repoPath = `/repos/${enc(ref.owner)}/${enc(ref.repo)}`

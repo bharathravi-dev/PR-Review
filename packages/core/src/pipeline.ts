@@ -66,6 +66,11 @@ export function computeIdempotencyKey(k: {
  * dedupe → gate → assemble. Always returns a Report; failures become Layer Statuses, never exceptions.
  */
 export async function runReview(input: ReviewInput, ports: EnginePorts): Promise<Report> {
+  return (await runReviewWithContext(input, ports)).report
+}
+
+/** Like `runReview`, also returning the PR context the Report was built from (used to plan a publish). */
+export async function runReviewWithContext(input: ReviewInput, ports: EnginePorts): Promise<{ report: Report; context?: PrContext }> {
   const startedAt = ports.now()
   const layers: LayerResult[] = []
   const limitations: string[] = []
@@ -79,7 +84,7 @@ export async function runReview(input: ReviewInput, ports: EnginePorts): Promise
   const ctxRes = await fetchContext(ports.github, input.ref, input.limits ?? DEFAULT_CONTEXT_LIMITS)
   if (!ctxRes.ok) {
     record({ layer: 'CONTEXT', validator: 'github.context', status: 'ERROR', reason: 'TOOL_CRASHED', detail: ctxRes.error.message, durationMs: elapsed(ports, t0) })
-    return assemble({ input, ports, startedAt, configHash, layers, findings: [], limitations, redactions: 0 })
+    return { report: await assemble({ input, ports, startedAt, configHash, layers, findings: [], limitations, redactions: 0 }) }
   }
   const ctx = ctxRes.value
   record({ layer: 'CONTEXT', validator: 'github.context', status: 'PASSED', durationMs: elapsed(ports, t0) })
@@ -134,7 +139,8 @@ export async function runReview(input: ReviewInput, ports: EnginePorts): Promise
 
   const normalized = normalize(ctx, [...scan.findings, ...aiFindings])
   const deduped = await dedupe(ctx, normalized)
-  return assemble({ input, ports, startedAt, configHash, ctx, layers, findings: deduped, limitations, redactions: scan.values.length, ...(ai ? { ai } : {}) })
+  const report = await assemble({ input, ports, startedAt, configHash, ctx, layers, findings: deduped, limitations, redactions: scan.values.length, ...(ai ? { ai } : {}) })
+  return { report, context: ctx }
 }
 
 function elapsed(ports: EnginePorts, since: number): number {

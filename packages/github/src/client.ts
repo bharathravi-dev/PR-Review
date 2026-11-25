@@ -40,6 +40,14 @@ export class GitHubClient {
     return ok({ data: (await res.value.json()) as T, next: nextLink(res.value.headers.get('link')) })
   }
 
+  /** Write request (POST/PATCH/DELETE) with a JSON body; returns the parsed response (undefined for 204). */
+  async send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<Result<T>> {
+    const res = await this.#request(path, 'application/vnd.github+json', { method, body })
+    if (!res.ok) return res
+    if (res.value.status === 204) return ok(undefined as T)
+    return ok((await res.value.json()) as T)
+  }
+
   async raw(pathOrUrl: string): Promise<Result<string>> {
     const res = await this.#request(pathOrUrl, 'application/vnd.github.raw')
     if (!res.ok) return res
@@ -59,7 +67,11 @@ export class GitHubClient {
     return ok({ items: items.slice(0, maxItems), complete: url === undefined && items.length <= maxItems })
   }
 
-  async #request(pathOrUrl: string, accept: string): Promise<Result<globalThis.Response>> {
+  async #request(
+    pathOrUrl: string,
+    accept: string,
+    write?: { method: string; body?: unknown },
+  ): Promise<Result<globalThis.Response>> {
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${this.#apiUrl}${pathOrUrl}`
     const headers: Record<string, string> = {
       accept,
@@ -67,14 +79,22 @@ export class GitHubClient {
       'user-agent': this.#userAgent,
     }
     if (this.#token) headers.authorization = `Bearer ${this.#token}`
+    const init: RequestInit = { headers }
+    if (write) {
+      init.method = write.method
+      if (write.body !== undefined) {
+        headers['content-type'] = 'application/json'
+        init.body = JSON.stringify(write.body)
+      }
+    }
     let res: globalThis.Response
     try {
-      res = await this.#fetch(url, { headers })
+      res = await this.#fetch(url, init)
     } catch (e) {
       return err('github_unreachable', `Could not reach ${new URL(url).host}: ${(e as Error).message}`, true)
     }
     if (res.ok) return ok(res)
-    return describeFailure(res, Boolean(this.#token))
+    return describeFailure(res, Boolean(this.#token), write !== undefined)
   }
 }
 
@@ -87,8 +107,24 @@ function nextLink(link: string | null): string | undefined {
   return undefined
 }
 
-function describeFailure(res: globalThis.Response, hasToken: boolean): Result<never> {
+async function describeFailure(res: globalThis.Response, hasToken: boolean, isWrite: boolean): Promise<Result<never>> {
   const status = res.status
+  if (status === 422) {
+    let detail = ''
+    try {
+      const body = (await res.json()) as { message?: string; errors?: unknown[] }
+      detail = [body.message, ...(body.errors ?? []).map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))].filter(Boolean).join('; ')
+    } catch {
+      // body is not JSON
+    }
+    return err('github_unprocessable', `GitHub rejected the request (422)${detail ? `: ${detail}` : ''}.`)
+  }
+  if (isWrite && (status === 403 || status === 404) && hasToken && res.headers.get('x-ratelimit-remaining') !== '0') {
+    return err(
+      'github_no_write_access',
+      `GitHub returned ${status} when posting: the token can read the PR but not comment on it. Classic tokens need \`repo\` (private) or \`public_repo\`; fine-grained tokens need "Pull requests: write" and "Issues: write"; SSO orgs need the token authorised for the org.`,
+    )
+  }
   if (status === 401) return err('github_unauthorized', 'GitHub rejected the token (expired or invalid). Run `gh auth login` or set a new GITHUB_TOKEN.')
   if ((status === 403 || status === 429) && res.headers.get('x-ratelimit-remaining') === '0') {
     const reset = Number(res.headers.get('x-ratelimit-reset'))

@@ -15,6 +15,9 @@ export * from './redact.js'
 export * from './ai-review.js'
 export * from './report.js'
 export * from './pipeline.js'
+export * from './marker.js'
+export * from './sanitize.js'
+export * from './publish.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1
@@ -30,6 +33,8 @@ export const EXIT_CODES = {
   incomplete: 3,
   error: 4,
   cancelled: 5,
+  /** A requested publish failed, was blocked by a draft, or was skipped for a newer engine. */
+  publishFailed: 6,
   usage: 64,
 } as const
 

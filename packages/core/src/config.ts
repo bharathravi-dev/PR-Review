@@ -23,6 +23,15 @@ export const Settings = z.strictObject({
   defaultProvider: z.string().optional(),
   providers: z.record(z.string(), ProviderSettings).optional(),
   reviewRules: z.array(z.string()).optional(),
+  publish: z
+    .strictObject({
+      /** REQUEST_CHANGES is allowed only in manual runs and only when enabled here (FR-18). */
+      allowRequestChanges: z.boolean().optional(),
+      maxInlineComments: z.number().int().positive().optional(),
+      /** Extra URL prefixes kept as links in published text (AD-9). */
+      linkPrefixes: z.array(z.string()).optional(),
+    })
+    .optional(),
 })
 export type Settings = z.infer<typeof Settings>
 
