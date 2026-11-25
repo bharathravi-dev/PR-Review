@@ -7,6 +7,8 @@ export * from './pr-ref.js'
 export * from './schemas.js'
 export * from './ports.js'
 export * from './fetch-context.js'
+export * from './secret.js'
+export * from './config.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1

@@ -38,7 +38,7 @@ development_status:
   epic-1: in-progress
   1-1-install-and-run-the-cli-skeleton: done
   1-2-fetch-a-pr-s-full-context-from-github: done
-  1-3-user-configuration-and-credentials-without-leaks: backlog
+  1-3-user-configuration-and-credentials-without-leaks: done
   1-4-secrets-never-reach-the-ai: backlog
   1-5-ai-review-that-can-only-answer: backlog
   1-6-end-to-end-review-with-a-report-and-exit-codes: backlog

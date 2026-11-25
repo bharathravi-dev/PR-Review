@@ -13,7 +13,10 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["bin", "dist"],
+  "files": [
+    "bin",
+    "dist"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -24,6 +27,7 @@
     "@pr-reviewer/core": "workspace:*",
     "@pr-reviewer/credentials": "workspace:*",
     "@pr-reviewer/github": "workspace:*",
-    "@pr-reviewer/providers": "workspace:*"
+    "@pr-reviewer/providers": "workspace:*",
+    "yaml": "2.9.1"
   }
 }

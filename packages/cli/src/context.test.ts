@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DefaultCredentialResolver } from '@pr-reviewer/credentials'
 import { main } from './main.js'
 
 const API = 'https://api.github.com'
@@ -27,7 +28,8 @@ function fakeFetch(seen: string[] = []) {
 async function run(argv: string[], env: Record<string, string> = {}, seen: string[] = []) {
   let out = ''
   let err = ''
-  const code = await main(argv, { stdout: (t) => (out += t), stderr: (t) => (err += t) }, { env, fetch: fakeFetch(seen) })
+  const credentials = new DefaultCredentialResolver({ env, keychain: async () => undefined, ghToken: async () => undefined })
+  const code = await main(argv, { stdout: (t) => (out += t), stderr: (t) => (err += t) }, { env: { PR_REVIEWER_CONFIG: '/nonexistent/config.yml', ...env }, fetch: fakeFetch(seen), credentials })
   return { code, out, err }
 }
 
@@ -60,6 +62,17 @@ describe('pr-reviewer context', () => {
     expect(r.code).toBe(4)
     expect(r.err).toContain('Could not load octo/app#9')
     expect(r.err).toContain('No GitHub token was found')
+  })
+
+  it('never prints the token, even when an error message contains it', async () => {
+    const boom = (async () => { throw new Error('socket closed for Bearer sekret-token-123') }) as typeof fetch
+    let out = ''
+    let err = ''
+    const credentials = new DefaultCredentialResolver({ env: { GITHUB_TOKEN: 'sekret-token-123' }, keychain: async () => undefined, ghToken: async () => undefined })
+    const code = await main(['context', 'octo/app#5'], { stdout: (t) => (out += t), stderr: (t) => (err += t) }, { env: { PR_REVIEWER_CONFIG: '/nonexistent/c.yml' }, fetch: boom, credentials })
+    expect(code).toBe(4)
+    expect(err).toContain('[REDACTED]')
+    expect(out + err).not.toContain('sekret-token-123')
   })
 
   it('exits 64 for missing or invalid references and unknown options', async () => {

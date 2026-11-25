@@ -7,6 +7,6 @@ const code = await main(
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
   },
-  { env: process.env, fetch: globalThis.fetch },
+  { env: process.env },
 )
 process.exitCode = code
