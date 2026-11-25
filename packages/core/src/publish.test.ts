@@ -72,6 +72,7 @@ function fakeGitHub(opts: { head?: string; failInlineOnce?: boolean } = {}) {
   let failInline = opts.failInlineOnce ?? false
   const reader: GitHubReader = {
     getPrContext: async () => err('unused', 'unused'),
+    listOpenPulls: async () => ok([]),
     viewer: async () => ok({ id: RID, login: 'me' }),
     getHeadSha: async () => ok(opts.head ?? 'head1'),
     listPublished: async () => ok({ reviews: [...reviews], reviewComments: [], issueComments: [...comments] }),

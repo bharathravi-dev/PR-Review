@@ -1,4 +1,4 @@
-import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItems, type Result } from '@pr-reviewer/core'
+import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItems, type PullSummary, type Result } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
 interface ApiUser { login: string; id?: number }
@@ -32,6 +32,24 @@ const encPath = (p: string) => p.split('/').map(enc).join('/')
 /** Implements the read port with the GitHub REST API. */
 export class GitHubPrReader implements GitHubReader {
   constructor(private readonly client: GitHubClient) {}
+
+  async listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>> {
+    const res = await this.client.paginate<ApiPull & { number: number; updated_at: string }>(
+      `/repos/${enc(repo.owner)}/${enc(repo.repo)}/pulls?state=open&sort=updated&direction=desc&per_page=${Math.min(100, limit)}`,
+      limit,
+    )
+    if (!res.ok) return res
+    return ok(
+      res.value.items.map((p) => ({
+        number: p.number,
+        title: p.title,
+        author: p.user?.login ?? 'ghost',
+        headSha: p.head.sha,
+        draft: p.draft ?? false,
+        updatedAt: p.updated_at,
+      })),
+    )
+  }
 
   async viewer(): Promise<Result<{ id: number; login: string }>> {
     const res = await this.client.json<{ id: number; login: string }>('/user')

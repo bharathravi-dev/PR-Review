@@ -9,9 +9,11 @@ import {
   fetchContext,
   ok,
   hunksFromContext,
+  parseRepoRef,
   planPublish,
   publish,
   readPrior,
+  reviewedState,
   renderMarkdown,
   renderPublish,
   runReviewWithContext,
@@ -63,6 +65,7 @@ Review GitHub pull requests with deterministic checks and the AI provider of you
 
 Commands:
   review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
+  list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   context <pr>       Load a PR's context from GitHub
   config show        Print the resolved configuration and where each value came from
   config path        Print the user config file location
@@ -85,6 +88,10 @@ review options:
 
 Exit codes: 0 PASSED, 1 PASSED_WITH_WARNINGS, 2 FAILED, 3 INCOMPLETE, 4 ERROR, 5 CANCELLED,
 6 post failed or blocked, 64 usage, 78 config.
+
+list options:
+  --limit <n>        How many open PRs to show (default 30)
+  --json             Print the list as JSON (no prompt)
 
 context options:
   --json             Print the full context as JSON
@@ -136,6 +143,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   }
   if (first === 'context') return contextCommand(rest, io, deps, secrets)
   if (first === 'review') return reviewCommand(rest, io, deps, secrets)
+  if (first === 'list') return listCommand(rest, io, deps, secrets)
   if (first === 'config') return configCommand(rest, io, deps)
 
   const kind = first.startsWith('-') ? 'option' : 'command'
@@ -420,6 +428,94 @@ async function buildProvider(
   if (!key.ok) return err('provider_credential_missing', key.error.message)
   secrets.push(key.value)
   return ok(createAnthropicProvider({ apiKey: key.value, model: modelFlag ?? entry.model, baseUrl: entry.baseUrl, fetch: deps.fetch }))
+}
+
+const STATE_LABEL = { CURRENT: 'reviewed', OUTDATED: 'outdated', NONE: '-', UNKNOWN: '?' } as const
+
+async function listCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: true,
+      options: { json: { type: 'boolean' }, limit: { type: 'string' }, host: { type: 'string' }, 'api-url': { type: 'string' }, profile: { type: 'string' } },
+    })
+  } catch (e) {
+    return usageError(io, (e as Error).message)
+  }
+  const [input, ...extra] = parsed.positionals
+  if (!input || extra.length > 0) return usageError(io, 'list needs exactly one repository (owner/repo or URL)')
+  const limit = parsed.values.limit === undefined ? 30 : Number(parsed.values.limit)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 300) return usageError(io, '--limit must be a whole number from 1 to 300')
+
+  const config = resolveConfig(io, deps, parsed.values.profile, { host: parsed.values.host, apiUrl: parsed.values['api-url'] })
+  if (typeof config === 'number') return config
+  const gh = config.settings.github ?? {}
+  const repo = parseRepoRef(input, gh.host ?? 'github.com')
+  if (!repo.ok) return usageError(io, repo.error.message)
+
+  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host: repo.value.host })
+  if (token.ok) secrets.push(token.value)
+  const sameHost = repo.value.host === (gh.host ?? 'github.com')
+  const { reader } = createGitHub({
+    apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(repo.value.host),
+    token: token.ok ? token.value.reveal() : undefined,
+    fetch: deps.fetch,
+    userAgent: `pr-reviewer/${pkg.version}`,
+  })
+
+  const pulls = await reader.listOpenPulls(repo.value, limit)
+  if (!pulls.ok) {
+    io.stderr(`Could not list PRs for ${repo.value.owner}/${repo.value.repo}: ${pulls.error.message}\n`)
+    return EXIT_CODES.error
+  }
+  // Reviewed state needs the Reviewer Identity; without a token the column shows "?".
+  const viewer = token.ok ? await reader.viewer() : undefined
+  const rid = viewer?.ok ? viewer.value.id : undefined
+  const states: Array<keyof typeof STATE_LABEL> = pulls.value.map(() => 'UNKNOWN')
+  if (rid !== undefined) {
+    let nextIndex = 0
+    const worker = async () => {
+      while (nextIndex < pulls.value.length) {
+        const i = nextIndex++
+        const p = pulls.value[i]!
+        const items = await reader.listPublished({ ...repo.value, number: p.number })
+        states[i] = items.ok ? reviewedState(items.value, rid, p.headSha) : 'UNKNOWN'
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(5, pulls.value.length) }, worker))
+  }
+
+  if (parsed.values.json) {
+    io.stdout(`${JSON.stringify(pulls.value.map((p, i) => ({ ...p, reviewed: states[i] })), null, 2)}\n`)
+    return EXIT_CODES.passed
+  }
+  if (pulls.value.length === 0) {
+    io.stdout(`No open PRs in ${repo.value.owner}/${repo.value.repo}.\n`)
+    return EXIT_CODES.passed
+  }
+  const rows = pulls.value.map((p, i) => [
+    `#${p.number}`,
+    STATE_LABEL[states[i]!],
+    p.headSha.slice(0, 7),
+    p.author,
+    `${p.draft ? '[draft] ' : ''}${p.title.replace(/\s+/g, ' ')}`,
+  ])
+  const widths = [0, 1, 2, 3].map((c) => Math.max(...rows.map((r) => r[c]!.length), ['PR', 'REVIEWED', 'HEAD', 'AUTHOR'][c]!.length))
+  const line = (r: string[]) => `${r.slice(0, 4).map((v, c) => v.padEnd(widths[c]!)).join('  ')}  ${r[4]}`
+  io.stdout(`${[line(['PR', 'REVIEWED', 'HEAD', 'AUTHOR', 'TITLE']), ...rows.map(line)].join('\n')}\n`)
+  if (rid === undefined) io.stderr('Reviewed state needs a GitHub token (GITHUB_TOKEN, GH_TOKEN, or gh auth login).\n')
+
+  if (!deps.isTTY) return EXIT_CODES.passed
+  const answer = (await deps.prompt('Review which PR? Enter its number, or press Enter to quit: ')).trim().replace(/^#/, '')
+  if (answer === '') return EXIT_CODES.passed
+  const chosen = pulls.value.find((p) => String(p.number) === answer)
+  if (!chosen) {
+    io.stderr(`#${answer} is not in the list.\n`)
+    return EXIT_CODES.usage
+  }
+  const passthrough = parsed.values.profile ? ['--profile', parsed.values.profile] : []
+  return reviewCommand([`${repo.value.owner}/${repo.value.repo}#${chosen.number}`, ...(repo.value.host !== (gh.host ?? 'github.com') ? ['--host', repo.value.host] : []), ...passthrough], io, deps, secrets)
 }
 
 function configCommand(args: string[], io: CliIo, deps: CliDeps): number {

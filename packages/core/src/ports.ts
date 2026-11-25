@@ -20,8 +20,20 @@ export interface PublishedItems {
   issueComments: PublishedItem[]
 }
 
+/** An open pull request as listed for picking (FR-25). */
+export interface PullSummary {
+  number: number
+  title: string
+  author: string
+  headSha: string
+  draft: boolean
+  updatedAt: string
+}
+
 /** Read side of GitHub (AD-6). The only write path is the engine's publish stage (AD-9). */
 export interface GitHubReader {
+  /** Open PRs of a repository, most recently updated first, up to `limit`. */
+  listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>>
   getPrContext(ref: PrRef, limits: ContextLimits): Promise<Result<PrContext>>
   /** The authenticated user — the Reviewer Identity. */
   viewer(): Promise<Result<{ id: number; login: string }>>

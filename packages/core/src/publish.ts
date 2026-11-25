@@ -41,6 +41,18 @@ export function readPrior(items: PublishedItems, rid: number, fpv: number): Prio
   return { inline, summaryPrefixes: latest?.fps ?? [] }
 }
 
+export type ReviewedState = 'CURRENT' | 'OUTDATED' | 'NONE'
+
+/** Whether the reviewer has an own review marker for the PR's current head (FR-25, AD-11). */
+export function reviewedState(items: PublishedItems, rid: number, headSha: string): ReviewedState {
+  const own = items.reviews.flatMap((r) => {
+    const m = ownMarker(r, rid)
+    return m && m.kind === 'review' ? [m] : []
+  })
+  if (own.some((m) => m.head === headSha)) return 'CURRENT'
+  return own.length > 0 ? 'OUTDATED' : 'NONE'
+}
+
 /** What to publish (AD-23). Pure data; the preview and the post are both rendered from it. */
 export interface PublishPlan {
   event: 'COMMENT' | 'REQUEST_CHANGES'

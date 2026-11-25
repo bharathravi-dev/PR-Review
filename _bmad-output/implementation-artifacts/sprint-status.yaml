@@ -48,7 +48,7 @@ development_status:
   2-1-publish-a-review-with-inline-comments: done
   2-2-preview-before-posting: done
   2-3-re-review-without-duplicates: done
-  2-4-list-prs-and-see-what-s-been-reviewed: backlog
+  2-4-list-prs-and-see-what-s-been-reviewed: done
   2-5-finding-feedback-and-local-stats: backlog
   2-6-optional-commit-status: backlog
   2-7-migrate-from-review-mjs: backlog

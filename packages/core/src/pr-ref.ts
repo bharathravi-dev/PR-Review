@@ -39,3 +39,21 @@ function build(host: string, owner?: string, repo?: string, num?: string): Resul
 
 /** Canonical short form, e.g. "octo/repo#12". */
 export const formatPrRef = (ref: PrRef): string => `${ref.owner}/${ref.repo}#${ref.number}`
+
+export interface RepoRef {
+  host: string
+  owner: string
+  repo: string
+}
+
+/** Parses `owner/repo` (on `defaultHost`) or a repository URL `https://<host>/<owner>/<repo>[/...]`. */
+export function parseRepoRef(input: string, defaultHost: string): Result<RepoRef> {
+  const text = input.trim()
+  const short = /^([^/\s#]+)\/([^/\s#]+)$/.exec(text)
+  const url = /^https?:\/\/(?:[^@/\s]+@)?([^/\s?#]+)\/([^/\s?#]+)\/([^/\s?#]+)/i.exec(text)
+  const [host, owner, repo] = short ? [defaultHost, short[1], short[2]] : url ? [url[1], url[2], url[3]] : []
+  if (!host || !owner || !repo || !NAME.test(owner) || !NAME.test(repo.replace(/\.git$/, ''))) {
+    return err('repo_ref_invalid', `Not a repository: ${input} (expected owner/repo or a repository URL)`)
+  }
+  return ok({ host: host.toLowerCase(), owner, repo: repo.replace(/\.git$/, '') })
+}

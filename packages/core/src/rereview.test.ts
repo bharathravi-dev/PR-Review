@@ -102,6 +102,7 @@ describe('publish never touches human comments', () => {
     const writes: string[] = []
     const reader: GitHubReader = {
       getPrContext: async () => err('x', 'x'),
+      listOpenPulls: async () => ok([]),
       viewer: async () => ok({ id: RID, login: 'me' }),
       getHeadSha: async () => ok('h1'),
       listPublished: async () => ok(published({ issueComments })),
