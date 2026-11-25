@@ -2,6 +2,11 @@
  * Review Engine core. Pure and I/O-free (AD-1): no Node built-ins, no fetch,
  * no process/env access, no runtime code generation. Effects arrive through ports.
  */
+export * from './result.js'
+export * from './pr-ref.js'
+export * from './schemas.js'
+export * from './ports.js'
+export * from './fetch-context.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1
@@ -12,7 +17,7 @@ export const ENGINE_MAJOR = 0
 /** Exit codes shared by every Channel that exits a process (spine Consistency Conventions). */
 export const EXIT_CODES = {
   passed: 0,
-  passedWithWarningsStrict: 1,
+  passedWithWarnings: 1,
   failed: 2,
   incomplete: 3,
   error: 4,

@@ -71,6 +71,17 @@ describe('checkBoundaries', () => {
     expect(checkBoundaries(root)).toEqual([])
   })
 
+  it('flags hardcoded repositories in product code but not in tests (FR-1)', () => {
+    const root = workspace({
+      'packages/cli/src/a.ts': "export const DEFAULT = 'https://github.com/some-org/some-repo'\n",
+      'packages/cli/src/a.test.ts': "const fixture = 'https://github.com/octo/app/pull/1'\n",
+      'packages/github/src/b.ts': "export const api = 'https://api.github.com'\nexport const web = 'github.com'\n",
+    })
+    const v = checkBoundaries(root)
+    expect(v).toHaveLength(1)
+    expect(v[0]).toContain("hardcoded repository 'github.com/some-org/some-repo'")
+  })
+
   it('flags core depending on any internal package', () => {
     const root = workspace({
       'packages/core/src/a.ts': "export { a } from '@pr-reviewer/github'\n",

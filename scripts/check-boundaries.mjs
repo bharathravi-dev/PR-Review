@@ -20,6 +20,9 @@ const CORE_FORBIDDEN_CODE = [
   [/\bnew\s+Function\s*\(/, 'uses new Function (no runtime code generation)'],
 ]
 
+/** A specific owner/repo on a GitHub host baked into product code (FR-1). Host-only defaults are allowed. */
+const REPO_LITERAL = /github\.[a-z.]+\/(?!api\b)[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+/
+
 const IMPORT_RE = /(?:^|[\s;])(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|(?:^|[\s;(])import\s*\(\s*['"]([^'"]+)['"]\s*\)|(?:^|[\s;])import\s*['"]([^'"]+)['"]/gm
 
 function* sourceFiles(dir) {
@@ -66,6 +69,8 @@ export function checkBoundaries(root) {
           violations.push(`${rel}: adapter '${pkg}' imports '${spec}'; adapters may import only @pr-reviewer/core (AD-2)`)
         }
       }
+      const repoLiteral = REPO_LITERAL.exec(code)
+      if (repoLiteral) violations.push(`${rel}: hardcoded repository '${repoLiteral[0]}' (FR-1: everything comes from Configuration)`)
       if (isCore) {
         for (const [re, why] of CORE_FORBIDDEN_CODE) {
           if (re.test(code)) violations.push(`${rel}: core ${why} (AD-1)`)
