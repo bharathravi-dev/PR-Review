@@ -10,6 +10,8 @@ interface ApiPull {
   draft?: boolean
   base: { ref: string; sha: string; repo: { id: number; full_name: string } }
   head: { ref: string; sha: string; repo: { full_name: string } | null }
+  requested_reviewers?: ApiUser[]
+  author_association?: string
 }
 interface ApiFile {
   filename: string
@@ -235,6 +237,8 @@ export class GitHubPrReader implements GitHubReader {
       headSha: pr.head.sha,
       mergeBaseSha,
       ...(headRepo ? { headRepo } : {}),
+      ...(pr.requested_reviewers ? { requestedReviewers: pr.requested_reviewers.map((u) => u.login) } : {}),
+      ...(pr.author_association ? { authorAssociation: pr.author_association } : {}),
       fromFork: headRepo !== undefined && headRepo !== baseRepo,
       files: changed,
       reviews: reviews.value.items.map((r) => ({

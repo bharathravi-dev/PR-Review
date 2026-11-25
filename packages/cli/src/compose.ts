@@ -1,14 +1,22 @@
 // Composition root for the CLI Channel (AD-2, AD-16): the only CLI file that imports adapters.
 import type { AdvisoryPort, CredentialResolver, GitHubReader, GitHubWriter, ReviewProvider, SandboxPort, Secret, SecretScanner, Validator } from '@pr-reviewer/core'
 import { OsvAdvisories } from '@pr-reviewer/advisories'
-import { DefaultCredentialResolver } from '@pr-reviewer/credentials'
-import { GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
+import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
+import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
-import { ContainerSandbox } from '@pr-reviewer/sandbox'
+import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
 import { BUILT_IN_VALIDATORS, installSteps, scanSecrets } from '@pr-reviewer/validators'
 
-export { apiUrlForHost, findClaudeCode, findCodex }
+export { apiUrlForHost, envNamesFor, findClaudeCode, findCodex }
+export type { AutomationClient }
+
+/** Node majors the Sandbox has pinned images for. */
+export const SANDBOX_NODE_MAJORS: readonly number[] = Object.keys(NODE_IMAGES).map(Number)
+
+export function createAutomation(opts: { apiUrl: string; token?: string | undefined; fetch: typeof fetch; userAgent: string }): AutomationClient {
+  return new AutomationClient(new GitHubClient(opts))
+}
 
 export function createCredentialResolver(env: Readonly<Record<string, string | undefined>>): CredentialResolver {
   return new DefaultCredentialResolver({ env })

@@ -9,6 +9,11 @@ const INSTALL_TIMEOUT = 20 * 60_000
 const ANALYZE_TIMEOUT = 10 * 60_000
 /** Where the default ruleset's tools live in the Sandbox (scratch, never the repository). */
 const TOOLS = '/scratch/tools'
+/** Package managers installed through npm in the Sandbox (pinned, AD-21). */
+const YARN = 'yarn@1.22.22'
+/** Printed by the install step when it fell back from a frozen lockfile. */
+const LOCKFILE_RELAXED = 'pr-reviewer: LOCKFILE_RELAXED the lockfile is out of date with package.json; installed without freezing it'
+const PNPM = 'pnpm@9.15.9'
 
 /**
  * Runs a binary from the nearest node_modules/.bin, walking up from the step's directory to the checkout root.
@@ -74,14 +79,21 @@ export function installSteps(ctx: ValidatorContext): SandboxStep[] {
     const dir = project.lockfile ? dirOf(project.lockfile) : project.path
     if (steps.has(dir)) continue
     const lock = project.lockfile?.slice(project.lockfile.lastIndexOf('/') + 1)
+    // Package scripts never run: compile and lint don't need them, and skipping them is safer and avoids native
+    // builds. Yarn and pnpm are installed with npm (which honours the registry proxy), not Corepack (which does not).
+    // A lockfile out of date with package.json fails a strict install; the review then retries once without freezing
+    // it (still registry-only, nothing written back) and says so (LOCKFILE_RELAXED).
+    const relaxed = (strict: string, loose: string) => `${strict} || { echo "${LOCKFILE_RELAXED}" >&2; ${loose}; }`
+    const yarn = '/scratch/pm/node_modules/.bin/yarn install --ignore-scripts --non-interactive --network-timeout 600000'
+    const pnpm = '/scratch/pm/node_modules/.bin/pnpm install --ignore-scripts'
     const cmd =
       project.packageManager === 'pnpm'
-        ? ['corepack', 'pnpm', 'install', '--frozen-lockfile']
+        ? ['sh', '-c', `npm install --prefix /scratch/pm ${PNPM} --no-audit --no-fund --loglevel=error && ${relaxed(`${pnpm} --frozen-lockfile`, `${pnpm} --no-frozen-lockfile`)}`]
         : project.packageManager === 'yarn'
-          ? ['corepack', 'yarn', 'install', '--frozen-lockfile']
+          ? ['sh', '-c', `npm install --prefix /scratch/pm ${YARN} --no-audit --no-fund --loglevel=error && ${relaxed(`${yarn} --frozen-lockfile`, `${yarn} --pure-lockfile`)}`]
           : lock === 'package-lock.json' || lock === 'npm-shrinkwrap.json'
-            ? ['npm', 'ci', '--no-audit', '--no-fund', '--loglevel=error']
-            : ['npm', 'install', '--no-audit', '--no-fund', '--no-package-lock', '--loglevel=error']
+            ? ['sh', '-c', relaxed('npm ci --ignore-scripts --no-audit --no-fund --loglevel=error', 'npm install --ignore-scripts --no-audit --no-fund --no-save --loglevel=error')]
+            : ['npm', 'install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--loglevel=error']
     steps.set(dir, { id: `install:${key(dir)}`, phase: 'INSTALL', cmd, cwd: dir, timeoutMs: INSTALL_TIMEOUT })
   }
   if (sourceProjects(ctx).some(({ project }) => !project.configs.eslint && !project.configs.tslint)) {
@@ -101,6 +113,13 @@ function installFailure(ctx: ValidatorContext, project: ProjectInfo): string | u
   if (r.timedOut) return 'the dependency install timed out'
   if (r.exitCode !== 0) return `the dependency install failed (exit ${r.exitCode}): ${tail(r.stderr || r.stdout)}`
   return undefined
+}
+
+/** A note when the project's install had to relax its out-of-date lockfile. */
+function installNote(ctx: ValidatorContext, project: ProjectInfo): string {
+  const dir = project.lockfile ? dirOf(project.lockfile) : project.path
+  const r = ctx.sandbox.get(`install:${key(dir)}`)
+  return r && r.stderr.includes('LOCKFILE_RELAXED') ? ' The lockfile is out of date with package.json, so dependencies were installed without freezing it; results may differ from a fresh install.' : ''
 }
 
 function tail(text: string, max = 300): string {
@@ -198,7 +217,7 @@ export const tscValidator: Validator = {
       layers.push({
         layer: 'COMPILE',
         status: mine > 0 ? 'FAILED' : 'PASSED',
-        detail: `${label}: ${mine} error(s) in changed files${elsewhere ? `; ${elsewhere} more in unchanged files (pre-existing, not counted)` : ''}.`,
+        detail: `${label}: ${mine} error(s) in changed files${elsewhere ? `; ${elsewhere} more in unchanged files (pre-existing, not counted)` : ''}.${installNote(ctx, project)}`,
       })
     }
     return { layers, findings, tool: 'tsc' }
@@ -383,7 +402,7 @@ export const tslintValidator: Validator = {
           }),
         )
       }
-      layers.push({ layer: 'LINT', status: report.length ? 'WARNING' : 'PASSED', detail: `${label}: ${report.length} problem(s) in changed files, with the repository's own tslint.json.` })
+      layers.push({ layer: 'LINT', status: report.length ? 'WARNING' : 'PASSED', detail: `${label}: ${report.length} problem(s) in changed files, with the repository's own tslint.json.${installNote(ctx, project)}` })
     }
     return { layers, findings, tool: 'tslint' }
   },

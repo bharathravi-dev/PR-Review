@@ -2,9 +2,6 @@
 // no container socket; INSTALL reaches only the registry through an allow-list proxy; ANALYZE has no network.
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { err, ok, type Result, type SandboxPlan, type SandboxPort, type SandboxRunResult, type SandboxStep, type SandboxStepResult } from '@pr-reviewer/core'
 import { PROXY_SCRIPT } from './proxy-script.js'
 
@@ -30,7 +27,7 @@ export interface CommandResult {
 }
 
 /** Runs the container CLI (no shell). Injected in tests. */
-export type CommandRunner = (command: string, args: readonly string[], opts: { timeoutMs: number }) => Promise<CommandResult>
+export type CommandRunner = (command: string, args: readonly string[], opts: { timeoutMs: number; stdin?: Uint8Array | undefined }) => Promise<CommandResult>
 
 export const runCommand: CommandRunner = (command, args, opts) =>
   new Promise((resolve) => {
@@ -39,7 +36,7 @@ export const runCommand: CommandRunner = (command, args, opts) =>
     let timedOut = false
     let child: ReturnType<typeof spawn>
     try {
-      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true })
+      child = spawn(command, args, { stdio: [opts.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], shell: false, windowsHide: true })
     } catch (e) {
       resolve({ code: null, stdout, stderr, timedOut, spawnError: (e as Error).message })
       return
@@ -62,6 +59,10 @@ export const runCommand: CommandRunner = (command, args, opts) =>
       clearTimeout(timer)
       resolve({ code, stdout, stderr, timedOut })
     })
+    if (opts.stdin) {
+      child.stdin!.on('error', () => undefined)
+      child.stdin!.end(opts.stdin)
+    }
   })
 
 export interface ContainerSandboxOptions {
@@ -71,7 +72,6 @@ export interface ContainerSandboxOptions {
   images?: Readonly<Record<number, string>> | undefined
   memory?: string | undefined
   cpus?: string | undefined
-  tmpBase?: string | undefined
 }
 
 export class ContainerSandbox implements SandboxPort {
@@ -114,13 +114,11 @@ export class ContainerSandbox implements SandboxPort {
     const scratch = `${id}-scratch`
     const net = `${id}-net`
     const proxy = `${id}-proxy`
-    const tmp = mkdtempSync(join(this.#o.tmpBase ?? tmpdir(), 'pr-reviewer-sandbox-'))
-    const docker = (args: string[], timeoutMs = 120_000) => this.#run(cli, args, { timeoutMs })
+    // No host directory is mounted anywhere: the source arrives on stdin, so this works with Colima, Podman
+    // machine, and remote engines alike, and nothing from the PR is ever written to the host.
+    const docker = (args: string[], timeoutMs = 120_000, stdin?: Uint8Array) => this.#run(cli, args, { timeoutMs, stdin })
     const cleanup: Array<() => Promise<unknown>> = []
     try {
-      writeFileSync(join(tmp, 'source.tgz'), source.archive)
-      writeFileSync(join(tmp, 'proxy.mjs'), PROXY_SCRIPT)
-
       const present = await docker(['image', 'inspect', image], 30_000)
       if (present.code !== 0) {
         const pulled = await docker(['pull', image], 15 * 60_000)
@@ -135,11 +133,12 @@ export class ContainerSandbox implements SandboxPort {
       // Extract inside a container (never on the host), then hand the tree to the unprivileged user.
       const extract = await docker(
         [
-          'run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER',
-          '--security-opt', 'no-new-privileges', '-v', `${tmp}:/in:ro`, '-v', `${work}:/work`, '-v', `${scratch}:/scratch`, image,
-          'sh', '-c', 'tar -xzf /in/source.tgz -C /work --strip-components=1 --no-same-owner --no-same-permissions && mkdir -p /scratch/home && chown -R 1000:1000 /work /scratch',
+          'run', '--rm', '-i', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER',
+          '--security-opt', 'no-new-privileges', '-v', `${work}:/work`, '-v', `${scratch}:/scratch`, image,
+          'sh', '-c', 'tar -xzf - -C /work --strip-components=1 --no-same-owner --no-same-permissions && mkdir -p /scratch/home && chown -R 1000:1000 /work /scratch',
         ],
         10 * 60_000,
+        source.archive,
       )
       if (extract.code !== 0) return err('sandbox_extract_failed', `Could not unpack the source: ${tail(extract.stderr)}`)
 
@@ -151,7 +150,7 @@ export class ContainerSandbox implements SandboxPort {
         cleanup.push(() => docker(['network', 'rm', net]))
         const started = await docker([
           'run', '-d', '--name', proxy, '--network', 'bridge', '--user', UID, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-          '--read-only', '--memory', '256m', '-v', `${tmp}:/in:ro`, image, 'node', '/in/proxy.mjs', '3128', ...plan.registries,
+          '--read-only', '--memory', '256m', '-e', 'PRR_PORT=3128', '-e', `PRR_ALLOW=${plan.registries.join(',')}`, image, 'node', '--input-type=module', '-e', PROXY_SCRIPT,
         ])
         cleanup.unshift(() => docker(['rm', '-f', proxy]))
         if (started.code !== 0) return err('sandbox_proxy_failed', `Could not start the registry proxy: ${tail(started.stderr)}`)
@@ -170,14 +169,17 @@ export class ContainerSandbox implements SandboxPort {
       return ok({ planHash, headSha: source.headSha, imageDigest, results })
     } finally {
       for (const c of cleanup) await c().catch(() => undefined)
-      rmSync(tmp, { recursive: true, force: true })
     }
   }
 
   async #step(cli: string, image: string, step: SandboxStep, network: string, work: string, scratch: string, name: string): Promise<SandboxStepResult> {
     const viaProxy = network !== 'none'
     const proxyEnv = viaProxy
-      ? ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy', 'npm_config_proxy', 'npm_config_https_proxy'].flatMap((k) => ['-e', `${k}=http://proxy:3128`])
+      ? [
+          ...['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy', 'npm_config_proxy', 'npm_config_https_proxy'].flatMap((k) => ['-e', `${k}=http://proxy:3128`]),
+          // Node 24+: make the built-in fetch honour the proxy too.
+          '-e', 'NODE_USE_ENV_PROXY=1',
+        ]
       : []
     const cwd = step.cwd.replace(/^\/+|\/+$/g, '')
     const args = [

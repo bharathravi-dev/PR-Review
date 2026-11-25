@@ -268,3 +268,28 @@ describe('commitStatusFor', () => {
     expect(commitStatusFor(r('CANCELLED'))).toBeUndefined()
   })
 })
+
+describe('pending reviews (Story 5.3)', () => {
+  it('leaves one private draft with the summary in its body and posts no public comment', async () => {
+    const gh = fakeGitHub()
+    const r = report([finding(1), finding(2, { location: { anchorKind: 'PR' } })])
+    const p = plan(r, { pending: true })
+    const preview = renderPublish(r, p)
+    expect(preview.reviewBody).toContain('### PR Reviewer: PASSED WITH WARNINGS')
+    expect(preview.reviewBody).toContain('left as a pending review for you to edit and submit')
+    expect(preview.reviewBody).toContain('kind=review')
+    const record = await publish(r, p, preview, REF, { reader: gh.reader, writer: gh.writer, now: () => 0 })
+    expect(record).toMatchObject({ status: 'PUBLISHED', pending: true, commentCount: 1 })
+    expect(gh.writes).toEqual(['createReview:undefined:1'])
+    expect(gh.comments).toEqual([])
+  })
+
+  it('never touches an existing draft: GitHub allows one pending review per person', async () => {
+    const gh = fakeGitHub()
+    gh.writer.createReview = async () => err('github_unprocessable', 'GitHub rejected the request (422): User can only have one pending review per pull request')
+    const r = report([finding(1)])
+    const p = plan(r, { pending: true })
+    const record = await publish(r, p, renderPublish(r, p), REF, { reader: gh.reader, writer: gh.writer, now: () => 0 })
+    expect(record.status).toBe('BLOCKED_PENDING_DRAFT')
+  })
+})

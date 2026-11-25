@@ -26,6 +26,7 @@ export * from './files.js'
 export * from './detect.js'
 export * from './repo-config.js'
 export * from './validator.js'
+export * from './auto-review.js'
 export { canonicalJson, hashObject, uuidv7 } from './canonical.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */

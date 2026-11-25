@@ -41,7 +41,7 @@ export class GitHubClient {
   }
 
   /** Write request (POST/PATCH/DELETE) with a JSON body; returns the parsed response (undefined for 204). */
-  async send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<Result<T>> {
+  async send<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<Result<T>> {
     const res = await this.#request(path, 'application/vnd.github+json', { method, body })
     if (!res.ok) return res
     if (res.value.status === 204) return ok(undefined as T)

@@ -10,6 +10,9 @@ import type { PrContext } from './schemas.js'
 
 // ── Sandbox port (AD-7) ──────────────────────────────────────────────────
 
+/** Hosts INSTALL may reach by default: the npm registry and Yarn's mirror of it (Yarn lockfiles point there). */
+export const DEFAULT_REGISTRIES: readonly string[] = ['registry.npmjs.org', 'registry.yarnpkg.com']
+
 /** One command in the Sandbox. INSTALL may reach only the package registries; ANALYZE has no network. */
 export interface SandboxStep {
   /** `<validator id>:<name>`; results are routed back by this id. */
@@ -47,6 +50,26 @@ export interface SandboxRunResult {
   imageDigest: string
   results: SandboxStepResult[]
 }
+
+/** Shape check for Sandbox results crossing a job boundary (Auto-Review, AD-14); size-capped per field. */
+export const SandboxRunResultSchema = z.object({
+  planHash: z.string().max(128),
+  headSha: z.string().max(128),
+  imageDigest: z.string().max(256),
+  results: z
+    .array(
+      z.object({
+        id: z.string().max(500),
+        exitCode: z.number().int().nullable(),
+        stdout: z.string().max(10 * 1024 * 1024),
+        stderr: z.string().max(10 * 1024 * 1024),
+        timedOut: z.boolean(),
+        durationMs: z.number(),
+        skipped: z.string().max(2000).optional(),
+      }),
+    )
+    .max(200),
+})
 
 export interface SandboxPort {
   /** Whether a container runtime is usable, which Node majors have pinned images, and whether install egress can be limited. */
@@ -240,7 +263,7 @@ export async function executeValidators(validators: readonly Validator[], ctx: V
     else {
       const plan: SandboxPlan = {
         nodeMajor: nodeMajor.major!,
-        registries: opts.registries?.length ? [...opts.registries] : ['registry.npmjs.org'],
+        registries: opts.registries?.length ? [...opts.registries] : [...DEFAULT_REGISTRIES],
         steps: [...(opts.installSteps?.(ctx) ?? []), ...needSandbox.flatMap((v) => v.sandboxSteps?.(ctx) ?? [])],
       }
       const planHash = await hashObject({ plan: plan as unknown as Record<string, unknown> })

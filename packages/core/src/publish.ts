@@ -119,6 +119,8 @@ export function planPublish(
   opts: Omit<PublishPlan, 'event' | 'pending' | 'maxInline' | 'allowedLinkPrefixes' | 'prior'> & {
     prior?: PriorPublication | undefined
     event?: PublishPlan['event'] | undefined
+    /** Leave a pending (draft) review instead of a submitted one (Auto-Review, FR-20a). */
+    pending?: boolean | undefined
     maxInline?: number | undefined
     extraLinkPrefixes?: readonly string[] | undefined
   },
@@ -126,7 +128,7 @@ export function planPublish(
   const repoUrl = `https://${report.run.host}/${report.run.repo.fullName}`
   return {
     event: opts.event ?? 'COMMENT',
-    pending: false,
+    pending: opts.pending ?? false,
     maxInline: opts.maxInline ?? DEFAULT_MAX_INLINE,
     include: opts.include,
     hunks: opts.hunks,
@@ -281,7 +283,10 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
   ]
   const fps = summaryOnly.flatMap((f) => (f.fingerprint ? [f.fingerprint.slice(0, 16)] : []))
   const summaryBody = `${summaryLines.join('\n')}\n\n${markerFor(report, plan, 'summary', '-', fps)}`
-  const reviewBody = `PR Reviewer: ${inline.length} inline comment(s) for \`${report.run.headSha?.slice(0, 7) ?? '?'}\`. The summary is in the conversation below.\n\n${markerFor(report, plan, 'review')}`
+  // A pending review is private to its author, so its summary goes in the review body, never in a public comment.
+  const reviewBody = plan.pending
+    ? `${summaryLines.join('\n').replace('published by the reviewer', 'left as a pending review for you to edit and submit')}\n\n${markerFor(report, plan, 'review')}`
+    : `PR Reviewer: ${inline.length} inline comment(s) for \`${report.run.headSha?.slice(0, 7) ?? '?'}\`. The summary is in the conversation below.\n\n${markerFor(report, plan, 'review')}`
   return { event: plan.event, pending: plan.pending, reviewBody, summaryBody, inline, summaryOnly, withheld, stillOpen, resolved }
 }
 
@@ -333,7 +338,6 @@ export async function publish(report: Report, plan: PublishPlan, preview: Publis
   const at = () => new Date(ports.now()).toISOString()
   const record = (status: PublishStatus, extra: Partial<PublishRecord> = {}): PublishRecord => ({ status, pending: plan.pending, commentCount: 0, at: at(), ...extra })
 
-  if (plan.pending) return record('FAILED', { reason: 'Pending reviews are not available in this release.' })
   if (!report.run.headSha || !report.run.idempotencyKey) return record('FAILED', { reason: 'The Report has no head commit or idempotency key; it cannot be published.' })
 
   const head = await ports.reader.getHeadSha(ref)
@@ -360,7 +364,7 @@ export async function publish(report: Report, plan: PublishPlan, preview: Publis
   if (ownReviews.some((r) => r.marker.kind === 'review' && r.marker.key === report.run.idempotencyKey)) {
     status = 'SKIPPED_DUPLICATE'
   } else {
-    const review = { commitId: report.run.headSha, event: plan.event, body: preview.reviewBody }
+    const review = { commitId: report.run.headSha, event: plan.pending ? undefined : plan.event, body: preview.reviewBody }
     let res = await ports.writer.createReview(ref, { ...review, comments: preview.inline.map(({ fingerprint: _f, ...c }) => c) })
     if (!res.ok && res.error.code === 'github_unprocessable' && preview.inline.length > 0) {
       // One bad anchor never fails the whole review (AD-9): retry with every comment moved to the summary.
@@ -372,9 +376,16 @@ export async function publish(report: Report, plan: PublishPlan, preview: Publis
     } else if (res.ok) {
       commentCount = preview.inline.length
     }
-    if (!res.ok) return record('FAILED', { reason: res.error.message })
+    if (!res.ok) {
+      // GitHub allows one pending review per person per PR; never touch the user's own draft (AD-23).
+      if (plan.pending && /pending review/i.test(res.error.message)) {
+        return record('BLOCKED_PENDING_DRAFT', { reason: 'You already have a pending review on this PR; submit or discard it and the next run will add one.' })
+      }
+      return record('FAILED', { reason: res.error.message })
+    }
     reviewUrl = res.value.url
   }
+  if (plan.pending) return record(status, { reviewUrl, commentCount })
 
   // Summary: one live issue comment per (rid, repo, pr), edited in place; extra copies removed (oldest kept).
   const sorted = [...ownSummaries].sort((a, b) => a.item.id - b.item.id)

@@ -21,4 +21,6 @@ export interface CliDeps {
   openUrl: (url: string) => void
   /** Resolves when the user asks a long-running command (`serve`) to stop. */
   untilStopped: () => Promise<void>
+  /** Runs the GitHub CLI (used only to store Actions secrets, which gh encrypts). */
+  runGh: (args: readonly string[], stdin?: string) => Promise<{ code: number | null; stdout: string; stderr: string }>
 }

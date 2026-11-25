@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { AutoReviewSettings } from './auto-review.js'
 import { err, ok, type Result } from './result.js'
 
 /** Named Credential reference; values never live in Configuration (AD-10). */
@@ -59,6 +60,8 @@ export const Settings = z.strictObject({
   advisories: z.strictObject({ enabled: z.boolean().optional(), url: z.string().optional() }).optional(),
   /** Validators to turn off by id (e.g. framework.angular). */
   validators: z.strictObject({ disable: z.array(z.string()).optional() }).optional(),
+  /** Auto-Review settings (AD-14); used by the automation repository's copy of this file. */
+  autoReview: AutoReviewSettings.optional(),
   /** Local result cache (AD-26). */
   cache: z.strictObject({ enabled: z.boolean().optional(), maxMB: z.number().int().positive().optional() }).optional(),
   /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */

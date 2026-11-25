@@ -74,12 +74,12 @@ development_status:
   4-8-dependency-audit-and-result-caching: done
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-enable-auto-review-in-one-command: backlog
-  5-2-watch-scope-and-discovery: backlog
-  5-3-pending-reviews-for-review-requests: backlog
-  5-4-sandbox-job-and-health-reporting: backlog
-  5-5-subscription-opt-in-for-auto-review: backlog
+  epic-5: in-progress
+  5-1-enable-auto-review-in-one-command: review  # tested against a fake GitHub; a live enable needs the branch pushed and the user's go-ahead
+  5-2-watch-scope-and-discovery: done
+  5-3-pending-reviews-for-review-requests: done
+  5-4-sandbox-job-and-health-reporting: review  # workflow generated and tested; not yet run in GitHub Actions
+  5-5-subscription-opt-in-for-auto-review: done
   epic-5-retrospective: optional
 
   epic-6: backlog

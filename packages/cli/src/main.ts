@@ -26,6 +26,7 @@ import { createCredentialResolver } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
 import type { CliDeps, CliIo } from './deps.js'
 import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish } from './engine.js'
+import { autoCommand } from './auto.js'
 import { initCommand } from './init.js'
 import { startServer } from './serve.js'
 import { VERSION } from './version.js'
@@ -45,6 +46,7 @@ Commands:
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
   serve              Open a review page in your browser, served only on this machine
+  auto <command>     Automatic reviews of PRs in your account (pr-reviewer auto help)
   context <pr>       Load a PR's context from GitHub
   config show        Print the resolved configuration and where each value came from
   config path        Print the user config file location
@@ -111,6 +113,7 @@ export async function main(argv: readonly string[], rawIo: CliIo, deps: Partial<
     prompt: deps.prompt ?? (async () => ''),
     openUrl: deps.openUrl ?? openInBrowser,
     untilStopped: deps.untilStopped ?? untilSignal,
+    runGh: deps.runGh ?? runGh,
   }
   // Every byte the CLI prints passes through redaction of resolved Credentials (AD-10, NFR-2).
   const secrets: Secret[] = []
@@ -145,6 +148,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'config') return configCommand(rest, io, deps)
   if (first === 'serve') return serveCommand(rest, io, deps, secrets)
   if (first === 'init') return initCommand(rest, io, deps, secrets, (m) => usageError(io, m))
+  if (first === 'auto') return autoCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
 
   const kind = first.startsWith('-') ? 'option' : 'command'
   return usageError(io, `Unknown ${kind}: ${first}`)
@@ -582,6 +586,21 @@ function openInBrowser(url: string): void {
   } catch {
     // The URL is printed; opening it is a convenience.
   }
+}
+
+/** Runs the GitHub CLI without a shell, writing `stdin` to it. */
+function runGh(args: readonly string[], stdin?: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    let stdout = ''
+    let stderr = ''
+    const child = spawn('gh', args, { stdio: ['pipe', 'pipe', 'pipe'], shell: false })
+    child.stdout.setEncoding('utf8').on('data', (d: string) => (stdout += d))
+    child.stderr.setEncoding('utf8').on('data', (d: string) => (stderr += d))
+    child.on('error', (e) => resolve({ code: null, stdout, stderr: e.message }))
+    child.on('close', (code) => resolve({ code, stdout, stderr }))
+    child.stdin.on('error', () => undefined)
+    child.stdin.end(stdin ?? '')
+  })
 }
 
 function untilSignal(): Promise<void> {

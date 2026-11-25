@@ -30,6 +30,10 @@ export interface ClaudeCodeOptions {
   env: Env
   run?: ProcessRunner | undefined
   tmpBase?: string | undefined
+  /** Channels allowed; Auto-Review only after the user's explicit opt-in (PRD FR-10). Default CLI only. */
+  channels?: readonly Channel[] | undefined
+  /** Extra variables passed through: only the vendor CLI's own token, for the Auto-Review opt-in (AD-8). */
+  passEnv?: readonly string[] | undefined
 }
 
 const checked = new Map<string, Promise<Result<string>>>()
@@ -69,11 +73,12 @@ export class ClaudeCodeProvider implements ReviewProvider {
   readonly id: string
   readonly billing = 'PLAN' as const
   /** Subscription use is a manual-Channel feature; Auto-Review needs its own opt-in (PRD FR-10). */
-  readonly channels: readonly Channel[] = ['CLI']
+  readonly channels: readonly Channel[]
   readonly #o: ClaudeCodeOptions
 
   constructor(opts: ClaudeCodeOptions) {
     this.id = opts.name ?? 'claude-code'
+    this.channels = opts.channels ?? ['CLI']
     this.#o = opts
   }
 
@@ -98,7 +103,7 @@ export class ClaudeCodeProvider implements ReviewProvider {
       ...(o.model ? ['--model', o.model] : []),
     ]
     const res = await withTempDir('pr-reviewer-cc', (cwd) =>
-      run(o.command, args, { cwd, env: minimalEnv(o.env, {}, ['CLAUDE_CONFIG_DIR']), stdin: request.prompt, timeoutMs: o.timeoutMs ?? 900_000 }), o.tmpBase)
+      run(o.command, args, { cwd, env: minimalEnv(o.env, {}, ['CLAUDE_CONFIG_DIR', ...(o.passEnv ?? [])]), stdin: request.prompt, timeoutMs: o.timeoutMs ?? 900_000 }), o.tmpBase)
 
     if (res.spawnError) return err('cli_missing', `Could not start Claude Code: ${res.spawnError.message}. ${API_KEY_HINT}`, true)
     if (res.timedOut) return err('ai_timeout', `Claude Code did not finish within ${Math.round((o.timeoutMs ?? 900_000) / 60_000)} minutes.`, true)

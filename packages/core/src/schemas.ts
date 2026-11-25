@@ -60,6 +60,10 @@ export const PrContext = z.object({
   headSha: z.string(),
   mergeBaseSha: z.string(),
   headRepo: z.string().optional(),
+  /** Logins whose review is requested (pending reviews, FR-20a). */
+  requestedReviewers: z.array(z.string()).optional(),
+  /** GitHub author_association of the PR author. */
+  authorAssociation: z.string().optional(),
   fromFork: z.boolean(),
   files: z.array(ChangedFile),
   reviews: z.array(ReviewSummary),

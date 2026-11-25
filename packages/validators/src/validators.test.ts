@@ -176,7 +176,8 @@ describe('Sandbox tools (Story 4.6)', () => {
 
   it('plans one install per lockfile directory, tsc per TS project, and the default ruleset only without lint config', () => {
     const c = ctx([added('src/a.ts', 'x')], [project()])
-    expect(installSteps(c).map((s) => [s.id, s.cmd.slice(0, 2).join(' ')])).toEqual([['install:.', 'npm ci'], ['install:tools', 'sh -c']])
+    expect(installSteps(c).map((s) => [s.id, s.cmd.slice(0, 2).join(' ')])).toEqual([['install:.', 'sh -c'], ['install:tools', 'sh -c']])
+    expect(installSteps(c)[0]!.cmd[2]).toMatch(/^npm ci --ignore-scripts .* \|\| \{ echo .*LOCKFILE_RELAXED.*; npm install --ignore-scripts .*--no-save/)
     expect(installSteps(c)[1]!.cmd[2]).toContain(DEFAULT_RULESETS.modern.packages.join(' '))
     expect(tscValidator.sandboxSteps!(c)[0]).toMatchObject({ id: 'ts.tsc:.', phase: 'ANALYZE', cwd: '' })
     expect(eslintValidator.sandboxSteps!(c)[0]!.cmd).toEqual(expect.arrayContaining(['-c', '/scratch/tools/eslint.config.mjs', 'src/a.ts']))

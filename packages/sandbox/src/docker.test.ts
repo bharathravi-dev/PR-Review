@@ -54,11 +54,13 @@ describe('ContainerSandbox (Story 4.5)', () => {
     const runs = calls.filter((c) => c[0] === 'run')
     const extract = runs[0]!
     expect(extract[extract.indexOf('--network') + 1]).toBe('none')
-    expect(extract.join(' ')).toContain('tar -xzf /in/source.tgz')
+    expect(extract.join(' ')).toContain('tar -xzf - -C /work')
+    expect(calls.flat().some((a) => a.includes(':/in'))).toBe(false)
 
     expect(calls.some((c) => c.join(' ').startsWith('network create --internal prr-'))).toBe(true)
     const proxy = runs.find((c) => c.includes('-d'))!
-    expect(proxy.slice(-4)).toEqual(['node', '/in/proxy.mjs', '3128', 'registry.npmjs.org'])
+    expect(proxy).toContain('PRR_ALLOW=registry.npmjs.org')
+    expect(proxy.slice(-4, -1)).toEqual(['node', '--input-type=module', '-e'])
 
     const install = runs.find((c) => c.includes('npm'))!
     const analyze = runs.find((c) => c.includes('tsc'))!
@@ -95,7 +97,7 @@ describe('registry proxy', () => {
     const dir = mkdtempSync(join(tmpdir(), 'prr-proxy-'))
     writeFileSync(join(dir, 'proxy.mjs'), PROXY_SCRIPT)
     const port = 20000 + Math.floor(Math.random() * 20000)
-    child = spawn(process.execPath, [join(dir, 'proxy.mjs'), String(port), 'registry.npmjs.org'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    child = spawn(process.execPath, [join(dir, 'proxy.mjs')], { stdio: ['ignore', 'pipe', 'pipe'], env: { PRR_PORT: String(port), PRR_ALLOW: 'registry.npmjs.org' } })
     await new Promise<void>((resolve) => child!.stdout!.on('data', (d: Buffer) => d.toString().includes('ready') && resolve()))
     const connect = (target: string) =>
       new Promise<number>((resolve) => {

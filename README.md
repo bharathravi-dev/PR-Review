@@ -8,7 +8,8 @@ Status: Release 1. Available now: the CLI and a local review page; project and v
 Angular 12+ and React checks; reuse of your CI and SonarQube results; known-vulnerability checks for new
 dependencies; the repository's own `tsc`, ESLint, or TSLint in a container sandbox; secret scanning; AI
 review with your Claude or ChatGPT plan or an API key; posting, re-review without duplicates, Finding
-feedback, and stats. Coming: automatic reviews, a hosted web app, and a browser extension.
+feedback, and stats; and automatic reviews of PRs in your account. Coming: a hosted web app and a browser
+extension.
 
 ## Quick start
 
@@ -35,6 +36,7 @@ asked to confirm; use `--yes` in scripts.
 | `review <pr>` | Review a PR and print the report (`--out <dir>` for files, `--json`, `--post`) |
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: resolved, dismissed, still open |
+| `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
 | `serve` | Open a review page in your browser (`--open`, `--port <n>`); see below |
 | `context <pr>` | Show what the review reads from GitHub |
 | `config show` / `config path` | Your resolved settings and where they came from |
@@ -56,6 +58,31 @@ The link printed in the terminal carries a one-time key, so only you can use the
 Don't share the link; stop the page with Ctrl+C. The page speaks the `ReviewService v1` API
 (`/v1/runs`, `/v1/runs/:id/events`, `/v1/runs/:id/report`, `/v1/runs/:id/publish`), which the browser
 extension will also use.
+
+## Automatic reviews
+
+```bash
+export PR_REVIEWER_REVIEW_TOKEN=<fine-grained token>   # enable explains exactly which permissions
+pr-reviewer auto discover --dry-run                     # see what would be reviewed, changes nothing
+pr-reviewer auto enable
+```
+
+`auto enable` creates a **private** repository in your account (`pr-reviewer-automation`) with two pinned
+GitHub Actions workflows and a settings file, stores the review token and AI key as Actions secrets (via
+`gh`), shows the estimated monthly Actions minutes, and starts a first run. Then, on a schedule chosen to
+stay within 60% of your free minutes:
+
+- PRs where your review is requested get a **pending review** only you can see; you edit and submit it.
+- PRs in repositories you own get a normal review. Drafts, outside contributors, and organisations are
+  off until you turn them on in `.pr-reviewer/config.yml`; a repository can opt out with
+  `automatedReview: false` in its `.github/pr-reviewer.yml`.
+- Each head commit is reviewed once; a new push is picked up by the next run.
+- With `--sandbox`, compile and lint run in a separate job with no secrets and no permissions.
+- Problems (expired token, SSO block, quota) open one issue per cause in the automation repository and
+  close it when fixed. Logs show only statuses and counts, never PR content.
+
+Your Claude subscription can be used only with `--subscription-opt-in` after a warning; an API key is the
+recommended route for automatic reviews.
 
 ## What gets checked
 

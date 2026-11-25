@@ -15,8 +15,10 @@ import {
   type GitHubReader,
   type GitHubWriter,
   type LayerResult,
+  type Channel,
   type PrContext,
   type ProviderCandidate,
+  type SandboxPort,
   type ProviderSettings,
   type PrRef,
   type PublishPlan,
@@ -60,6 +62,8 @@ export interface GitHubConnection {
   viewer?: { id: number; login: string } | undefined
   /** Why the Reviewer Identity could not be read, when a token exists. */
   viewerError?: string | undefined
+  /** The token itself, for the Auto-Review Channel's own GitHub calls (never printed; redacted from output). */
+  token?: string | undefined
 }
 
 /** Opens GitHub for `host` with the user's Credential (AD-10) and, unless told not to, reads the Reviewer Identity. */
@@ -80,7 +84,7 @@ export async function connectGitHub(
     fetch: deps.fetch,
     userAgent: USER_AGENT,
   })
-  const conn: GitHubConnection = { reader, writer, ...(token.ok ? {} : { tokenError: token.error.message }) }
+  const conn: GitHubConnection = { reader, writer, ...(token.ok ? { token: token.value.reveal() } : { tokenError: token.error.message }) }
   if (token.ok && opts.viewer !== false) {
     const viewer = await reader.viewer()
     if (viewer.ok) conn.viewer = { id: viewer.value.id, login: viewer.value.login }
@@ -150,7 +154,18 @@ export async function buildProvider(
     case 'claude-code': {
       const command = entry.command ?? findClaudeCode(deps.env, deps.homedir, deps.platform)
       if (!command) return err('cli_missing', 'Claude Code was not found. Install it (https://claude.com/claude-code) and log in, or set providers.claude-code.command to its path.')
-      return ok(createClaudeCodeProvider({ name, command, model, env: deps.env, timeoutMs: entry.timeoutMs }))
+      // Auto-Review may use the subscription only after the explicit opt-in, with exactly its CI token (AD-8, FR-10).
+      const optIn = config.settings.autoReview?.subscriptionOptIn === true
+      return ok(
+        createClaudeCodeProvider({
+          name,
+          command,
+          model,
+          env: deps.env,
+          timeoutMs: entry.timeoutMs,
+          ...(optIn ? { channels: ['CLI', 'AUTO_REVIEW'] as const, passEnv: ['CLAUDE_CODE_OAUTH_TOKEN'] } : {}),
+        }),
+      )
     }
     case 'codex': {
       const command = entry.command ?? findCodex(deps.env, deps.platform)
@@ -202,11 +217,17 @@ export interface ExecuteReviewOptions {
   beforeRun?: () => void
   onLayer?: (layer: LayerResult) => void
   onEvent?: EventSink
+  /** Default CLI. */
+  channel?: Channel | undefined
+  /** Replaces the container Sandbox (Auto-Review splits it into its own job); null means none. */
+  sandbox?: SandboxPort | null | undefined
+  /** Skip the AI step (Auto-Review `prepare` only plans the Sandbox). */
+  noAi?: boolean | undefined
 }
 
 /** Runs the Review Engine for one PR exactly as the `review` command does. */
 export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: Report; context?: PrContext }> {
-  const chain = await buildProviderChain(o.config, o.provider, o.model, o.deps, o.secrets)
+  const chain = o.noAi ? [] : await buildProviderChain(o.config, o.provider, o.model, o.deps, o.secrets)
   const name = providerName(o.config, o.provider)
   const dir = stateDir(o.deps)
   for (const c of chain) {
@@ -229,7 +250,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
     {
       ref: o.ref,
       engineVersion: VERSION,
-      channel: 'CLI',
+      channel: o.channel ?? 'CLI',
       review: {
         provider: name === 'anthropic' ? undefined : name,
         model: o.model ?? o.config.settings.providers?.[name]?.model,
@@ -252,7 +273,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       ledger: tracked ? fileLedger(dir) : undefined,
       validators,
       installSteps,
-      sandbox: settings.sandbox?.enabled === false ? undefined : createSandbox({ runtime: settings.sandbox?.runtime }),
+      sandbox: o.sandbox !== undefined ? (o.sandbox ?? undefined) : settings.sandbox?.enabled === false ? undefined : createSandbox({ runtime: settings.sandbox?.runtime }),
       advisories: settings.advisories?.enabled === false ? undefined : createAdvisories({ url: settings.advisories?.url, fetch: o.deps.fetch }),
       cache: settings.cache?.enabled === false ? undefined : fileCache(cacheDir(o.deps), settings.cache?.maxMB),
       now: () => Date.now(),
@@ -264,6 +285,8 @@ export interface PublishChoice {
   event: PublishPlan['event']
   include?: readonly string[] | undefined
   unattended: boolean
+  /** Leave a pending (draft) review (Auto-Review on review requests, FR-20a). */
+  pending?: boolean | undefined
 }
 
 /**
@@ -291,6 +314,7 @@ export async function preparePublish(
     unattended: choice.unattended,
     event: choice.event,
     include: choice.include,
+    pending: choice.pending,
     maxInline: minDefined(settings.maxInlineComments, repoMaxInline(report)),
     extraLinkPrefixes: settings.linkPrefixes,
   })

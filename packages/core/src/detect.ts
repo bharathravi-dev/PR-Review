@@ -31,8 +31,9 @@ export const ProjectInfo = z.looseObject({
   typescript: DetectedVersion.optional(),
   packageManager: z.enum(['npm', 'pnpm', 'yarn', 'unknown']),
   lockfile: z.string().optional(),
-  /** Node major requested by .nvmrc, .node-version, or engines.node. */
+  /** Node major requested by .nvmrc, .node-version, or engines.node, else inferred from the Angular version. */
   nodeMajor: z.number().int().optional(),
+  nodeMajorSource: z.enum(['.nvmrc', '.node-version', 'engines', 'framework']).optional(),
   configs: z.object({
     tsconfig: z.string().optional(),
     eslint: z.string().optional(),
@@ -58,6 +59,16 @@ export function minVersion(range: string): string | undefined {
   if (!m) return undefined
   const n = (s: string | undefined) => (s && /^\d+$/.test(s) ? s : '0')
   return `${m[1]}.${n(m[2])}.${n(m[3])}`
+}
+
+/** The Node major an Angular major was built and tested with (used only when the project pins none). */
+function nodeForAngular(major: number | undefined): number | undefined {
+  if (major === undefined || major < 12) return undefined
+  if (major === 12) return 14
+  if (major <= 14) return 16
+  if (major <= 16) return 18
+  if (major <= 18) return 20
+  return 22
 }
 
 export const majorOf = (version: string | undefined) => (version ? Number(version.split('.')[0]) : undefined)
@@ -156,10 +167,13 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
     const eslint = ESLINT_CONFIGS.map((f) => join(dir, f)).find((f) => paths.has(f)) ?? (pkgText?.includes('"eslintConfig"') ? src : undefined)
     const tslint = paths.has(join(dir, 'tslint.json')) ? join(dir, 'tslint.json') : undefined
     const angularJson = paths.has(join(dir, 'angular.json')) ? join(dir, 'angular.json') : undefined
-    const nodeMajor =
-      nodeMajorFrom(paths.has(join(dir, '.nvmrc')) ? await files.read(join(dir, '.nvmrc'), 'HEAD') : undefined) ??
-      nodeMajorFrom(paths.has(join(dir, '.node-version')) ? await files.read(join(dir, '.node-version'), 'HEAD') : undefined) ??
-      nodeMajorFrom(pkg.engines?.node ? minVersion(pkg.engines.node) : undefined)
+    const pinned: Array<[ProjectInfo['nodeMajorSource'], number | undefined]> = [
+      ['.nvmrc', nodeMajorFrom(paths.has(join(dir, '.nvmrc')) ? await files.read(join(dir, '.nvmrc'), 'HEAD') : undefined)],
+      ['.node-version', nodeMajorFrom(paths.has(join(dir, '.node-version')) ? await files.read(join(dir, '.node-version'), 'HEAD') : undefined)],
+      ['engines', nodeMajorFrom(pkg.engines?.node ? minVersion(pkg.engines.node) : undefined)],
+      ['framework', nodeForAngular(majorOf(frameworks.find((f) => f.name === 'Angular')?.version))],
+    ]
+    const [nodeMajorSource, nodeMajor] = pinned.find(([, v]) => v !== undefined) ?? [undefined, undefined]
 
     projects.push({
       path: dir,
@@ -170,7 +184,7 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
       ...(typescript ? { typescript } : {}),
       packageManager: manager,
       ...(lockfile ? { lockfile } : {}),
-      ...(nodeMajor ? { nodeMajor } : {}),
+      ...(nodeMajor ? { nodeMajor, nodeMajorSource } : {}),
       configs: { ...(tsconfig ? { tsconfig } : {}), ...(eslint ? { eslint } : {}), ...(tslint ? { tslint } : {}), ...(angularJson ? { angularJson } : {}) },
       dependencies: Object.keys(deps).sort(),
       changedFiles,
