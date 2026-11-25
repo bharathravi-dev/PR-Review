@@ -1,5 +1,6 @@
 import * as z from 'zod'
-import { Finding, LayerId, LayerResult, LayerStatus, ReasonCode, type Severity } from './findings.js'
+import { ProjectInfo } from './detect.js'
+import { Finding, LayerId, LayerResult, LayerStatus, ReasonCode, Severity } from './findings.js'
 
 export const OverallStatus = z.enum(['PASSED', 'PASSED_WITH_WARNINGS', 'FAILED', 'INCOMPLETE', 'ERROR', 'CANCELLED'])
 export type OverallStatus = z.infer<typeof OverallStatus>
@@ -68,10 +69,16 @@ export const Report = z.looseObject({
     })
     .optional(),
   rulesChecklist: z.array(z.string()),
+  /** Projects the PR touches, with their detected stack (FR-3). */
+  projects: z.array(ProjectInfo).optional(),
+  /** Present when repository tools ran in a Sandbox (AD-7). */
+  sandbox: z.object({ planHash: z.string(), imageDigest: z.string(), ran: z.boolean() }).optional(),
   audit: z.object({
     configSources: z.record(z.string(), z.string()),
     foreignMarkers: z.number().int(),
     redactions: z.number().int(),
+    /** Repository settings applied from the base commit, and keys that were ignored (AD-13). */
+    repoConfig: z.object({ sha: z.string(), settings: z.record(z.string(), z.unknown()), ignored: z.array(z.string()) }).optional(),
   }),
 })
 export type Report = z.infer<typeof Report>
@@ -101,7 +108,7 @@ export interface GateResult {
 export function evaluateGate(
   layers: readonly LayerResult[],
   findings: readonly Finding[],
-  opts: { mandatory?: readonly LayerId[]; cancelled?: boolean } = {},
+  opts: { mandatory?: readonly LayerId[]; cancelled?: boolean; failOn?: Severity } = {},
 ): GateResult {
   const byLayer = new Map<LayerId, LayerResult[]>()
   for (const l of layers) byLayer.set(l.layer, [...(byLayer.get(l.layer) ?? []), l])
@@ -115,7 +122,8 @@ export function evaluateGate(
     notRun.length === 0
       ? `Checks run: ${ran.join(', ') || 'none'}.`
       : `Checks run: ${ran.join(', ') || 'none'}. Not run: ${notRun.join(', ')} — a check that did not run is not a pass.`
-  const coverage = { ran, notRun, headline }
+  const noSandbox = layers.some((l) => l.reason === 'NO_SANDBOX')
+  const coverage = { ran, notRun, headline: noSandbox ? `${headline} Build, compile, and lint were not run: no Sandbox (Docker or Podman).` : headline }
   const failedRules: string[] = []
   const done = (result: OverallStatus): GateResult => ({ result, failedRules, layerSummary, coverage })
 
@@ -128,8 +136,12 @@ export function evaluateGate(
     return done(contextFailed ? 'ERROR' : 'INCOMPLETE')
   }
 
+  // A repository may make the gate stricter (failOn MAJOR or MINOR), never looser (AD-13).
+  const order = Severity.options
+  const failAt = opts.failOn && order.indexOf(opts.failOn) > order.indexOf('CRITICAL') ? order.indexOf(opts.failOn) : order.indexOf('CRITICAL')
+  const blocking = (s: Severity) => BLOCKING.has(s) || order.indexOf(s) <= failAt
   const blockers = findings.filter(
-    (f) => f.sourceFamily !== 'AI' && f.disposition !== 'ADVISORY' && BLOCKING.has(f.severity) && COUNTED_SCOPES.has(f.scope),
+    (f) => f.sourceFamily !== 'AI' && f.disposition !== 'ADVISORY' && !f.dismissed && blocking(f.severity) && COUNTED_SCOPES.has(f.scope),
   )
   if (blockers.length > 0) {
     for (const f of blockers) {
@@ -179,8 +191,20 @@ export function renderMarkdown(report: Report): string {
   out.push(`> ${report.coverage.headline}`, '')
   if (report.gate.failedRules.length > 0) out.push('## Gate', ...report.gate.failedRules.map((r) => `- ${r}`), '')
 
+  if (report.projects?.length) {
+    out.push('## Projects', '')
+    for (const p of report.projects) {
+      const stack = p.support === 'best-effort' ? 'best-effort (unsupported technology)' : [p.language, ...p.frameworks.map((f) => `${f.name} ${f.version ?? f.declared ?? '?'} (${f.confidence.toLowerCase()} confidence)`)].join(', ')
+      out.push(`- \`${p.path || '.'}\`: ${stack}${p.typescript?.version ? `, TypeScript ${p.typescript.version}` : ''} · ${p.changedFiles.length} changed file(s)`)
+    }
+    out.push('')
+  }
   out.push('## Checks', '', '| Layer | Validator | Status | Detail |', '|---|---|---|---|')
-  for (const l of report.layers) out.push(`| ${l.layer} | ${l.validator} | ${l.status}${l.reason ? ` (${l.reason})` : ''} | ${(l.detail ?? '').replace(/\|/g, '\\|')} |`)
+  for (const l of report.layers.filter((x) => x.status !== 'NOT_APPLICABLE')) {
+    out.push(`| ${l.layer} | ${l.validator} | ${l.status}${l.reason ? ` (${l.reason})` : ''} | ${(l.detail ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`)
+  }
+  const na = report.layers.filter((x) => x.status === 'NOT_APPLICABLE')
+  if (na.length) out.push('', `_Not applicable: ${na.map((l) => `${l.validator} (${l.detail ?? l.reason ?? 'n/a'})`).join('; ')}_`)
   out.push('')
 
   out.push(`## Findings (${report.findings.length})`, '')

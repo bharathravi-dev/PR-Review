@@ -1,7 +1,7 @@
 // Local per-user state: usage ledger (FR-12) and one-time notices. Never contains PR content or Credentials.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { UsageEntry, UsageLedger } from '@pr-reviewer/core'
+import type { CachePort, UsageEntry, UsageLedger } from '@pr-reviewer/core'
 import type { CliDeps } from './deps.js'
 
 /** $XDG_STATE_HOME/pr-reviewer, ~/.local/state/pr-reviewer, or %LOCALAPPDATA%\pr-reviewer. */
@@ -81,4 +81,63 @@ export function firstTime(dir: string, id: string): boolean {
     // Not remembering a notice is harmless.
   }
   return true
+}
+
+/** $XDG_CACHE_HOME/pr-reviewer, ~/.cache/pr-reviewer, or %LOCALAPPDATA%\pr-reviewer\cache (AD-26). */
+export function cacheDir(deps: Pick<CliDeps, 'env' | 'homedir' | 'platform'>): string {
+  if (deps.env.PR_REVIEWER_CACHE_DIR) return deps.env.PR_REVIEWER_CACHE_DIR
+  if (deps.platform === 'win32') return join(deps.env.LOCALAPPDATA ?? join(deps.homedir, 'AppData', 'Local'), 'pr-reviewer', 'cache')
+  return join(deps.env.XDG_CACHE_HOME ?? join(deps.homedir, '.cache'), 'pr-reviewer')
+}
+
+/**
+ * File-backed result cache (AD-26): one JSON file per key (keys are already namespaced per user and repository),
+ * oldest entries removed beyond `maxMB`. Values are re-parsed by the engine on read.
+ */
+export function fileCache(dir: string, maxMB = 512): CachePort {
+  const root = join(dir, 'validators')
+  const path = (key: string) => join(root, key.slice(0, 2), `${key}.json`)
+  return {
+    async get(key) {
+      if (!/^[0-9a-f]{64}$/.test(key)) return undefined
+      try {
+        return JSON.parse(readFileSync(path(key), 'utf8')) as unknown
+      } catch {
+        return undefined
+      }
+    },
+    async set(key, value) {
+      if (!/^[0-9a-f]{64}$/.test(key)) return
+      writeJson(path(key), value)
+      prune(root, maxMB * 1_048_576)
+    },
+  }
+}
+
+function prune(root: string, maxBytes: number): void {
+  const files: Array<{ path: string; size: number; mtime: number }> = []
+  for (const sub of safeList(root)) {
+    for (const name of safeList(join(root, sub))) {
+      try {
+        const st = statSync(join(root, sub, name))
+        files.push({ path: join(root, sub, name), size: st.size, mtime: st.mtimeMs })
+      } catch {
+        // removed concurrently
+      }
+    }
+  }
+  let total = files.reduce((n, f) => n + f.size, 0)
+  for (const f of files.sort((a, b) => a.mtime - b.mtime)) {
+    if (total <= maxBytes) break
+    rmSync(f.path, { force: true })
+    total -= f.size
+  }
+}
+
+function safeList(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+  } catch {
+    return []
+  }
 }

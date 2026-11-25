@@ -4,11 +4,11 @@ Review GitHub pull requests before you merge them. `pr-reviewer` reads the PR in
 that can run deterministically, adds an AI review with the provider you choose, and can post the result
 on the PR as precise inline comments plus one summary, without ever approving or merging.
 
-Status: Release 1 in progress. Available now: the CLI and a local review page, with context loading,
-secret scanning, AI review with your Claude or ChatGPT plan or an API key (Anthropic, OpenAI, or any
-compatible endpoint), fallback and cost limits, posting, re-review without duplicates, Finding feedback,
-and stats. Coming: compiler and lint checks in a sandbox, automatic reviews, a hosted web app, and a
-browser extension.
+Status: Release 1. Available now: the CLI and a local review page; project and version detection;
+Angular 12+ and React checks; reuse of your CI and SonarQube results; known-vulnerability checks for new
+dependencies; the repository's own `tsc`, ESLint, or TSLint in a container sandbox; secret scanning; AI
+review with your Claude or ChatGPT plan or an API key; posting, re-review without duplicates, Finding
+feedback, and stats. Coming: automatic reviews, a hosted web app, and a browser extension.
 
 ## Quick start
 
@@ -57,6 +57,48 @@ Don't share the link; stop the page with Ctrl+C. The page speaks the `ReviewServ
 (`/v1/runs`, `/v1/runs/:id/events`, `/v1/runs/:id/report`, `/v1/runs/:id/publish`), which the browser
 extension will also use.
 
+## What gets checked
+
+| Check | Runs | Needs |
+|---|---|---|
+| Projects, languages, framework and TypeScript versions | always | — |
+| Angular 12+ templates and subscriptions; React hooks and list keys (advice matches your version) | when the PR touches such a project | — |
+| Results of your CI for the exact head commit (SonarQube, Jenkins, Actions, …) | when present | — |
+| Known vulnerabilities in packages the PR adds or upgrades ([OSV](https://osv.dev)) | when a lockfile changes | network |
+| Changes to workflows, install scripts, and build or tool config | always | — |
+| Secrets in added lines | always | — |
+| Compile (`tsc`) and lint (your ESLint or TSLint config; a named default ruleset if you have none) | when the PR touches TS/JS | Docker or Podman |
+| AI review | always | an AI provider |
+
+Every check reports PASSED, FAILED, WARNING, SKIPPED, ERROR, TIMEOUT, or NOT_APPLICABLE with a reason,
+and the report says plainly what did not run. Problems in code the PR did not touch are labelled
+pre-existing and never fail the review.
+
+**The sandbox.** Compile and lint run the repository's own tools, so they run only in a throwaway
+container: the source is unpacked inside it, installs can reach only `registry.npmjs.org` (through an
+allow-list proxy), analysis has no network at all, and no token or key is ever passed in. Without Docker
+or Podman those checks are reported as not run.
+
+## Settings a repository can keep
+
+A repository can commit `.github/pr-reviewer.yml` (and rules in `.github/pr-reviewer/rules/*.md`). They
+are read from the PR's base branch, so a PR cannot change its own review:
+
+```yaml
+version: 1
+reviewRules:
+  - Components use OnPush change detection
+paths:
+  exclude: ['**/*.spec.ts', 'docs/**']
+thresholds:
+  failOn: MAJOR               # stricter gate; a repository can never make it looser
+publish:
+  maxInlineComments: 10       # can only lower your own limit
+```
+
+Anything else (AI provider, endpoints, keys, review type, sandbox settings) is ignored and listed in
+the report.
+
 ## Configuration
 
 Optional, in `~/.config/pr-reviewer/config.yml` (or `$XDG_CONFIG_HOME`, `%APPDATA%` on Windows):
@@ -80,6 +122,13 @@ providers:
     baseUrl: https://openrouter.ai/api/v1
     model: <model id>
     credential: provider:openrouter   # key: PR_REVIEWER_OPENROUTER_API_KEY or the OS keychain
+sandbox:
+  enabled: true               # false: never run repository tools
+  registries: [registry.npmjs.org]
+advisories:
+  enabled: true               # url: a private OSV mirror
+validators:
+  disable: []                 # e.g. [framework.angular]
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20

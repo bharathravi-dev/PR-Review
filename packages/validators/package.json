@@ -9,11 +9,14 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@pr-reviewer/core": "workspace:*"
+    "@pr-reviewer/core": "workspace:*",
+    "ts5": "npm:typescript@5.9.3"
   }
 }

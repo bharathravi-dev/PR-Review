@@ -1,4 +1,4 @@
-import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItems, type PullSummary, type Result } from '@pr-reviewer/core'
+import { err, ok, type CheckResult, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItems, type PullSummary, type RepoRef, type Result, type TreeEntry } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
 interface ApiUser { login: string; id?: number }
@@ -49,6 +49,62 @@ export class GitHubPrReader implements GitHubReader {
         updatedAt: p.updated_at,
       })),
     )
+  }
+
+  async readFile(repo: RepoRef, path: string, sha: string): Promise<Result<string | undefined>> {
+    const res = await this.client.raw(`/repos/${enc(repo.owner)}/${enc(repo.repo)}/contents/${encPath(path)}?ref=${enc(sha)}`)
+    if (res.ok) return res
+    // The PR itself was readable, so a 404 here means the file does not exist at this commit.
+    return res.error.code === 'github_no_access' && /returned 404/.test(res.error.message) ? ok(undefined) : res
+  }
+
+  async listTree(repo: RepoRef, sha: string): Promise<Result<{ treeSha: string; entries: TreeEntry[]; truncated: boolean }>> {
+    const res = await this.client.json<{ sha: string; tree: Array<{ path: string; type: TreeEntry['type']; sha: string; size?: number }>; truncated: boolean }>(
+      `/repos/${enc(repo.owner)}/${enc(repo.repo)}/git/trees/${enc(sha)}?recursive=1`,
+    )
+    if (!res.ok) return res
+    return ok({ treeSha: res.value.data.sha, entries: res.value.data.tree.map((t) => ({ path: t.path, type: t.type, sha: t.sha, ...(t.size !== undefined ? { size: t.size } : {}) })), truncated: res.value.data.truncated })
+  }
+
+  async listDirectory(repo: RepoRef, path: string, sha: string): Promise<Result<string[]>> {
+    const res = await this.client.json<Array<{ name: string; type: string }> | { type: string }>(
+      `/repos/${enc(repo.owner)}/${enc(repo.repo)}/contents/${encPath(path.replace(/\/+$/, ''))}?ref=${enc(sha)}`,
+    )
+    if (!res.ok) return res.error.code === 'github_no_access' && /returned 404/.test(res.error.message) ? ok([]) : res
+    return ok(Array.isArray(res.value.data) ? res.value.data.filter((e) => e.type === 'file').map((e) => e.name) : [])
+  }
+
+  async listCheckResults(repo: RepoRef, sha: string): Promise<Result<CheckResult[]>> {
+    const repoPath = `/repos/${enc(repo.owner)}/${enc(repo.repo)}`
+    const [runs, status] = await Promise.all([
+      this.client.json<{ check_runs: Array<{ name: string; status: string; conclusion: string | null; html_url?: string; details_url?: string; output?: { title?: string | null; summary?: string | null }; app?: { slug?: string } | null }> }>(
+        `${repoPath}/commits/${enc(sha)}/check-runs?per_page=100`,
+      ),
+      this.client.json<{ statuses: Array<{ context: string; state: string; description: string | null; target_url: string | null }> }>(`${repoPath}/commits/${enc(sha)}/status?per_page=100`),
+    ])
+    if (!runs.ok) return runs
+    if (!status.ok) return status
+    return ok([
+      ...runs.value.data.check_runs.map((r) => ({
+        kind: 'check_run' as const,
+        name: r.name,
+        conclusion: r.status === 'completed' ? (r.conclusion ?? 'neutral') : 'pending',
+        summary: r.output?.title ?? undefined,
+        url: r.html_url ?? r.details_url,
+        app: r.app?.slug,
+      })),
+      ...status.value.data.statuses.map((st) => ({
+        kind: 'status' as const,
+        name: st.context,
+        conclusion: st.state === 'success' ? 'success' : st.state === 'failure' ? 'failure' : st.state === 'error' ? 'error' : 'pending',
+        summary: st.description ?? undefined,
+        url: st.target_url ?? undefined,
+      })),
+    ])
+  }
+
+  async downloadArchive(repo: RepoRef, sha: string): Promise<Result<Uint8Array>> {
+    return this.client.bytes(`/repos/${enc(repo.owner)}/${enc(repo.repo)}/tarball/${enc(sha)}`, 500 * 1_048_576)
   }
 
   async viewer(): Promise<Result<{ id: number; login: string }>> {

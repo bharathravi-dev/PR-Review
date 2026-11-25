@@ -45,6 +45,22 @@ export const Settings = z.strictObject({
       maxCostPerMonthUsd: z.number().positive().optional(),
     })
     .optional(),
+  /** Container Sandbox for repository tools: compile, lint (AD-7). On when Docker or Podman is available. */
+  sandbox: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      /** "docker" or "podman" (default: whichever responds). */
+      runtime: z.string().optional(),
+      /** Hosts dependency installs may reach (default: registry.npmjs.org). */
+      registries: z.array(z.string().regex(/^[a-z0-9.-]+$/i)).optional(),
+    })
+    .optional(),
+  /** Known-vulnerability lookups for added dependencies (FR-4). */
+  advisories: z.strictObject({ enabled: z.boolean().optional(), url: z.string().optional() }).optional(),
+  /** Validators to turn off by id (e.g. framework.angular). */
+  validators: z.strictObject({ disable: z.array(z.string()).optional() }).optional(),
+  /** Local result cache (AD-26). */
+  cache: z.strictObject({ enabled: z.boolean().optional(), maxMB: z.number().int().positive().optional() }).optional(),
   /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */
   reviewRules: z.array(z.string()).optional(),
   publish: z

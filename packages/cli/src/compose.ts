@@ -1,10 +1,12 @@
 // Composition root for the CLI Channel (AD-2, AD-16): the only CLI file that imports adapters.
-import type { CredentialResolver, GitHubReader, GitHubWriter, ReviewProvider, Secret, SecretScanner } from '@pr-reviewer/core'
+import type { AdvisoryPort, CredentialResolver, GitHubReader, GitHubWriter, ReviewProvider, SandboxPort, Secret, SecretScanner, Validator } from '@pr-reviewer/core'
+import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver } from '@pr-reviewer/credentials'
 import { GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
-import { scanSecrets } from '@pr-reviewer/validators'
+import { ContainerSandbox } from '@pr-reviewer/sandbox'
+import { BUILT_IN_VALIDATORS, installSteps, scanSecrets } from '@pr-reviewer/validators'
 
 export { apiUrlForHost, findClaudeCode, findCodex }
 
@@ -37,3 +39,14 @@ export function createCodexProvider(opts: ConstructorParameters<typeof CodexProv
 }
 
 export const secretScanner: SecretScanner = scanSecrets
+
+export const validators: readonly Validator[] = BUILT_IN_VALIDATORS
+export { installSteps }
+
+export function createSandbox(opts: { runtime?: string | undefined }): SandboxPort {
+  return new ContainerSandbox({ command: opts.runtime })
+}
+
+export function createAdvisories(opts: { url?: string | undefined; fetch: typeof fetch }): AdvisoryPort {
+  return new OsvAdvisories(opts)
+}

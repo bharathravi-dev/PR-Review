@@ -7,6 +7,14 @@ import { planPublish, publish, renderPublish, type PublishPlan } from './publish
 import { Report } from './report.js'
 import { err, ok } from './result.js'
 
+const NO_SOURCE = {
+  readFile: async () => ok(undefined),
+  listTree: async () => ok({ treeSha: 't', entries: [], truncated: false }),
+  listCheckResults: async () => ok([]),
+  listDirectory: async () => ok([]),
+  downloadArchive: async () => err('x', 'no archive'),
+}
+
 const REF: PrRef = { host: 'github.com', owner: 'octo', repo: 'app', number: 7 }
 const RID = 1001
 
@@ -71,6 +79,7 @@ function fakeGitHub(opts: { head?: string; failInlineOnce?: boolean } = {}) {
   let next = 1
   let failInline = opts.failInlineOnce ?? false
   const reader: GitHubReader = {
+    ...NO_SOURCE,
     getPrContext: async () => err('unused', 'unused'),
     listOpenPulls: async () => ok([]),
     listThumbsDown: async () => ok([]),

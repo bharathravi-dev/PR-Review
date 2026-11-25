@@ -32,7 +32,11 @@ import {
 } from '@pr-reviewer/core'
 import {
   apiUrlForHost,
+  createAdvisories,
   createAnthropicProvider,
+  createSandbox,
+  installSteps,
+  validators,
   createClaudeCodeProvider,
   createCodexProvider,
   createGitHub,
@@ -44,7 +48,7 @@ import {
 import { userConfigPath } from './config-file.js'
 import type { CliDeps } from './deps.js'
 import { loadReviewRules } from './rules-loader.js'
-import { fileLedger, firstTime, stateDir } from './state.js'
+import { cacheDir, fileCache, fileLedger, firstTime, stateDir } from './state.js'
 import { ENGINE_MAJOR, USER_AGENT, VERSION } from './version.js'
 
 export interface GitHubConnection {
@@ -215,6 +219,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       )
     }
   }
+  const settings = o.config.settings
   // Usage is recorded locally only when it matters: pricing or limits are configured (FR-12).
   const tracked = o.config.settings.limits !== undefined || chain.some((c) => c.pricing)
   const rules = await loadReviewRules(o.config.settings.reviewRules ?? [], { configPath: userConfigPath(o.deps), homedir: o.deps.homedir, fetch: o.deps.fetch })
@@ -232,6 +237,8 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       },
       reviewerId: o.github.viewer?.id,
       costLimits: o.config.settings.limits,
+      disabledValidators: o.config.settings.validators?.disable,
+      sandboxRegistries: o.config.settings.sandbox?.registries,
       configSources: o.config.sources,
       limitations: rules.warnings,
       runId: o.runId,
@@ -243,6 +250,11 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       scanSecrets: secretScanner,
       providers: chain,
       ledger: tracked ? fileLedger(dir) : undefined,
+      validators,
+      installSteps,
+      sandbox: settings.sandbox?.enabled === false ? undefined : createSandbox({ runtime: settings.sandbox?.runtime }),
+      advisories: settings.advisories?.enabled === false ? undefined : createAdvisories({ url: settings.advisories?.url, fetch: o.deps.fetch }),
+      cache: settings.cache?.enabled === false ? undefined : fileCache(cacheDir(o.deps), settings.cache?.maxMB),
       now: () => Date.now(),
     },
   )
@@ -279,7 +291,7 @@ export async function preparePublish(
     unattended: choice.unattended,
     event: choice.event,
     include: choice.include,
-    maxInline: settings.maxInlineComments,
+    maxInline: minDefined(settings.maxInlineComments, repoMaxInline(report)),
     extraLinkPrefixes: settings.linkPrefixes,
   })
   return ok({ plan, preview: renderPublish(report, plan) })
@@ -329,4 +341,15 @@ export async function listPullsWithState(
     await Promise.all(Array.from({ length: Math.min(5, pulls.value.length) }, worker))
   }
   return ok(pulls.value.map((p, i) => ({ ...p, reviewed: states[i]! })))
+}
+
+/** A repository's comment limit may only lower the user's (AD-13). */
+function repoMaxInline(report: Report): number | undefined {
+  const v = (report.audit.repoConfig?.settings as { publish?: { maxInlineComments?: unknown } } | undefined)?.publish?.maxInlineComments
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined
+}
+
+function minDefined(...values: Array<number | undefined>): number | undefined {
+  const xs = values.filter((v): v is number => v !== undefined)
+  return xs.length ? Math.min(...xs) : undefined
 }

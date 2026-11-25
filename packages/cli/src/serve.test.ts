@@ -177,9 +177,10 @@ describe('local review page (Story 8.1)', () => {
     expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i + 1))
     expect(events.every((e) => e.runId === id && e.schemaVersion === 1)).toBe(true)
     const stages = events.filter((e) => e.type === 'STAGE_STARTED').map((e) => e.payload.stage)
-    expect(stages).toEqual(['fetchContext', 'execute', 'review', 'dedupe', 'gate'])
-    expect(events.filter((e) => e.type === 'LAYER_STATUS').map((e) => [e.payload.layer, e.payload.status])).toEqual([
+    expect(stages).toEqual(['fetchContext', 'detect', 'validate', 'execute', 'review', 'dedupe', 'gate'])
+    expect(events.filter((e) => e.type === 'LAYER_STATUS' && e.payload.status !== 'NOT_APPLICABLE').map((e) => [e.payload.layer, e.payload.status])).toEqual([
       ['CONTEXT', 'PASSED'],
+      ['SECURITY', 'PASSED'],
       ['SECRETS', 'PASSED'],
       ['AI_REVIEW', 'WARNING'],
     ])

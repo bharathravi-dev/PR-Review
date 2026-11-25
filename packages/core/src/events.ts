@@ -5,7 +5,7 @@ export const RunEventType = z.enum(['STAGE_STARTED', 'STAGE_FINISHED', 'LAYER_ST
 export type RunEventType = z.infer<typeof RunEventType>
 
 /** Pipeline stages reported through STAGE_STARTED / STAGE_FINISHED (AD-3). */
-export type RunStage = 'fetchContext' | 'execute' | 'review' | 'dedupe' | 'gate'
+export type RunStage = 'fetchContext' | 'detect' | 'validate' | 'execute' | 'review' | 'dedupe' | 'gate'
 
 /** One progress event of a Review Run; `seq` is monotonic per run (AD-16), `schemaVersion` per AD-22. */
 export const RunEvent = z.looseObject({

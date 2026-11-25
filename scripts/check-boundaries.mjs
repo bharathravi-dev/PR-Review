@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 export const CHANNELS = new Set(['cli', 'action', 'web', 'extension', 'gh-extension'])
 /** Adapters that must run in browsers too (AD-1 isomorphic set, AD-8). */
-export const ISOMORPHIC_ADAPTERS = new Set(['providers-http'])
+export const ISOMORPHIC_ADAPTERS = new Set(['providers-http', 'advisories'])
 const BUILTINS = new Set(builtinModules.flatMap((m) => [m, m.split('/')[0]]))
 
 const CORE_FORBIDDEN_CODE = [

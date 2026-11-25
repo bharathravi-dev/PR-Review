@@ -6,6 +6,14 @@ import { planPublish, publish, readPrior, renderPublish } from './publish.js'
 import { Report } from './report.js'
 import { err, ok } from './result.js'
 
+const NO_SOURCE = {
+  readFile: async () => ok(undefined),
+  listTree: async () => ok({ treeSha: 't', entries: [], truncated: false }),
+  listCheckResults: async () => ok([]),
+  listDirectory: async () => ok([]),
+  downloadArchive: async () => err('x', 'no archive'),
+}
+
 const RID = 77
 const fp = (n: number) => `${String(n).repeat(4)}`.padEnd(64, 'a')
 
@@ -101,6 +109,7 @@ describe('publish never touches human comments', () => {
     const issueComments = [{ id: 5, authorId: RID, body: 'I will look at this tomorrow.' }]
     const writes: string[] = []
     const reader: GitHubReader = {
+    ...NO_SOURCE,
       getPrContext: async () => err('x', 'x'),
       listOpenPulls: async () => ok([]),
     listThumbsDown: async () => ok([]),

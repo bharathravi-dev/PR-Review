@@ -1,5 +1,5 @@
 import type { Secret } from './secret.js'
-import type { PrRef } from './pr-ref.js'
+import type { PrRef, RepoRef } from './pr-ref.js'
 import type { Result } from './result.js'
 import type { ContextLimits, PrContext } from './schemas.js'
 
@@ -35,8 +35,38 @@ export interface PullSummary {
   updatedAt: string
 }
 
+/** One entry of a repository tree at an exact commit. */
+export interface TreeEntry {
+  path: string
+  type: 'blob' | 'tree' | 'commit'
+  /** Git object SHA (blob SHA for files): a content hash used in cache keys (AD-12). */
+  sha: string
+  size?: number | undefined
+}
+
+/** A CI result attached to one exact commit: a check run or a commit status (FR-5). */
+export interface CheckResult {
+  kind: 'check_run' | 'status'
+  name: string
+  /** Normalised: success, failure, neutral, skipped, cancelled, timed_out, action_required, pending, error. */
+  conclusion: string
+  summary?: string | undefined
+  url?: string | undefined
+  app?: string | undefined
+}
+
 /** Read side of GitHub (AD-6). The only write path is the engine's publish stage (AD-9). */
 export interface GitHubReader {
+  /** A file's text at an exact commit; undefined when the file does not exist there. */
+  readFile(repo: RepoRef, path: string, sha: string): Promise<Result<string | undefined>>
+  /** The full file tree at an exact commit; `truncated` when GitHub cut it short. */
+  listTree(repo: RepoRef, sha: string): Promise<Result<{ treeSha: string; entries: TreeEntry[]; truncated: boolean }>>
+  /** File names directly inside a directory at an exact commit (empty when it does not exist). */
+  listDirectory(repo: RepoRef, path: string, sha: string): Promise<Result<string[]>>
+  /** Check runs and commit statuses attached to exactly this commit (FR-5). */
+  listCheckResults(repo: RepoRef, sha: string): Promise<Result<CheckResult[]>>
+  /** The source archive (gzip tar) at an exact commit, for the Sandbox (AD-6). */
+  downloadArchive(repo: RepoRef, sha: string): Promise<Result<Uint8Array>>
   /** Open PRs of a repository, most recently updated first, up to `limit`. */
   listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>>
   getPrContext(ref: PrRef, limits: ContextLimits): Promise<Result<PrContext>>

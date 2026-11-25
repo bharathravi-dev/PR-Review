@@ -1,7 +1,12 @@
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
+import { detectProjects, type ProjectInfo } from './detect.js'
 import { runEventEmitter, type EventSink } from './events.js'
+import { createFileAccessor } from './files.js'
+import { filterPaths, parseRepoConfig, REPO_CONFIG_PATH, REPO_RULES_DIR, type RepoSettings } from './repo-config.js'
+import { parseRulesChecklist } from './rules.js'
+import { executeValidators, type AdvisoryPort, type CachePort, type SandboxPort, type SandboxStep, type Validator, type ValidatorContext } from './validator.js'
 import { applyDismissals, ownInlineComments, readDismissals } from './feedback.js'
 import { fetchContext } from './fetch-context.js'
 import type { Finding, LayerId, LayerResult } from './findings.js'
@@ -25,6 +30,13 @@ export interface EnginePorts {
   providerUnavailableReason?: string | undefined
   /** Local usage record for monthly ceilings and stats (FR-12). */
   ledger?: UsageLedger | undefined
+  /** The Validator registry (AD-5); the secret scan runs separately. */
+  validators?: readonly Validator[] | undefined
+  sandbox?: SandboxPort | undefined
+  advisories?: AdvisoryPort | undefined
+  cache?: CachePort | undefined
+  /** Engine-owned dependency install steps for the Sandbox. */
+  installSteps?: ((ctx: ValidatorContext) => SandboxStep[]) | undefined
   /** Milliseconds since the epoch. */
   now: () => number
 }
@@ -51,6 +63,10 @@ export interface ReviewInput {
   onLayer?: ((layer: LayerResult) => void) | undefined
   /** Spending limits for metered providers (FR-12). */
   costLimits?: CostLimits | undefined
+  /** Validator ids the user turned off. */
+  disabledValidators?: readonly string[] | undefined
+  /** Hosts Sandbox installs may reach (user config only; AD-7). */
+  sandboxRegistries?: readonly string[] | undefined
   /** Run id to use (a remote engine assigns it before the run starts); defaults to a new UUIDv7. */
   runId?: string | undefined
   /** Receives the run's progress events (AD-16). */
@@ -117,7 +133,50 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   emit('STAGE_FINISHED', { stage: 'fetchContext', ok: true, title: ctx.title, headSha: ctx.headSha, files: ctx.files.length })
   limitations.push(...ctx.truncated)
 
-  // detect, plan: technology detection and Validator selection arrive with Epic 4.
+  // Repository settings and rules, read at exactly the base commit: a PR cannot change its own review (AD-13).
+  const repoRef = { host: input.ref.host, owner: input.ref.owner, repo: input.ref.repo }
+  const repoConfig = await readRepoConfig(ports.github, repoRef, ctx.baseSha)
+  limitations.push(...repoConfig.warnings)
+  if (repoConfig.ignored.length) limitations.push(`Repository settings ignored (not allowed in ${REPO_CONFIG_PATH}): ${repoConfig.ignored.join(', ')}.`)
+  const repoSettings = repoConfig.settings
+  if (repoSettings.paths) {
+    const kept = new Set(filterPaths(ctx.files.map((f) => f.path), repoSettings.paths))
+    const dropped = ctx.files.length - kept.size
+    if (dropped > 0) {
+      ctx.files = ctx.files.filter((f) => kept.has(f.path))
+      limitations.push(`${dropped} changed file(s) excluded by the repository's path settings.`)
+    }
+  }
+  const repoRules = [...(repoSettings.reviewRules ?? []), ...repoConfig.rules]
+
+  // detect (FR-3)
+  emit('STAGE_STARTED', { stage: 'detect' })
+  const files = createFileAccessor(ports.github, repoRef, { HEAD: ctx.headSha, BASE: ctx.mergeBaseSha })
+  const detected = await detectProjects(files, ctx.files.map((f) => f.path))
+  limitations.push(...detected.notes)
+  const checks = await ports.github.listCheckResults(repoRef, ctx.headSha)
+  if (!checks.ok) limitations.push(`CI results could not be read: ${checks.error.message}`)
+  emit('STAGE_FINISHED', { stage: 'detect', projects: detected.projects.map((p) => ({ path: p.path || '.', language: p.language, frameworks: p.frameworks.map((f) => `${f.name} ${f.version ?? f.declared ?? '?'}`) })) })
+
+  // plan + execute Validators (AD-5): parallel, time-limited, Sandbox only for repository tools.
+  emit('STAGE_STARTED', { stage: 'validate' })
+  const executed = await executeValidators(
+    ports.validators ?? [],
+    { pr: ctx, files, projects: detected.projects, checks: checks.ok ? checks.value : [], repoSettings, sandbox: new Map() },
+    { advisories: ports.advisories, now: ports.now },
+    {
+      sandbox: ports.sandbox,
+      cache: ports.cache,
+      cacheNamespace: await hashObject({ rid: input.reviewerId ?? null, repoId: ctx.repoId ?? null, repo: `${input.ref.owner}/${input.ref.repo}`.toLowerCase() }),
+      disabled: input.disabledValidators,
+      archive: () => ports.github.downloadArchive(repoRef, ctx.headSha),
+      installSteps: ports.installSteps,
+      registries: input.sandboxRegistries,
+      onLayer: record,
+    },
+  )
+  limitations.push(...executed.notes)
+  emit('STAGE_FINISHED', { stage: 'validate', findings: executed.findings.length, ...(executed.sandbox ? { sandbox: true } : {}) })
 
   // execute (deterministic and file-only Validators)
   emit('STAGE_STARTED', { stage: 'execute' })
@@ -150,6 +209,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     const outcome = await runAiReview(redacted.value, candidates, {
       deterministicFindings: scan.findings,
       rules: input.review?.rules ?? [],
+      repoRules,
       now: ports.now,
       channel: input.channel,
       limits: input.costLimits,
@@ -165,7 +225,8 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   }
 
   emit('STAGE_STARTED', { stage: 'dedupe' })
-  const normalized = normalize(ctx, [...scan.findings, ...aiFindings])
+  const headPaths = new Set(((await files.list('HEAD')) ?? []).map((e) => e.path))
+  const normalized = normalize(ctx, [...scan.findings, ...executed.findings, ...aiFindings], headPaths)
   let deduped = await dedupe(ctx, normalized)
 
   // Finding feedback (FR-20b, AD-11): only knowable when the Reviewer Identity is known.
@@ -176,7 +237,17 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   }
   emit('STAGE_FINISHED', { stage: 'dedupe' })
   emit('FINDING_COUNT', { count: deduped.length, dismissed: deduped.filter((f) => f.dismissed).length })
-  const report = await finish({ ctx, layers, findings: deduped, limitations, redactions: scan.values.length, ...(ai ? { ai } : {}) })
+  const report = await finish({
+    ctx,
+    layers,
+    findings: deduped,
+    limitations,
+    redactions: scan.values.length,
+    ...(ai ? { ai } : {}),
+    projects: detected.projects,
+    repo: { sha: ctx.baseSha, settings: repoSettings, ignored: repoConfig.ignored, rules: repoRules },
+    ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
+  })
   return { report, context: ctx }
 }
 
@@ -210,7 +281,7 @@ function elapsed(ports: EnginePorts, since: number): number {
 }
 
 /** Stage `normalize` (AD-12): core alone assigns scope, sets commitSha, and marks LOW-confidence AI advisory. */
-export function normalize(ctx: PrContext, findings: readonly Finding[]): Finding[] {
+export function normalize(ctx: PrContext, findings: readonly Finding[], headPaths?: ReadonlySet<string>): Finding[] {
   const added = new Map<string, Set<number>>()
   const changed = new Set<string>()
   for (const f of ctx.files) {
@@ -227,9 +298,12 @@ export function normalize(ctx: PrContext, findings: readonly Finding[]): Finding
         const lines = added.get(loc.path) ?? new Set<number>()
         let touched = false
         for (let n = loc.startLine; n <= (loc.endLine ?? loc.startLine); n++) if (lines.has(n)) touched = true
-        // Without a baseline run (Epic 4), a Finding that doesn't touch the change is PRE_EXISTING.
+        // Without a baseline run, a Finding that doesn't touch the change is PRE_EXISTING (AD-12).
         scope = touched ? 'NEW' : 'PRE_EXISTING'
       }
+    } else if (loc.path && headPaths?.has(loc.path)) {
+      // In the Head Commit but not in a changed file: it was there before this PR.
+      scope = 'PRE_EXISTING'
     }
     const disposition = f.sourceFamily === 'AI' && f.confidence === 'LOW' ? 'ADVISORY' : (f.disposition ?? 'GATING')
     return { ...f, scope, disposition, commitSha: ctx.headSha, location: { ...loc, ...(loc.anchorKind === 'LINE' ? { side: 'HEAD' as const } : {}) } }
@@ -288,9 +362,15 @@ async function assemble(a: {
   limitations: string[]
   redactions: number
   ai?: Report['ai']
+  projects?: ProjectInfo[]
+  repo?: { sha: string; settings: RepoSettings; ignored: string[]; rules: string[] }
+  sandbox?: { planHash: string; imageDigest: string; ran: boolean }
 }): Promise<Report> {
   const { input, ctx } = a
-  const gate = evaluateGate(a.layers, a.findings, input.mandatoryLayers ? { mandatory: input.mandatoryLayers } : {})
+  const gate = evaluateGate(a.layers, a.findings, {
+    ...(input.mandatoryLayers ? { mandatory: input.mandatoryLayers } : {}),
+    ...(a.repo?.settings.thresholds?.failOn ? { failOn: a.repo.settings.thresholds.failOn } : {}),
+  })
   const engineMajor = Number(input.engineVersion.split('.')[0]) || 0
   const idempotencyKey =
     ctx && ctx.repoId !== undefined && input.reviewerId !== undefined
@@ -330,7 +410,34 @@ async function assemble(a: {
     limitations: a.limitations,
     gate: { result: gate.result, failedRules: gate.failedRules },
     ...(a.ai ? { ai: a.ai } : {}),
-    rulesChecklist: [...(input.review?.rules ?? [])],
-    audit: { configSources: input.configSources ?? {}, foreignMarkers: 0, redactions: a.redactions },
+    rulesChecklist: [...(input.review?.rules ?? []), ...(a.repo?.rules ?? []).map((r) => `(repository) ${r}`)],
+    ...(a.projects ? { projects: a.projects } : {}),
+    ...(a.sandbox ? { sandbox: a.sandbox } : {}),
+    audit: {
+      configSources: input.configSources ?? {},
+      foreignMarkers: 0,
+      redactions: a.redactions,
+      ...(a.repo ? { repoConfig: { sha: a.repo.sha, settings: a.repo.settings, ignored: a.repo.ignored } } : {}),
+    },
   })
+}
+
+/** Reads `.github/pr-reviewer.yml` and `.github/pr-reviewer/rules/*.md` at exactly `sha` (AD-13). */
+async function readRepoConfig(
+  github: GitHubReader,
+  repo: { host: string; owner: string; repo: string },
+  sha: string,
+): Promise<ReturnType<typeof parseRepoConfig> & { rules: string[] }> {
+  const text = await github.readFile(repo, REPO_CONFIG_PATH, sha)
+  const parsed = text.ok ? parseRepoConfig(text.value) : { settings: {} as RepoSettings, ignored: [], warnings: [`${REPO_CONFIG_PATH} could not be read: ${text.error.message}`] }
+  const rules: string[] = []
+  const names = await github.listDirectory(repo, REPO_RULES_DIR, sha)
+  if (names.ok) {
+    for (const name of names.value.filter((n) => n.endsWith('.md')).slice(0, 20)) {
+      const body = await github.readFile(repo, `${REPO_RULES_DIR}${name}`, sha)
+      if (body.ok && body.value) rules.push(...parseRulesChecklist(body.value))
+      else parsed.warnings.push(`Repository rules file ${REPO_RULES_DIR}${name} could not be read.`)
+    }
+  } else parsed.warnings.push(`Repository rules could not be listed: ${names.error.message}`)
+  return { ...parsed, rules: rules.slice(0, 200) }
 }

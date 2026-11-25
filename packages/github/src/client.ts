@@ -54,6 +54,17 @@ export class GitHubClient {
     return ok(await res.value.text())
   }
 
+  /** Binary download (e.g. a source archive); follows redirects. Size-capped. */
+  async bytes(pathOrUrl: string, maxBytes: number): Promise<Result<Uint8Array>> {
+    const res = await this.#request(pathOrUrl, 'application/vnd.github+json')
+    if (!res.ok) return res
+    const declared = Number(res.value.headers.get('content-length') ?? 0)
+    if (declared > maxBytes) return err('github_too_large', `The download is larger than ${Math.round(maxBytes / 1_048_576)} MB.`)
+    const buf = new Uint8Array(await res.value.arrayBuffer())
+    if (buf.length > maxBytes) return err('github_too_large', `The download is larger than ${Math.round(maxBytes / 1_048_576)} MB.`)
+    return ok(buf)
+  }
+
   /** Follows `Link: rel="next"` until exhausted or `maxItems` collected. */
   async paginate<T>(path: string, maxItems = Number.POSITIVE_INFINITY): Promise<Result<{ items: T[]; complete: boolean }>> {
     const items: T[] = []

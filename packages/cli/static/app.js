@@ -140,7 +140,9 @@ async function listPulls(repo) {
 
 const STAGES = [
   ['fetchContext', 'Load the PR from GitHub'],
-  ['execute', 'Run checks (secret scan)'],
+  ['detect', 'Detect projects and versions'],
+  ['validate', 'Run checks (framework, dependencies, CI results, compile and lint)'],
+  ['execute', 'Scan for secrets'],
   ['review', 'AI review'],
   ['dedupe', 'Combine findings'],
   ['gate', 'Decide the result'],
@@ -175,6 +177,8 @@ function onEvent(e) {
   } else if (e.type === 'STAGE_FINISHED') {
     let detail
     if (p.stage === 'fetchContext' && p.ok) detail = `${p.files} file(s) · head ${String(p.headSha).slice(0, 7)}`
+    if (p.stage === 'detect' && Array.isArray(p.projects)) detail = p.projects.map((x) => `${x.path}: ${[x.language, ...x.frameworks].join(', ')}`).join(' · ')
+    if (p.stage === 'validate') detail = `${p.findings} finding(s)${p.sandbox ? ' · ran in Sandbox' : ''}`
     setStep(p.stage, p.ok === false ? 'failed' : 'done', detail)
   } else if (e.type === 'LAYER_STATUS') {
     if (p.layer === 'AI_REVIEW' && p.status === 'SKIPPED') setStep('review', 'failed', `skipped: ${p.detail ?? p.reason ?? ''}`)
@@ -298,6 +302,15 @@ function renderReport() {
       h('span', { class: `badge status-big ${STATUS_TONE[r.overallStatus] ?? ''}` }, words(r.overallStatus)),
     ),
     h('p', { class: 'coverage' }, r.coverage.headline),
+    r.projects?.length
+      ? h(
+          'ul',
+          { class: 'list-plain muted' },
+          r.projects.map((p) =>
+            h('li', {}, h('span', { class: 'mono' }, p.path || '.'), ': ', p.support === 'best-effort' ? 'best-effort (unsupported technology)' : [p.language, ...p.frameworks.map((f) => `${f.name} ${f.version ?? f.declared ?? '?'}`), p.typescript?.version ? `TypeScript ${p.typescript.version}` : ''].filter(Boolean).join(', ')),
+          ),
+        )
+      : '',
     r.gate.failedRules.length ? h('div', { class: 'gate' }, h('strong', {}, 'Why it failed'), h('ul', {}, r.gate.failedRules.map((x) => h('li', {}, x)))) : '',
     h(
       'div',
@@ -324,7 +337,7 @@ function renderReport() {
         h(
           'tbody',
           {},
-          r.layers.map((l) =>
+          r.layers.filter((l) => l.status !== 'NOT_APPLICABLE').map((l) =>
             h('tr', {}, h('td', {}, words(l.layer), h('div', { class: 'muted mono' }, l.validator)), h('td', {}, h('span', { class: `badge ${LAYER_TONE[l.status] ?? ''}` }, words(l.status))), h('td', {}, [l.reason ? words(l.reason) : '', l.detail ?? ''].filter(Boolean).join(': '))),
           ),
         ),
