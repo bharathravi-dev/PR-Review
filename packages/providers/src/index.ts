@@ -1,5 +1,2 @@
-import { SCHEMA_VERSION } from '@pr-reviewer/core'
-
-/** Driven adapter placeholder for the `providers` port; implemented in later stories. */
-export const ADAPTER_ID = 'providers'
-export const SUPPORTED_SCHEMA_VERSION = SCHEMA_VERSION
+export { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './anthropic.js'
+export type { AnthropicProviderOptions } from './anthropic.js'

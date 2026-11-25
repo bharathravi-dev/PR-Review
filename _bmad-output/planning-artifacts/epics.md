@@ -322,8 +322,8 @@ So that the author sees each issue exactly where it is.
 
 **Given** a Report with Findings on changed and unchanged lines
 **When** the user runs `pr-reviewer review <ref> --post --yes`
-**Then** one review is created via the engine's `publish` call only (AD-9), with inline comments on valid diff lines carrying severity, category, description, impact, evidence, recommendation, source, and confidence, and other Findings in the summary (FR17)
-**And** every comment and the summary end with the hidden marker `<!-- pr-reviewer v1 key=… fp=… -->` (AD-11), and the summary discloses that PR Reviewer generated it and names the provider and model
+**Then** one review is created via the engine's `publish` call only (AD-9), with inline comments only on right-side lines inside diff hunks (other lines of changed files become file-level comments) carrying severity, category, description, impact, evidence, recommendation, source, and confidence, and other Findings in the summary (FR17)
+**And** text is sanitised before every comment and the summary get the hidden marker appended, ending with `<!-- pr-reviewer v1 key=… fp=… -->` (AD-11), and the summary discloses that PR Reviewer generated it and names the provider and model
 
 **Given** AI text containing `@mentions`, external links, or HTML
 **When** it is published
@@ -462,7 +462,7 @@ So that I don't need a separate API key.
 
 **Given** Claude Code installed and logged in
 **When** the `claude-code` provider runs
-**Then** it spawns `claude -p --bare --tools "" --strict-mcp-config --output-format json --json-schema <schema> --model <m>` in a fresh empty temp directory outside any git repo, with an environment stripped of GitHub and other Credentials, the request on stdin (FR10, AD-8)
+**Then** it spawns `claude -p --safe-mode --tools "" --disallowedTools "mcp__*" --strict-mcp-config --no-session-persistence --output-format json --json-schema <draft-07 schema> --model <m>` in a fresh empty temp directory outside any git repo, with an environment stripped of GitHub and other Credentials, the request on stdin (FR10, AD-8)
 **And** a test placing `CLAUDE.md`, `AGENTS.md`, and `.claude/settings.json` with hooks in the reviewed PR shows no effect on the call (the PR content is only passed as text)
 
 **Given** Claude Code missing, logged out, or a version lacking the required flags
@@ -480,7 +480,7 @@ So that I can use the plan I already pay for.
 
 **Given** Codex installed and logged in
 **When** the `codex` provider runs
-**Then** it spawns `codex exec --json --output-schema <file> -s read-only --disable shell_tool --skip-git-repo-check --ephemeral --ignore-rules -m <m>` in a fresh empty temp directory with a Credential-free environment (keeping Codex's own login store), and parses the final message as Findings (FR10, AD-8)
+**Then** it spawns `codex exec --json --output-schema <file> --ignore-user-config --ignore-rules -s read-only --ephemeral --skip-git-repo-check -c web_search="disabled" --disable shell_tool --disable view_image --disable multi_agent --disable apps --disable unified_exec -m <m>` in a fresh empty temp directory with a Credential-free environment and a dedicated `CODEX_HOME` holding only Codex's login (spike; if infeasible, document a global AGENTS.md as accepted residual risk), and parses the final message as Findings (FR10, AD-8)
 **And** missing/logged-out/old-version cases behave as in Story 3.3
 
 ### Story 3.5: Usage, cost, and ceilings

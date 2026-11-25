@@ -12,6 +12,9 @@ export * from './config.js'
 export * from './findings.js'
 export * from './diff.js'
 export * from './redact.js'
+export * from './ai-review.js'
+export * from './report.js'
+export * from './pipeline.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1

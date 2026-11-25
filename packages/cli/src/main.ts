@@ -1,19 +1,30 @@
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   DEFAULT_CONTEXT_LIMITS,
   EXIT_CODES,
+  err,
   fetchContext,
+  ok,
+  renderReportMarkdown,
+  runReview,
   formatPrRef,
   parsePrRef,
   redactText,
   resolveSettings,
   type CredentialResolver,
+  type OverallStatus,
   type PrContext,
   type ResolvedConfig,
+  type Result,
+  type ReviewProvider,
   type Secret,
 } from '@pr-reviewer/core'
+import { AnthropicProvider } from '@pr-reviewer/providers'
+import { scanSecrets } from '@pr-reviewer/validators'
 import { DefaultCredentialResolver } from '@pr-reviewer/credentials'
 import { GitHubClient, GitHubPrReader, apiUrlForHost } from '@pr-reviewer/github'
 import { loadUserConfig, userConfigPath } from './config-file.js'
@@ -45,7 +56,8 @@ const USAGE = `Usage: pr-reviewer <command> [options]
 Review GitHub pull requests with deterministic checks and the AI provider of your choice.
 
 Commands:
-  context <pr>       Load a PR's context from GitHub (<pr> is a URL or owner/repo#number)
+  review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
+  context <pr>       Load a PR's context from GitHub
   config show        Print the resolved configuration and where each value came from
   config path        Print the user config file location
   help               Show this help
@@ -55,6 +67,15 @@ Options:
   -v, --version      Print the version
   --profile <name>   Use a named profile from the user config
 
+review options:
+  --out <dir>        Also write report.md and report.json to <dir>
+  --json             Print the Report as JSON instead of Markdown
+  --provider <name>  AI provider from the user config (default: anthropic)
+  --model <id>       Model override
+  --warnings-ok      Exit 0 instead of 1 for PASSED_WITH_WARNINGS
+
+Exit codes: 0 PASSED, 1 PASSED_WITH_WARNINGS, 2 FAILED, 3 INCOMPLETE, 4 ERROR, 5 CANCELLED, 64 usage, 78 config.
+
 context options:
   --json             Print the full context as JSON
   --api-url <url>    GitHub API base URL (overrides config)
@@ -62,6 +83,7 @@ context options:
 
 Config file: $XDG_CONFIG_HOME/pr-reviewer/config.yml (or ~/.config/..., %APPDATA%\\... on Windows),
 or the path in $PR_REVIEWER_CONFIG. GitHub token: GITHUB_TOKEN, GH_TOKEN, the OS keychain, or gh.
+Anthropic key: ANTHROPIC_API_KEY or the OS keychain.
 `
 
 /** Runs the CLI with the given arguments (without the node/script prefix) and returns the exit code. */
@@ -101,6 +123,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
     return EXIT_CODES.passed
   }
   if (first === 'context') return contextCommand(rest, io, deps, secrets)
+  if (first === 'review') return reviewCommand(rest, io, deps, secrets)
   if (first === 'config') return configCommand(rest, io, deps)
 
   const kind = first.startsWith('-') ? 'option' : 'command'
@@ -183,6 +206,107 @@ async function contextCommand(args: string[], io: CliIo, deps: CliDeps, secrets:
   }
   io.stdout(parsed.values.json ? `${JSON.stringify(res.value, null, 2)}\n` : summarize(res.value))
   return EXIT_CODES.passed
+}
+
+const STATUS_EXIT: Record<OverallStatus, number> = {
+  PASSED: EXIT_CODES.passed,
+  PASSED_WITH_WARNINGS: EXIT_CODES.passedWithWarnings,
+  FAILED: EXIT_CODES.failed,
+  INCOMPLETE: EXIT_CODES.incomplete,
+  ERROR: EXIT_CODES.error,
+  CANCELLED: EXIT_CODES.cancelled,
+}
+
+async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: true,
+      options: {
+        json: { type: 'boolean' },
+        out: { type: 'string' },
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        'warnings-ok': { type: 'boolean' },
+        'api-url': { type: 'string' },
+        host: { type: 'string' },
+        profile: { type: 'string' },
+      },
+    })
+  } catch (e) {
+    return usageError(io, (e as Error).message)
+  }
+  const [input, ...extra] = parsed.positionals
+  if (!input || extra.length > 0) return usageError(io, 'review needs exactly one PR reference')
+
+  const config = resolveConfig(io, deps, parsed.values.profile, { host: parsed.values.host, apiUrl: parsed.values['api-url'] })
+  if (typeof config === 'number') return config
+  const gh = config.settings.github ?? {}
+  const ref = parsePrRef(input, gh.host ?? 'github.com')
+  if (!ref.ok) return usageError(io, ref.error.message)
+
+  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host: ref.value.host })
+  if (token.ok) secrets.push(token.value)
+  const sameHost = ref.value.host === (gh.host ?? 'github.com')
+  const client = new GitHubClient({
+    apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(ref.value.host),
+    token: token.ok ? token.value.reveal() : undefined,
+    fetch: deps.fetch,
+    userAgent: `pr-reviewer/${pkg.version}`,
+  })
+
+  const provider = await buildProvider(config, parsed.values.provider, parsed.values.model, deps, secrets)
+  io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`)
+  const report = await runReview(
+    {
+      ref: ref.value,
+      engineVersion: pkg.version,
+      channel: 'cli',
+      rules: [],
+      onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
+    },
+    {
+      github: new GitHubPrReader(client),
+      scanSecrets,
+      provider: provider.ok ? provider.value : undefined,
+      providerUnavailableReason: provider.ok ? undefined : provider.error.message,
+      sha256: async (text) => createHash('sha256').update(text).digest('hex'),
+      now: () => Date.now(),
+    },
+  )
+
+  const markdown = renderReportMarkdown(report)
+  if (parsed.values.out) {
+    mkdirSync(parsed.values.out, { recursive: true })
+    writeFileSync(join(parsed.values.out, 'report.md'), redactText(markdown, secrets))
+    writeFileSync(join(parsed.values.out, 'report.json'), redactText(`${JSON.stringify(report, null, 2)}\n`, secrets))
+    io.stderr(`Saved ${join(parsed.values.out, 'report.md')} and report.json\n`)
+  }
+  io.stdout(parsed.values.json ? `${JSON.stringify(report, null, 2)}\n` : markdown)
+
+  const code = STATUS_EXIT[report.overallStatus]
+  return code === EXIT_CODES.passedWithWarnings && parsed.values['warnings-ok'] ? EXIT_CODES.passed : code
+}
+
+/** Chooses the AI Provider from flags and Configuration. Only Anthropic is wired in this release (Epic 3 adds the rest). */
+async function buildProvider(
+  config: ResolvedConfig,
+  providerFlag: string | undefined,
+  modelFlag: string | undefined,
+  deps: CliDeps,
+  secrets: Secret[],
+): Promise<Result<ReviewProvider>> {
+  const name = providerFlag ?? config.settings.defaultProvider ?? 'anthropic'
+  const entry = config.settings.providers?.[name] ?? (name === 'anthropic' ? { type: 'anthropic' as const } : undefined)
+  if (!entry) return err('provider_unknown', `AI provider "${name}" is not defined in the user config.`)
+  if (entry.type !== 'anthropic' && entry.type !== 'anthropic-compatible') {
+    return err('provider_unsupported', `AI provider type "${entry.type}" is not available in this release yet.`)
+  }
+  const key = await deps.credentials.resolve(entry.credential ?? 'provider:anthropic')
+  if (!key.ok) return err('provider_credential_missing', key.error.message)
+  secrets.push(key.value)
+  return ok(new AnthropicProvider({ apiKey: key.value, model: modelFlag ?? entry.model, baseUrl: entry.baseUrl, fetch: deps.fetch }))
 }
 
 function configCommand(args: string[], io: CliIo, deps: CliDeps): number {

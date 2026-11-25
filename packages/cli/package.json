@@ -28,6 +28,7 @@
     "@pr-reviewer/credentials": "workspace:*",
     "@pr-reviewer/github": "workspace:*",
     "@pr-reviewer/providers": "workspace:*",
+    "@pr-reviewer/validators": "workspace:*",
     "yaml": "2.9.1"
   }
 }
