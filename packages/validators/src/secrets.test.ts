@@ -62,7 +62,7 @@ describe('scanSecrets', () => {
       'secrets/generic-assignment@src/config.ts:12',
       'secrets/private-key@keys/dev.pem:1',
     ])
-    expect(r.layer).toMatchObject({ layer: 'SECURITY', status: 'FAILED' })
+    expect(r.layer).toMatchObject({ layer: 'SECRETS', status: 'FAILED' })
     const serialized = JSON.stringify(r.findings)
     for (const v of [GH, AWS, PASSWORD, 'MIIBOgIBAAJBAKj34']) expect(serialized).not.toContain(v)
   })

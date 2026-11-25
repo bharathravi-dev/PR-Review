@@ -67,6 +67,8 @@ export function checkBoundaries(root) {
         else if (isCore && target) violations.push(`${rel}: core imports internal package '${spec}' (AD-1)`)
         else if (!isCore && !isChannel && target && target !== 'core') {
           violations.push(`${rel}: adapter '${pkg}' imports '${spec}'; adapters may import only @pr-reviewer/core (AD-2)`)
+        } else if (isChannel && target && target !== 'core' && !/(^|[/\\])compose\.[mc]?[jt]s$/.test(file)) {
+          violations.push(`${rel}: Channel '${pkg}' imports adapter '${spec}' outside src/compose.ts (AD-2, AD-16)`)
         }
       }
       const repoLiteral = REPO_LITERAL.exec(code)

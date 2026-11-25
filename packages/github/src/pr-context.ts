@@ -8,7 +8,7 @@ interface ApiPull {
   user: ApiUser | null
   state: string
   draft?: boolean
-  base: { ref: string; sha: string; repo: { full_name: string } }
+  base: { ref: string; sha: string; repo: { id: number; full_name: string } }
   head: { ref: string; sha: string; repo: { full_name: string } | null }
 }
 interface ApiFile {
@@ -84,6 +84,7 @@ export class GitHubPrReader implements GitHubReader {
     return ok({
       schemaVersion: 1,
       ref: { host: ref.host, owner: ref.owner, repo: ref.repo, number: ref.number },
+      repoId: pr.base.repo.id,
       title: pr.title,
       body: pr.body ?? '',
       author: pr.user?.login ?? 'ghost',

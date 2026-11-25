@@ -63,9 +63,11 @@ describe('checkBoundaries', () => {
     expect(v.join('\n')).toContain("adapter 'github' imports '@pr-reviewer/providers'")
   })
 
-  it('lets Channels import adapters (composition root)', () => {
+  it('lets Channels import adapters only in src/compose.ts (composition root)', () => {
+    const bad = workspace({ 'packages/cli/src/main.ts': "import { a } from '@pr-reviewer/github'\n" })
+    expect(checkBoundaries(bad).join('\n')).toContain("outside src/compose.ts")
     const root = workspace({
-      'packages/cli/src/main.ts': "import { a } from '@pr-reviewer/github'\nimport { readFileSync } from 'node:fs'\n",
+      'packages/cli/src/compose.ts': "import { a } from '@pr-reviewer/github'\nimport { readFileSync } from 'node:fs'\n",
       'packages/cli/package.json': JSON.stringify({ dependencies: { '@pr-reviewer/github': 'workspace:*' } }),
     })
     expect(checkBoundaries(root)).toEqual([])

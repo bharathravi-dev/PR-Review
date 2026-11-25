@@ -1,6 +1,6 @@
 import * as z from 'zod'
 
-/** Closed set of Validation Layers (AD-15 / layer enum). */
+/** Closed layer catalogue (AD-24): spec L1–L14 with secrets and dependencies split out, plus CONTEXT and EXTERNAL_RESULTS. */
 export const LayerId = z.enum([
   'CONTEXT',
   'SYNTAX',
@@ -8,9 +8,16 @@ export const LayerId = z.enum([
   'LINT',
   'FRAMEWORK',
   'STATIC_ANALYSIS',
+  'MAINTAINABILITY',
+  'PERFORMANCE',
+  'SECRETS',
   'SECURITY',
   'DEPENDENCIES',
+  'CORRECTNESS',
+  'ARCHITECTURE',
   'TESTS',
+  'ACCESSIBILITY',
+  'COMPATIBILITY',
   'EXTERNAL_RESULTS',
   'AI_REVIEW',
 ])
@@ -19,6 +26,30 @@ export type LayerId = z.infer<typeof LayerId>
 export const LayerStatus = z.enum(['PASSED', 'FAILED', 'WARNING', 'SKIPPED', 'ERROR', 'TIMEOUT', 'NOT_APPLICABLE'])
 export type LayerStatus = z.infer<typeof LayerStatus>
 
+/** Closed reason codes for SKIPPED / ERROR / TIMEOUT and cancellations (AD-24). */
+export const ReasonCode = z.enum([
+  'NO_SANDBOX',
+  'UNSUPPORTED_RUNTIME',
+  'NO_EGRESS_CONTROL',
+  'NOT_SUPPORTED',
+  'DISABLED_BY_CONFIG',
+  'SUPERSEDED_BY_VALIDATOR',
+  'SECRET_SCAN_UNAVAILABLE',
+  'COST_CEILING',
+  'PROVIDER_UNAVAILABLE',
+  'RATE_LIMITED',
+  'SANDBOX_OUTPUT_INVALID',
+  'SCHEMA_INVALID',
+  'TOOL_CRASHED',
+  'TIME_LIMIT',
+  'CONFIG_UNSUPPORTED',
+  'REPO_OPTED_OUT',
+  'SUPERSEDED',
+  'USER_ABORT',
+  'UNKNOWN',
+])
+export type ReasonCode = z.infer<typeof ReasonCode>
+
 export const Severity = z.enum(['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'])
 export type Severity = z.infer<typeof Severity>
 
@@ -26,27 +57,30 @@ export const Confidence = z.enum(['HIGH', 'MEDIUM', 'LOW'])
 export const Scope = z.enum(['NEW', 'WORSENED', 'PRE_EXISTING', 'UNKNOWN'])
 export const SourceFamily = z.enum(['DETERMINISTIC', 'EXTERNAL', 'AI'])
 export const AnchorKind = z.enum(['LINE', 'FILE', 'PR'])
+export const Disposition = z.enum(['GATING', 'ADVISORY'])
 
+/** Closed category catalogue (AD-15); also the AI catalogue, versioned with the prompt template. */
 export const Category = z.enum([
-  'SYNTAX',
-  'COMPILATION',
-  'LINT',
-  'FRAMEWORK',
-  'SECURITY',
-  'PERFORMANCE',
   'CORRECTNESS',
+  'SECURITY',
+  'SECRET',
+  'PERFORMANCE',
   'MAINTAINABILITY',
   'ARCHITECTURE',
-  'TESTING',
-  'DEPENDENCY',
+  'TESTS',
   'ACCESSIBILITY',
   'COMPATIBILITY',
-  'CONFIGURATION',
+  'DEPENDENCY',
+  'BUILD',
+  'STYLE',
+  'PROMPT_INJECTION',
 ])
+export type Category = z.infer<typeof Category>
 
 export const Location = z.strictObject({
   anchorKind: AnchorKind,
   path: z.string().optional(),
+  side: z.enum(['HEAD', 'BASE']).optional(),
   startLine: z.number().int().positive().optional(),
   endLine: z.number().int().positive().optional(),
 })
@@ -59,8 +93,10 @@ export const Provenance = z.strictObject({
   model: z.string().optional(),
 })
 
-/** One issue in the common finding schema (Validation Capability Spec §23). No Finding ever carries a secret value. */
+/** One issue in the common finding schema (AD-15). No Finding ever carries a secret value. */
 export const Finding = z.strictObject({
+  /** Strongest member's fingerprint; set by `dedupe`. */
+  id: z.string().optional(),
   ruleId: z.string(),
   category: Category,
   severity: Severity,
@@ -68,31 +104,23 @@ export const Finding = z.strictObject({
   /** Assigned by core `normalize` only; Validators leave it UNKNOWN. */
   scope: Scope,
   sourceFamily: SourceFamily,
+  /** ADVISORY Findings (LOW-confidence AI) are reported but never published inline by default. */
+  disposition: Disposition.optional(),
   title: z.string(),
   description: z.string(),
   impact: z.string().optional(),
   recommendation: z.string().optional(),
   evidence: z.string().optional(),
   location: Location,
+  commitSha: z.string().optional(),
   provenance: Provenance,
+  alsoReportedBy: z.array(z.string()).optional(),
   partial: z.boolean().optional(),
-  /** Set by core `dedupe`. */
   fingerprint: z.string().optional(),
+  fingerprints: z.array(z.string()).optional(),
+  dismissed: z.strictObject({ by: z.string(), byPrAuthor: z.boolean() }).optional(),
 })
 export type Finding = z.infer<typeof Finding>
-
-export const ReasonCode = z.enum([
-  'NO_SANDBOX',
-  'NOT_APPLICABLE_TECHNOLOGY',
-  'UNSUPPORTED_VERSION',
-  'DEPENDENCY_LAYER_FAILED',
-  'COST_CEILING',
-  'PROVIDER_UNAVAILABLE',
-  'TOOL_CRASHED',
-  'TIMED_OUT',
-  'INVALID_OUTPUT',
-  'DISABLED_BY_CONFIG',
-])
 
 export const LayerResult = z.strictObject({
   layer: LayerId,

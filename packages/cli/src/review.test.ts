@@ -113,7 +113,7 @@ describe('pr-reviewer review', () => {
     const r = await review(['octo/app#9', '--json'], fakeFetch({ withSecret: true }, aiBodies))
     expect(r.code).toBe(2)
     const report = JSON.parse(r.out)
-    expect(report).toMatchObject({ schemaVersion: 1, overallStatus: 'FAILED', run: { headSha: 'head0002', channel: 'cli' } })
+    expect(report).toMatchObject({ schemaVersion: 1, overallStatus: 'FAILED', run: { headSha: 'head0002', channel: 'CLI', fpv: 1, repo: { fullName: 'octo/app' } } })
     expect(report.findings[0]).toMatchObject({ ruleId: 'secrets/aws-access-key-id', scope: 'NEW', location: { path: 'src/retry.ts', startLine: 3 } })
     expect(aiBodies.join('')).not.toContain(LEAKED)
     expect(aiBodies.join('')).toContain('[REDACTED]')
@@ -123,8 +123,8 @@ describe('pr-reviewer review', () => {
   it('reports the AI layer as SKIPPED, never PASSED, without an AI key', async () => {
     const r = await review(['octo/app#9'], fakeFetch(), { GITHUB_TOKEN: TOKEN })
     expect(r.code).toBe(1)
-    expect(r.out).toContain('AI_REVIEW SKIPPED (PROVIDER_UNAVAILABLE)')
-    expect(r.out).toContain('A skipped check is not a passed check.')
+    expect(r.out).toContain('| AI_REVIEW | ai.review | SKIPPED (PROVIDER_UNAVAILABLE) |')
+    expect(r.out).toContain('a check that did not run is not a pass')
   })
 
   it('exits 4 when the PR cannot be loaded, and 64 for a bad reference', async () => {
@@ -140,7 +140,7 @@ describe('pr-reviewer review', () => {
     const md = readFileSync(join(dir, 'report.md'), 'utf8')
     const json = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8'))
     expect(md).toContain('AI_REVIEW | ai.review | ERROR (PROVIDER_UNAVAILABLE)')
-    expect(json.layers.map((l: { layer: string }) => l.layer)).toEqual(['CONTEXT', 'SECURITY', 'AI_REVIEW'])
+    expect(json.layers.map((l: { layer: string }) => l.layer)).toEqual(['CONTEXT', 'SECRETS', 'AI_REVIEW'])
     for (const text of [md, JSON.stringify(json), r.out, r.err]) {
       expect(text).not.toContain(TOKEN)
       expect(text).not.toContain(AI_KEY)

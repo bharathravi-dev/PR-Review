@@ -106,7 +106,7 @@ describe('runAiReview', () => {
         finding({ path: 'src/missing.ts' }),
         finding({ path: 'old.ts' }),
         finding({ startLine: 99, endLine: 99 }),
-        finding({ path: null, startLine: null, endLine: null, category: 'SECURITY', title: 'Prompt injection attempt' }),
+        finding({ path: null, startLine: null, endLine: null, category: 'PROMPT_INJECTION', title: 'Prompt injection attempt' }),
         finding({ startLine: null, endLine: null }),
       ],
     })
@@ -115,7 +115,7 @@ describe('runAiReview', () => {
     expect(r.dropped).toBe(3)
     expect(r.findings.map((f) => [f.ruleId, f.location.anchorKind, f.location.startLine])).toEqual([
       ['ai/correctness', 'LINE', 2],
-      ['ai/security', 'PR', undefined],
+      ['ai/prompt_injection', 'PR', undefined],
       ['ai/correctness', 'FILE', undefined],
     ])
     expect(r.findings[0]).toMatchObject({ sourceFamily: 'AI', scope: 'UNKNOWN', provenance: { provider: 'recording', model: 'test-model' } })
@@ -130,7 +130,7 @@ describe('runAiReview', () => {
 
   it('reports ERROR, never PASSED, for invalid output or provider failure', async () => {
     const bad = await runAiReview(redacted(), recordingProvider({ findings: [{ title: 'missing fields' }] }))
-    expect(bad.layer).toMatchObject({ status: 'ERROR', reason: 'INVALID_OUTPUT' })
+    expect(bad.layer).toMatchObject({ status: 'ERROR', reason: 'SCHEMA_INVALID' })
     const down: ReviewProvider = { id: 'down', complete: async () => err('ai_unreachable', 'offline', true) }
     const failed = await runAiReview(redacted(), down)
     expect(failed.layer).toMatchObject({ status: 'ERROR', reason: 'PROVIDER_UNAVAILABLE', detail: 'offline' })

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +8,7 @@ import {
   err,
   fetchContext,
   ok,
-  renderReportMarkdown,
+  renderMarkdown,
   runReview,
   formatPrRef,
   parsePrRef,
@@ -23,10 +22,7 @@ import {
   type ReviewProvider,
   type Secret,
 } from '@pr-reviewer/core'
-import { AnthropicProvider } from '@pr-reviewer/providers'
-import { scanSecrets } from '@pr-reviewer/validators'
-import { DefaultCredentialResolver } from '@pr-reviewer/credentials'
-import { GitHubClient, GitHubPrReader, apiUrlForHost } from '@pr-reviewer/github'
+import { apiUrlForHost, createAnthropicProvider, createCredentialResolver, createGitHubReader, secretScanner } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
 
 /** Output sinks for the CLI; injected so tests don't touch the real process. */
@@ -94,7 +90,7 @@ export async function main(argv: readonly string[], rawIo: CliIo, deps: Partial<
     fetch: deps.fetch ?? globalThis.fetch,
     platform: deps.platform ?? process.platform,
     homedir: deps.homedir ?? homedir(),
-    credentials: deps.credentials ?? new DefaultCredentialResolver({ env }),
+    credentials: deps.credentials ?? createCredentialResolver(env),
   }
   // Every byte the CLI prints passes through redaction of resolved Credentials (AD-10, NFR-2).
   const secrets: Secret[] = []
@@ -193,13 +189,13 @@ async function contextCommand(args: string[], io: CliIo, deps: CliDeps, secrets:
   if (token.ok) secrets.push(token.value)
 
   const sameHost = ref.value.host === (gh.host ?? 'github.com')
-  const client = new GitHubClient({
+  const reader = createGitHubReader({
     apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(ref.value.host),
     token: token.ok ? token.value.reveal() : undefined,
     fetch: deps.fetch,
     userAgent: `pr-reviewer/${pkg.version}`,
   })
-  const res = await fetchContext(new GitHubPrReader(client), ref.value, DEFAULT_CONTEXT_LIMITS)
+  const res = await fetchContext(reader, ref.value, DEFAULT_CONTEXT_LIMITS)
   if (!res.ok) {
     io.stderr(`Could not load ${formatPrRef(ref.value)}: ${res.error.message}\n`)
     return EXIT_CODES.error
@@ -249,7 +245,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   const token = await deps.credentials.resolve(gh.credential ?? 'github', { host: ref.value.host })
   if (token.ok) secrets.push(token.value)
   const sameHost = ref.value.host === (gh.host ?? 'github.com')
-  const client = new GitHubClient({
+  const reader = createGitHubReader({
     apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(ref.value.host),
     token: token.ok ? token.value.reveal() : undefined,
     fetch: deps.fetch,
@@ -257,26 +253,31 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   })
 
   const provider = await buildProvider(config, parsed.values.provider, parsed.values.model, deps, secrets)
+  const providerName = parsed.values.provider ?? config.settings.defaultProvider ?? 'anthropic'
   io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`)
   const report = await runReview(
     {
       ref: ref.value,
       engineVersion: pkg.version,
-      channel: 'cli',
-      rules: [],
+      channel: 'CLI',
+      review: {
+        provider: providerName === 'anthropic' ? undefined : providerName,
+        model: parsed.values.model ?? config.settings.providers?.[providerName]?.model,
+        rules: config.settings.reviewRules ?? [],
+      },
+      configSources: config.sources,
       onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
     },
     {
-      github: new GitHubPrReader(client),
-      scanSecrets,
+      github: reader,
+      scanSecrets: secretScanner,
       provider: provider.ok ? provider.value : undefined,
       providerUnavailableReason: provider.ok ? undefined : provider.error.message,
-      sha256: async (text) => createHash('sha256').update(text).digest('hex'),
       now: () => Date.now(),
     },
   )
 
-  const markdown = renderReportMarkdown(report)
+  const markdown = renderMarkdown(report)
   if (parsed.values.out) {
     mkdirSync(parsed.values.out, { recursive: true })
     writeFileSync(join(parsed.values.out, 'report.md'), redactText(markdown, secrets))
@@ -306,7 +307,7 @@ async function buildProvider(
   const key = await deps.credentials.resolve(entry.credential ?? 'provider:anthropic')
   if (!key.ok) return err('provider_credential_missing', key.error.message)
   secrets.push(key.value)
-  return ok(new AnthropicProvider({ apiKey: key.value, model: modelFlag ?? entry.model, baseUrl: entry.baseUrl, fetch: deps.fetch }))
+  return ok(createAnthropicProvider({ apiKey: key.value, model: modelFlag ?? entry.model, baseUrl: entry.baseUrl, fetch: deps.fetch }))
 }
 
 function configCommand(args: string[], io: CliIo, deps: CliDeps): number {

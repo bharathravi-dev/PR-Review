@@ -41,7 +41,7 @@ export interface SecretScanResult extends SecretScanOutcome {
 }
 
 /**
- * File-only Validator for the SECURITY layer (isomorphic; no Sandbox). Reports secrets on lines the PR
+ * File-only Validator for the SECRETS layer (isomorphic; no Sandbox). Reports secrets on lines the PR
  * adds, by location only, and collects every matched value anywhere in the context for `redact`.
  */
 export function scanSecrets(ctx: PrContext, now: () => number = () => 0): SecretScanResult {
@@ -77,7 +77,7 @@ export function scanSecrets(ctx: PrContext, now: () => number = () => 0): Secret
         reported.add(`${rule.id}:${line}`)
         findings.push({
           ruleId: `secrets/${rule.id}`,
-          category: 'SECURITY',
+          category: 'SECRET',
           severity: rule.confidence === 'LOW' ? 'MAJOR' : 'CRITICAL',
           confidence: rule.confidence,
           scope: 'UNKNOWN',
@@ -98,7 +98,7 @@ export function scanSecrets(ctx: PrContext, now: () => number = () => 0): Secret
     values: [...values.values()],
     findings,
     layer: {
-      layer: 'SECURITY',
+      layer: 'SECRETS',
       validator: 'secrets.builtin',
       status: findings.length > 0 ? 'FAILED' : 'PASSED',
       durationMs: Math.max(0, Math.round(now() - started)),

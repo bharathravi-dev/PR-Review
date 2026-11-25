@@ -47,6 +47,8 @@ export const CommentSummary = z.object({
 export const PrContext = z.object({
   schemaVersion: z.literal(1),
   ref: z.object({ host: z.string(), owner: z.string(), repo: z.string(), number: z.number().int() }),
+  /** Numeric id of the base repository; part of idempotency keys (AD-11). */
+  repoId: z.number().int().optional(),
   title: z.string(),
   body: z.string(),
   author: z.string(),
