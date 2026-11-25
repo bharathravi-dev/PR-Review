@@ -9,6 +9,9 @@ export * from './ports.js'
 export * from './fetch-context.js'
 export * from './secret.js'
 export * from './config.js'
+export * from './findings.js'
+export * from './diff.js'
+export * from './redact.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1

@@ -231,6 +231,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/validators:
+    dependencies:
+      '@pr-reviewer/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@emnapi/core@2.0.0-beta.2':
