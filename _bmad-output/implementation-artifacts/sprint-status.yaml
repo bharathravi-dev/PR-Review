@@ -63,13 +63,13 @@ development_status:
   3-6-guided-setup: done
   epic-3-retrospective: optional
 
-  epic-4: in-progress
+  epic-4: done
   4-1-detect-technologies-and-versions: done
   4-2-validator-contract-honest-layer-status-and-coverage: done
   4-3-reuse-existing-ci-and-sonarqube-results: done
   4-4-repository-settings-and-review-rules-safely: done
-  4-5-run-pr-code-only-in-a-sandbox: review  # built and tested with a fake container runtime and the real proxy; needs one live run with Docker or Podman
-  4-6-typescript-and-lint-checks-with-the-repo-s-own-config: review  # output parsing tested; needs one live run in the Sandbox
+  4-5-run-pr-code-only-in-a-sandbox: done
+  4-6-typescript-and-lint-checks-with-the-repo-s-own-config: done
   4-7-angular-12-and-react-framework-checks: done
   4-8-dependency-audit-and-result-caching: done
   epic-4-retrospective: optional
