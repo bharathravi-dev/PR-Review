@@ -59,6 +59,16 @@ export interface CheckResult {
   app?: string | undefined
 }
 
+/** An issue the PR says it closes ("Fixes #12"), as GitHub links it. */
+export interface LinkedIssue {
+  number: number
+  /** owner/repo of the issue (may differ from the PR's). */
+  repo: string
+  title: string
+  body: string
+  url?: string | undefined
+}
+
 /** Read side of GitHub (AD-6). The only write path is the engine's publish stage (AD-9). */
 export interface GitHubReader {
   /** A file's text at an exact commit; undefined when the file does not exist there. */
@@ -74,6 +84,8 @@ export interface GitHubReader {
   /** Open PRs of a repository, most recently updated first, up to `limit`. */
   listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>>
   getPrContext(ref: PrRef, limits: ContextLimits): Promise<Result<PrContext>>
+  /** Issues the PR closes when merged (GitHub's closing references); optional for readers that can't tell. */
+  linkedIssues?(ref: PrRef): Promise<Result<LinkedIssue[]>>
   /** The authenticated user — the Reviewer Identity. */
   viewer(): Promise<Result<{ id: number; login: string }>>
   /** Current head SHA of the PR, re-read immediately before publishing (AD-23). */

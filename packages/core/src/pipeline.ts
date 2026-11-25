@@ -42,6 +42,11 @@ export interface EnginePorts {
   now: () => number
 }
 
+/** At most this many linked issues, each cut to this many characters, reach the AI. */
+const MAX_LINKED_ISSUES = 3
+const MAX_ISSUE_CHARS = 4000
+const capText = (t: string, max: number) => (t.length > max ? `${t.slice(0, max)}\n(issue text truncated)` : t)
+
 /** The review-affecting projection of Configuration (AD-12 `affectsReview`). */
 export interface ReviewSettings {
   provider?: string | undefined
@@ -141,6 +146,10 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   // Repository settings and rules, read at exactly the base commit: a PR cannot change its own review (AD-13).
   const repoRef = { host: input.ref.host, owner: input.ref.owner, repo: input.ref.repo }
   const repoConfig = await readRepoConfig(ports.github, repoRef, ctx.baseSha)
+  // Issues the PR says it closes, so the review can check the change does what they ask.
+  const linked = ports.github.linkedIssues ? await ports.github.linkedIssues(input.ref) : undefined
+  if (linked && !linked.ok) limitations.push(`Linked issues could not be read: ${linked.error.message}`)
+  const linkedIssues = linked?.ok ? linked.value.slice(0, MAX_LINKED_ISSUES) : []
   limitations.push(...repoConfig.warnings)
   if (repoConfig.ignored.length) limitations.push(`Repository settings ignored (not allowed in ${REPO_CONFIG_PATH}): ${repoConfig.ignored.join(', ')}.`)
   const repoSettings = repoConfig.settings
@@ -217,6 +226,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       rules: input.review?.rules ?? [],
       repoRules,
       guidance: repoConfig.guidance.map((g) => ({ path: g.path, text: redactText(g.text, scan.values) })),
+      linkedIssues: linkedIssues.map((i) => ({ number: i.number, repo: i.repo, title: redactText(i.title, scan.values), body: redactText(capText(i.body, MAX_ISSUE_CHARS), scan.values) })),
       toolResults:
         input.review?.toolResults === false
           ? undefined

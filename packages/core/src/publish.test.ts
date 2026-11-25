@@ -314,11 +314,15 @@ describe('competitive review features', () => {
   })
 
   it('shows the walkthrough with sanitised model text', () => {
-    const r = report([], { walkthrough: { summary: 'Adds retries. <img src=x onerror=alert(1)>', files: [{ path: 'src/a.ts', change: 'new | retry loop' }], effort: 3 } })
+    const issues = [{ number: 12, repo: 'octo/app', title: 'Retries <b>flaky</b>', status: 'PARTLY' as const, note: 'Backoff is still missing.' }]
+    const r = report([], { walkthrough: { summary: 'Adds retries. <img src=x onerror=alert(1)>', files: [{ path: 'src/a.ts', change: 'new | retry loop' }], effort: 3, issues } })
     const body = renderPublish(r, plan(r)).summaryBody
     expect(body).toContain('**Walkthrough**')
     expect(body).toContain('Estimated review effort: 3/5')
     expect(body).toContain('| `src/a.ts` | new \\| retry loop |')
     expect(body).not.toContain('<img')
+    expect(body).toContain('⚠️ Linked issue octo/app#12')
+    expect(body).toContain('**partly resolved**. Backoff is still missing.')
+    expect(body).not.toContain('<b>')
   })
 })

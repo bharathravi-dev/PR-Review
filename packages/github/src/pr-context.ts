@@ -1,4 +1,4 @@
-import { err, ok, type CheckResult, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItems, type PullSummary, type RepoRef, type Result, type TreeEntry } from '@pr-reviewer/core'
+import { err, ok, type CheckResult, type ContextLimits, type GitHubReader, type LinkedIssue, type PrContext, type PrRef, type PublishedItems, type PullSummary, type RepoRef, type Result, type TreeEntry } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
 interface ApiUser { login: string; id?: number }
@@ -32,8 +32,26 @@ const enc = (s: string) => encodeURIComponent(s)
 const encPath = (p: string) => p.split('/').map(enc).join('/')
 
 /** Implements the read port with the GitHub REST API. */
+const LINKED_ISSUES = `query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      closingIssuesReferences(first: 5) { nodes { number title body url repository { nameWithOwner } } }
+    }
+  }
+}`
+interface LinkedIssuesData {
+  repository: { pullRequest: { closingIssuesReferences: { nodes: Array<{ number: number; title: string; body: string | null; url: string; repository: { nameWithOwner: string } }> } } | null } | null
+}
+
 export class GitHubPrReader implements GitHubReader {
   constructor(private readonly client: GitHubClient) {}
+
+  async linkedIssues(ref: PrRef): Promise<Result<LinkedIssue[]>> {
+    const res = await this.client.graphql<LinkedIssuesData>(LINKED_ISSUES, { owner: ref.owner, repo: ref.repo, pr: ref.number })
+    if (!res.ok) return res
+    const nodes = res.value.repository?.pullRequest?.closingIssuesReferences.nodes ?? []
+    return ok(nodes.map((n) => ({ number: n.number, repo: n.repository.nameWithOwner, title: n.title, body: n.body ?? '', url: n.url })))
+  }
 
   async listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>> {
     const res = await this.client.paginate<ApiPull & { number: number; updated_at: string }>(

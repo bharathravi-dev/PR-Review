@@ -105,8 +105,9 @@ recommended route for automatic reviews.
   **committable suggestion** (one click applies the fix) when the AI is confident of the exact change, and a
   **"Prompt for your AI agent"** block you can paste into Claude Code, Codex, or Cursor.
 - **One summary comment, kept up to date**: overall result, what was checked, a **walkthrough** (overview,
-  review-effort estimate, changes by file), findings not shown inline, what is still open, what was fixed,
-  and the tokens and cost of the review.
+  review-effort estimate, changes by file, and whether the change resolves each issue the PR says it
+  closes), findings not shown inline, what is still open, what was fixed, and the tokens and cost of the
+  review.
 - **Low noise by default**: INFO-level notes stay in the summary (`publish.minInlineSeverity`), inline
   comments are capped (`publish.maxInlineComments`), and fixed findings have their threads resolved.
 - **Your team's existing guidance is used**: `REVIEW.md`, `AGENTS.md`, `CLAUDE.md`,

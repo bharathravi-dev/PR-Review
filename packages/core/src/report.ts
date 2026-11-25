@@ -72,7 +72,14 @@ export const Report = z.looseObject({
     .optional(),
   rulesChecklist: z.array(z.string()),
   /** The AI's overview of the PR (untrusted text). */
-  walkthrough: z.object({ summary: z.string(), files: z.array(z.object({ path: z.string(), change: z.string() })), effort: z.number().int().optional() }).optional(),
+  walkthrough: z
+    .object({
+      summary: z.string(),
+      files: z.array(z.object({ path: z.string(), change: z.string() })),
+      effort: z.number().int().optional(),
+      issues: z.array(z.object({ number: z.number().int(), repo: z.string(), title: z.string(), status: z.enum(['RESOLVED', 'PARTLY', 'NOT_RESOLVED', 'UNCLEAR']), note: z.string() })).optional(),
+    })
+    .optional(),
   /** Repository guidance files the review read at the base commit. */
   guidanceFiles: z.array(z.string()).optional(),
   /** Projects the PR touches, with their detected stack (FR-3). */
@@ -161,6 +168,8 @@ export function evaluateGate(
   return done('PASSED')
 }
 
+export const ISSUE_STATUS = { RESOLVED: 'resolved', PARTLY: 'partly resolved', NOT_RESOLVED: 'not resolved', UNCLEAR: 'unclear' } as const
+
 /** One line about an AI attempt: tokens and cost, honest about what is known (FR-12). */
 export function describeAttempt(a: AiAttempt): string {
   const u = a.usage
@@ -198,6 +207,7 @@ export function renderMarkdown(report: Report): string {
   if (report.walkthrough) {
     const w = report.walkthrough
     out.push('## Walkthrough', '', w.summary, ...(w.effort ? ['', `Estimated review effort: ${w.effort}/5`] : []), '')
+    if (w.issues?.length) out.push('Linked issues:', ...w.issues.map((i) => `- ${i.repo}#${i.number} ${i.title}: **${ISSUE_STATUS[i.status]}**. ${i.note}`), '')
     if (w.files.length) out.push('| File | Change |', '|---|---|', ...w.files.map((f) => `| \`${f.path}\` | ${f.change.replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`), '')
   }
   if (report.gate.failedRules.length > 0) out.push('## Gate', ...report.gate.failedRules.map((r) => `- ${r}`), '')

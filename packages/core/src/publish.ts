@@ -3,7 +3,7 @@ import type { Finding, Severity } from './findings.js'
 import { formatMarker, MARKER_VERSION, ownMarker, type MarkerFields } from './marker.js'
 import type { PrRef } from './pr-ref.js'
 import type { GitHubReader, GitHubWriter, InlineComment, PublishedItem, PublishedItems } from './ports.js'
-import type { Report } from './report.js'
+import { ISSUE_STATUS, type Report } from './report.js'
 import type { Result } from './result.js'
 import { sanitizeText } from './sanitize.js'
 import type { PrContext } from './schemas.js'
@@ -341,6 +341,7 @@ function walkthroughLines(report: Report, clean: (t: string) => string): string[
     '',
     clean(w.summary),
     ...(w.effort ? ['', `Estimated review effort: ${w.effort}/5`] : []),
+    ...(w.issues?.length ? ['', ...w.issues.map((i) => `${i.status === 'RESOLVED' ? '✅' : i.status === 'UNCLEAR' ? '❔' : '⚠️'} Linked issue ${i.repo.replace(/[^\w./-]/g, '')}#${i.number} ${cell(i.title)}: **${ISSUE_STATUS[i.status]}**. ${cell(i.note)}`)] : []),
     ...(files.length
       ? ['', '<details><summary>Changes by file</summary>', '', '| File | Change |', '|---|---|', ...files.map((f) => `| \`${f.path.replace(/[`|\n]/g, '')}\` | ${cell(f.change)} |`), '', '</details>']
       : []),
