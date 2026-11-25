@@ -18,6 +18,8 @@ export const AiAttempt = z.object({
   provider: z.string(),
   model: z.string(),
   outcome: z.enum(['SUCCEEDED', 'FAILED', 'SKIPPED']),
+  /** Which call: the review itself, or the verification pass over its findings. Absent means review. */
+  stage: z.enum(['review', 'verify']).optional(),
   reason: z.string().optional(),
   /** METERED (billed per token) or PLAN (subscription through the vendor's CLI). */
   billing: z.enum(['METERED', 'PLAN']).optional(),
@@ -64,7 +66,7 @@ export const Report = z.looseObject({
   ai: z
     .object({
       attempts: z.array(AiAttempt),
-      droppedFindings: z.object({ schema: z.number().int(), grounding: z.number().int() }),
+      droppedFindings: z.object({ schema: z.number().int(), grounding: z.number().int(), verification: z.number().int().optional() }),
       partial: z.boolean(),
     })
     .optional(),
@@ -162,7 +164,7 @@ export function evaluateGate(
 /** One line about an AI attempt: tokens and cost, honest about what is known (FR-12). */
 export function describeAttempt(a: AiAttempt): string {
   const u = a.usage
-  const parts = [`${a.provider} ${a.model} ${a.outcome}`]
+  const parts = [`${a.stage === 'verify' ? 'verification: ' : ''}${a.provider} ${a.model} ${a.outcome}`]
   if (a.reason) parts.push(a.reason)
   if (u) parts.push(`${u.input ?? '?'} input / ${u.output ?? '?'} output tokens`)
   if (a.outcome === 'SUCCEEDED') {
@@ -233,6 +235,7 @@ export function renderMarkdown(report: Report): string {
     for (const a of report.ai.attempts) out.push(`_AI: ${describeAttempt(a)}._`)
     const d = report.ai.droppedFindings
     if (d.schema + d.grounding > 0) out.push(`_${d.grounding} AI finding(s) dropped for locations outside the Head Commit._`)
+    if (d.verification) out.push(`_${d.verification} AI finding(s) dropped by the verification pass._`)
   }
   if (report.rulesChecklist.length > 0) {
     out.push('', `## Review Rules checked (${report.rulesChecklist.length})`, ...report.rulesChecklist.map((r) => `- ${r}`))

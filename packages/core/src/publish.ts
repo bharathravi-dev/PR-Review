@@ -292,7 +292,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
     .map((s) => [s, visible.filter((f) => f.severity === s).length] as const)
     .filter(([, n]) => n > 0)
     .map(([s, n]) => `${n} ${s.toLowerCase()}`)
-  const providers = (report.ai?.attempts ?? []).filter((a) => a.outcome === 'SUCCEEDED').map((a) => `${a.provider} ${a.model}`)
+  const providers = (report.ai?.attempts ?? []).filter((a) => a.outcome === 'SUCCEEDED' && a.stage !== 'verify').map((a) => `${a.provider} ${a.model}`)
   const summaryLines = [
     `### PR Reviewer: ${report.overallStatus.replace(/_/g, ' ')}`,
     '',

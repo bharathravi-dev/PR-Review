@@ -252,3 +252,51 @@ describe('tool results in the prompt', () => {
     expect(buildReviewRequest(redacted()).prompt).not.toContain('<tool_results>')
   })
 })
+
+describe('verification pass', () => {
+  const review = { findings: [finding({ title: 'Real bug' }), finding({ title: 'Speculative worry', severity: 'MINOR' }), finding({ title: 'Overstated', severity: 'CRITICAL' }), finding({ title: 'No verdict' })] }
+  const twoStep = (verify: unknown | 'fail'): ReviewProvider & { requests: ReviewRequest[] } => {
+    const requests: ReviewRequest[] = []
+    return {
+      id: 'p',
+      requests,
+      complete: async (req) => {
+        requests.push(req)
+        if (req.system.startsWith('You verify')) {
+          if (verify === 'fail') return err('ai_rate_limited', 'rate limited', true)
+          return ok({ output: verify, provider: 'p', model: 'm', usage: { inputTokens: 7, outputTokens: 3 } })
+        }
+        return ok({ output: review, provider: 'p', model: 'm', usage: { inputTokens: 10, outputTokens: 5 } })
+      },
+    }
+  }
+
+  it('drops findings the second call rejects, corrects severity, and keeps what it did not judge', async () => {
+    const p = twoStep({ verdicts: [{ id: 0, verdict: 'KEEP', severity: null, reason: 'ok' }, { id: 1, verdict: 'DROP', severity: null, reason: 'no evidence' }, { id: 2, verdict: 'KEEP', severity: 'MINOR', reason: 'minor' }] })
+    const out = await runAiReview(redacted(), p, { verify: true })
+    expect(out.findings.map((f) => `${f.title}:${f.severity}`)).toEqual(['Real bug:MAJOR', 'Overstated:MINOR', 'No verdict:MAJOR'])
+    expect(out.unverified).toBe(1)
+    expect(out.layer.detail).toContain('1 finding(s) dropped by verification')
+    expect(out.attempts.map((a) => a.stage ?? 'review')).toEqual(['review', 'verify'])
+    expect(out.attempts[1]!.usage).toMatchObject({ input: 7, output: 3 })
+    const verifyReq = p.requests[1]!
+    expect(verifyReq.prompt).toContain('<candidate_findings>')
+    expect(verifyReq.prompt).toContain('<finding id="1" path="src/cache.ts" lines="2-2" severity="MINOR"')
+    expect(verifyReq.prompt.indexOf('<pr_data>')).toBeLessThan(verifyReq.prompt.indexOf('<candidate_findings>'))
+    expect(verifyReq.prompt).not.toContain(SECRET)
+    expect(verifyReq.prompt).not.toContain('Review the change and return your findings.')
+  })
+
+  it('keeps every finding when verification fails, and is skipped when there is nothing to check or it is off', async () => {
+    const out = await runAiReview(redacted(), twoStep('fail'), { verify: true })
+    expect(out.findings).toHaveLength(4)
+    expect(out.attempts[1]).toMatchObject({ stage: 'verify', outcome: 'FAILED' })
+    expect(out.notes.join(' ')).toContain('all AI findings were kept')
+    const off = twoStep({ verdicts: [] })
+    await runAiReview(redacted(), off)
+    expect(off.requests).toHaveLength(1)
+    const empty = recordingProvider({ findings: [] })
+    await runAiReview(redacted(), empty, { verify: true })
+    expect(empty.requests).toHaveLength(1)
+  })
+})

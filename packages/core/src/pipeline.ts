@@ -49,6 +49,8 @@ export interface ReviewSettings {
   rules?: readonly string[] | undefined
   /** false keeps tool results (compile, lint, audit, CI) out of the AI prompt, e.g. to measure their effect. */
   toolResults?: boolean | undefined
+  /** true runs a second AI call that checks each AI finding and drops the ones it cannot confirm. */
+  verify?: boolean | undefined
 }
 
 export interface ReviewInput {
@@ -78,7 +80,7 @@ export interface ReviewInput {
 
 /** configHash = H(review-affecting settings, defaults omitted) (AD-12). */
 export function computeConfigHash(review: ReviewSettings = {}): Promise<string> {
-  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined })
+  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined, verify: review.verify === true ? true : undefined })
 }
 
 /** idempotencyKey = H({host, repoId, pr, headSha, configHash, engineMajor, rid}) (AD-11). */
@@ -226,13 +228,14 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       channel: input.channel,
       limits: input.costLimits,
       ledger: ports.ledger,
+      verify: input.review?.verify === true,
     })
     record(outcome.layer)
     aiFindings.push(...outcome.findings)
     limitations.push(...outcome.notes)
     walkthrough = outcome.walkthrough
     if (outcome.attempts.length > 0) {
-      ai = { attempts: outcome.attempts, droppedFindings: { schema: 0, grounding: outcome.dropped }, partial: outcome.partial }
+      ai = { attempts: outcome.attempts, droppedFindings: { schema: 0, grounding: outcome.dropped, ...(outcome.unverified ? { verification: outcome.unverified } : {}) }, partial: outcome.partial }
     }
     if (first) emit('STAGE_FINISHED', { stage: 'review', status: outcome.layer.status, ...(outcome.provider ? { provider: outcome.provider, model: outcome.model } : {}) })
   }

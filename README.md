@@ -152,7 +152,8 @@ pr-reviewer bench bench/data/golden-50.json --filter cal_dot_com --judge openai 
 ```
 
 Flags: `--runs` (1–10), `--judge <provider>`, `--provider`/`--model` for the reviewer, `--filter <text>`
-(cases whose PR contains it), `--limit <n>`, `--concurrency` (1–8), `--out <file>`.
+(cases whose PR contains it), `--limit <n>`, `--concurrency` (1–8), `--out <file>`, and `--verify` /
+`--no-tool-results` to measure those settings against the same PRs.
 
 ## What gets checked
 
@@ -228,6 +229,7 @@ validators:
   disable: []                 # e.g. [framework.angular]
 ai:
   toolResults: true           # false: keep compile, lint, audit, and CI results out of the AI prompt
+  verify: false               # true: a second AI call checks each finding and drops what it can't confirm
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20
