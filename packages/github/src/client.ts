@@ -54,6 +54,16 @@ export class GitHubClient {
     return ok(await res.value.text())
   }
 
+  /** GraphQL request (GitHub: /graphql; GitHub Enterprise Server: /api/graphql). */
+  async graphql<T>(query: string, variables: Record<string, unknown>): Promise<Result<T>> {
+    const url = this.#apiUrl.endsWith('/api/v3') ? `${this.#apiUrl.slice(0, -3)}graphql` : `${this.#apiUrl}/graphql`
+    const res = await this.#request(url, 'application/vnd.github+json', { method: 'POST', body: { query, variables } })
+    if (!res.ok) return res
+    const body = (await res.value.json()) as { data?: T; errors?: Array<{ message: string }> }
+    if (body.errors?.length || !body.data) return err('github_graphql', body.errors?.map((e) => e.message).join('; ') ?? 'GraphQL returned no data.')
+    return ok(body.data)
+  }
+
   /** Binary download (e.g. a source archive); follows redirects. Size-capped. */
   async bytes(pathOrUrl: string, maxBytes: number): Promise<Result<Uint8Array>> {
     const res = await this.#request(pathOrUrl, 'application/vnd.github+json')

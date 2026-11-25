@@ -97,6 +97,32 @@ stay within 60% of your free minutes:
 Your Claude subscription can be used only with `--subscription-opt-in` after a warning; an API key is the
 recommended route for automatic reviews.
 
+## What a posted review looks like
+
+- **One review, inline where it matters.** Each finding on a changed line gets an inline comment with a
+  **committable suggestion** (one click applies the fix) when the AI is confident of the exact change, and a
+  **"Prompt for your AI agent"** block you can paste into Claude Code, Codex, or Cursor.
+- **One summary comment, kept up to date**: overall result, what was checked, a **walkthrough** (overview,
+  review-effort estimate, changes by file), findings not shown inline, what is still open, what was fixed,
+  and the tokens and cost of the review.
+- **Low noise by default**: INFO-level notes stay in the summary (`publish.minInlineSeverity`), inline
+  comments are capped (`publish.maxInlineComments`), and fixed findings have their threads resolved.
+- **Your team's existing guidance is used**: `REVIEW.md`, `AGENTS.md`, `CLAUDE.md`,
+  `.github/copilot-instructions.md`, `.cursor/BUGBOT.md`, `.gemini/styleguide.md`, and `.coderabbit.yaml`
+  are read from the base branch, so a PR cannot change how it is reviewed.
+
+## Measuring review quality
+
+```bash
+pr-reviewer bench my-dataset.yml --runs 3 --judge openai --out results.json
+```
+
+A dataset lists PRs and the issues a good review should find (`path`, `line`, `description`, optional
+`severity`). `bench` reviews each PR (nothing is posted) and reports **precision, recall, and F1** (mean ±
+spread over runs), recall by severity, comments per PR, tokens, and time. A finding counts only if it is an
+inline comment in the same file within ±5 lines; with `--judge`, an LLM from another provider must also
+agree it is the same root cause. Use it to check that a change to models, prompts, or settings really helps.
+
 ## What gets checked
 
 | Check | Runs | Needs |

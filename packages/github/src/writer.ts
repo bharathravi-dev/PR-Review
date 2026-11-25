@@ -4,8 +4,48 @@ import type { GitHubClient } from './client.js'
 const repoPath = (ref: PrRef) => `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`
 
 /** Write side of GitHub (AD-9). It has no approve, merge, or branch-protection operation by construction. */
+const THREADS = `query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+      }
+    }
+  }
+}`
+const RESOLVE = `mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } } }`
+
+interface ThreadPage {
+  repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string; isResolved: boolean; comments: { nodes: Array<{ databaseId: number | null }> } }> } } | null } | null
+}
+
 export class GitHubPrWriter implements GitHubWriter {
   constructor(private readonly client: GitHubClient) {}
+
+  async resolveThreads(ref: PrRef, commentIds: readonly number[]): Promise<Result<number>> {
+    const wanted = new Set(commentIds)
+    const toResolve: string[] = []
+    let after: string | null = null
+    for (let page = 0; page < 10; page++) {
+      const res: Result<ThreadPage> = await this.client.graphql<ThreadPage>(THREADS, { owner: ref.owner, repo: ref.repo, pr: ref.number, after })
+      if (!res.ok) return res
+      const threads: NonNullable<NonNullable<ThreadPage['repository']>['pullRequest']>['reviewThreads'] | undefined = res.value.repository?.pullRequest?.reviewThreads
+      if (!threads) break
+      for (const t of threads.nodes) {
+        const first = t.comments.nodes[0]?.databaseId
+        if (!t.isResolved && first != null && wanted.has(first)) toResolve.push(t.id)
+      }
+      if (!threads.pageInfo.hasNextPage) break
+      after = threads.pageInfo.endCursor
+    }
+    let resolved = 0
+    for (const id of toResolve) {
+      const r = await this.client.graphql<unknown>(RESOLVE, { id })
+      if (r.ok) resolved++
+    }
+    return ok(resolved)
+  }
 
   async createReview(
     ref: PrRef,

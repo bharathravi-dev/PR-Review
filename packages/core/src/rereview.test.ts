@@ -75,7 +75,7 @@ describe('readPrior', () => {
       RID,
       1,
     )
-    expect(prior.inline).toEqual([{ fingerprint: fp(1), title: 'Problem 1', url: 'https://x/c1' }])
+    expect(prior.inline).toEqual([{ fingerprint: fp(1), title: 'Problem 1', url: 'https://x/c1', commentId: 1 }])
     expect(prior.summaryPrefixes).toEqual([fp(5).slice(0, 16), fp(6).slice(0, 16)])
   })
 })
@@ -124,11 +124,47 @@ describe('publish never touches human comments', () => {
       updateIssueComment: async (_r, id) => (writes.push(`update:${id}`), ok({ id, url: 'u' })),
       deleteIssueComment: async (_r, id) => (writes.push(`delete:${id}`), ok(undefined)),
       createCommitStatus: async () => ok(undefined),
+      resolveThreads: async (_r, ids) => (writes.push(`resolve:${ids.join(',')}`), ok(ids.length)),
     }
     const r = report([finding(1)])
     const plan = planPublish(r, { hunks: { 'a.ts': [{ newStart: 1, newLines: 5 }] }, rid: RID, engineMajor: 0, productVersion: '0.1.0', unattended: false })
     await publish(r, plan, renderPublish(r, plan), { host: 'github.com', owner: 'o', repo: 'r', number: 1 }, { reader, writer, now: () => 0 })
     expect(writes).toEqual(['review', 'create'])
     expect(issueComments[0]!.body).toBe('I will look at this tomorrow.')
+  })
+})
+
+describe('auto-resolving fixed findings (competitive feature)', () => {
+  it('resolves only its own threads whose finding is gone', async () => {
+    const writes: string[] = []
+    const reviewComments = [
+      { id: 21, authorId: RID, body: `**MAJOR · correctness** — Problem 2\n\n${marker({ fp: fp(2) })}`, url: 'https://x/c21' },
+      { id: 22, authorId: RID, body: `**MAJOR · correctness** — Problem 1\n\n${marker({ fp: fp(1) })}`, url: 'https://x/c22' },
+      { id: 23, authorId: 999, body: `someone else ${marker({ fp: fp(3) })}` },
+    ]
+    const reader: GitHubReader = {
+      ...NO_SOURCE,
+      getPrContext: async () => err('x', 'x'),
+      listOpenPulls: async () => ok([]),
+      listThumbsDown: async () => ok([]),
+      searchCommentedPulls: async () => ok([]),
+      viewer: async () => ok({ id: RID, login: 'me' }),
+      getHeadSha: async () => ok('h1'),
+      listPublished: async () => ok(published({ reviewComments })),
+    }
+    const writer: GitHubWriter = {
+      createReview: async () => (writes.push('review'), ok({ id: 1, url: 'u' })),
+      createIssueComment: async () => (writes.push('create'), ok({ id: 6, url: 'u' })),
+      updateIssueComment: async (_r, id) => ok({ id, url: 'u' }),
+      deleteIssueComment: async () => ok(undefined),
+      createCommitStatus: async () => ok(undefined),
+      resolveThreads: async (_r, ids) => (writes.push(`resolve:${ids.join(',')}`), ok(ids.length)),
+    }
+    const r = report([finding(1)])
+    const prior = readPrior(published({ reviewComments }), RID, 1)
+    const plan = planPublish(r, { hunks: { 'a.ts': [{ newStart: 1, newLines: 5 }] }, rid: RID, engineMajor: 0, productVersion: '0.1.0', unattended: false, prior })
+    const record = await publish(r, plan, renderPublish(r, plan), { host: 'github.com', owner: 'o', repo: 'r', number: 1 }, { reader, writer, now: () => 0 })
+    expect(writes).toEqual(['review', 'create', 'resolve:21'])
+    expect(record.resolvedThreads).toBe(1)
   })
 })

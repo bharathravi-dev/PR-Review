@@ -316,6 +316,7 @@ export async function preparePublish(
     include: choice.include,
     pending: choice.pending,
     maxInline: minDefined(settings.maxInlineComments, repoMaxInline(report)),
+    minInlineSeverity: stricterSeverity(settings.minInlineSeverity, repoSetting(report, 'minInlineSeverity')),
     extraLinkPrefixes: settings.linkPrefixes,
   })
   return ok({ plan, preview: renderPublish(report, plan) })
@@ -365,6 +366,21 @@ export async function listPullsWithState(
     await Promise.all(Array.from({ length: Math.min(5, pulls.value.length) }, worker))
   }
   return ok(pulls.value.map((p, i) => ({ ...p, reviewed: states[i]! })))
+}
+
+const SEVERITY_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'] as const
+type SeverityName = (typeof SEVERITY_ORDER)[number]
+
+function repoSetting(report: Report, key: string): unknown {
+  return (report.audit.repoConfig?.settings as { publish?: Record<string, unknown> } | undefined)?.publish?.[key]
+}
+
+/** The higher of two inline severity floors: a repository can only reduce noise, never add it (AD-13). */
+function stricterSeverity(user: SeverityName | undefined, repo: unknown): SeverityName | undefined {
+  const r = SEVERITY_ORDER.includes(repo as SeverityName) ? (repo as SeverityName) : undefined
+  if (!user) return r
+  if (!r) return user
+  return SEVERITY_ORDER.indexOf(r) < SEVERITY_ORDER.indexOf(user) ? r : user
 }
 
 /** A repository's comment limit may only lower the user's (AD-13). */

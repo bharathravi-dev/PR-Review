@@ -99,6 +99,11 @@ export interface GitHubWriter {
   createIssueComment(ref: PrRef, body: string): Promise<Result<{ id: number; url: string }>>
   updateIssueComment(ref: PrRef, id: number, body: string): Promise<Result<{ id: number; url: string }>>
   deleteIssueComment(ref: PrRef, id: number): Promise<Result<void>>
+  /**
+   * Resolves the review threads whose first comment has one of these ids (the reviewer's own, fixed findings).
+   * Returns how many were resolved; threads already resolved are skipped.
+   */
+  resolveThreads(ref: PrRef, commentIds: readonly number[]): Promise<Result<number>>
   /** Sets a commit status; informational only, it never changes branch protection (FR-21). */
   createCommitStatus(
     ref: PrRef,

@@ -1,5 +1,5 @@
 import { isInHunk, parsePatch, type Hunk } from './diff.js'
-import type { Finding } from './findings.js'
+import type { Finding, Severity } from './findings.js'
 import { formatMarker, MARKER_VERSION, ownMarker, type MarkerFields } from './marker.js'
 import type { PrRef } from './pr-ref.js'
 import type { GitHubReader, GitHubWriter, InlineComment, PublishedItem, PublishedItems } from './ports.js'
@@ -13,7 +13,7 @@ export const DEFAULT_MAX_INLINE = 30
 /** What this reviewer already published on the PR, read only from own markers (AD-11). */
 export interface PriorPublication {
   /** Inline comments still on the PR, by fingerprint. */
-  inline: Array<{ fingerprint: string; title: string; url?: string | undefined }>
+  inline: Array<{ fingerprint: string; title: string; url?: string | undefined; commentId?: number | undefined }>
   /** 16-hex fingerprint prefixes from the latest own summary (Findings listed only there). */
   summaryPrefixes: string[]
 }
@@ -31,7 +31,7 @@ export function readPrior(items: PublishedItems, rid: number, fpv: number): Prio
     if (!m || m.kind !== 'inline' || m.fpv !== fpv || m.fp === '-') continue
     const first = c.body.split('\n')[0] ?? ''
     const title = first.replace(/^\*\*[^*]*\*\*\s*—\s*/, '').trim() || 'Earlier finding'
-    if (!inline.some((x) => x.fingerprint === m.fp)) inline.push({ fingerprint: m.fp, title, ...(c.url ? { url: c.url } : {}) })
+    if (!inline.some((x) => x.fingerprint === m.fp)) inline.push({ fingerprint: m.fp, title, commentId: c.id, ...(c.url ? { url: c.url } : {}) })
   }
   const summaries = items.issueComments
     .map((c) => ({ c, m: ownMarker(c, rid) }))
@@ -59,6 +59,8 @@ export interface PublishPlan {
   /** Pending (draft) reviews are an Auto-Review mode (FR-20a, Epic 5). */
   pending: boolean
   maxInline: number
+  /** Findings below this severity go to the summary instead of inline (noise control). Default MINOR. */
+  minInlineSeverity: Severity
   /** Fingerprints of Findings the user chose to include; undefined means all eligible. */
   include?: readonly string[] | undefined
   /** Right-side diff hunks per changed file, for inline anchoring (AD-9). */
@@ -92,7 +94,7 @@ export interface PublishPreview {
   /** Findings already posted inline on an earlier head and unchanged (not re-posted). */
   stillOpen: Array<{ finding: Finding; url?: string | undefined }>
   /** Earlier Findings no longer present. */
-  resolved: Array<{ fingerprint: string; title: string; url?: string | undefined }>
+  resolved: Array<{ fingerprint: string; title: string; url?: string | undefined; commentId?: number | undefined }>
 }
 
 export type PublishStatus = 'PUBLISHED' | 'SKIPPED_DUPLICATE' | 'CANCELLED' | 'SKIPPED_NEWER_ENGINE' | 'BLOCKED_PENDING_DRAFT' | 'FAILED'
@@ -104,6 +106,8 @@ export interface PublishRecord {
   summaryUrl?: string | undefined
   pending: boolean
   commentCount: number
+  /** Own review threads resolved because their finding is gone. */
+  resolvedThreads?: number | undefined
   at: string
 }
 
@@ -116,12 +120,13 @@ export function hunksFromContext(ctx: PrContext): Record<string, Hunk[]> {
 
 export function planPublish(
   report: Report,
-  opts: Omit<PublishPlan, 'event' | 'pending' | 'maxInline' | 'allowedLinkPrefixes' | 'prior'> & {
+  opts: Omit<PublishPlan, 'event' | 'pending' | 'maxInline' | 'minInlineSeverity' | 'allowedLinkPrefixes' | 'prior'> & {
     prior?: PriorPublication | undefined
     event?: PublishPlan['event'] | undefined
     /** Leave a pending (draft) review instead of a submitted one (Auto-Review, FR-20a). */
     pending?: boolean | undefined
     maxInline?: number | undefined
+    minInlineSeverity?: Severity | undefined
     extraLinkPrefixes?: readonly string[] | undefined
   },
 ): PublishPlan {
@@ -130,6 +135,7 @@ export function planPublish(
     event: opts.event ?? 'COMMENT',
     pending: opts.pending ?? false,
     maxInline: opts.maxInline ?? DEFAULT_MAX_INLINE,
+    minInlineSeverity: opts.minInlineSeverity ?? 'MINOR',
     include: opts.include,
     hunks: opts.hunks,
     allowedLinkPrefixes: [repoUrl, ...(opts.extraLinkPrefixes ?? [])],
@@ -179,6 +185,28 @@ function source(f: Finding): string {
   return `<sub>Source: ${who} · confidence ${f.confidence.toLowerCase()} · rule \`${f.ruleId}\`</sub>`
 }
 
+const SEVERITIES: readonly Severity[] = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO']
+
+/**
+ * A committable GitHub suggestion for the anchored lines (one click applies it). Skipped when the text could break
+ * out of the fence or is suspiciously large.
+ */
+function suggestionBlock(f: Finding): string[] {
+  const s = f.suggestion
+  if (s === undefined || s.includes('```') || s.length > 4000 || s.split('\n').length > 60) return []
+  return ['', '```suggestion', s.replace(/\n$/, ''), '```']
+}
+
+/** A ready-to-paste prompt for the author's own coding agent (fix without giving the reviewer write access). */
+function agentPrompt(f: Finding, path: string, start: number, end: number): string[] {
+  const lines = start === end ? `line ${start}` : `lines ${start}-${end}`
+  const text = [`In ${path} at ${lines}: ${f.title}.`, f.description, f.recommendation ? `Suggested fix: ${f.recommendation}` : '', 'Make the smallest change that fixes this, and keep the existing behaviour otherwise.']
+    .filter(Boolean)
+    .join(' ')
+    .replace(/`{3,}/g, "'''")
+  return ['', '<details><summary>Prompt for your AI agent</summary>', '', '```text', text, '```', '', '</details>']
+}
+
 /** Renders exactly what will be posted (AD-23): untrusted text sanitised, then the marker appended. */
 export function renderPublish(report: Report, plan: PublishPlan): PublishPreview {
   // Text that came from the PR, tools, or the model is untrusted; our own template is not.
@@ -207,6 +235,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
     const eligible =
       f.fingerprint !== undefined &&
       f.disposition !== 'ADVISORY' &&
+      SEVERITIES.indexOf(f.severity) <= SEVERITIES.indexOf(plan.minInlineSeverity) &&
       f.scope !== 'PRE_EXISTING' &&
       loc.anchorKind === 'LINE' &&
       loc.path !== undefined &&
@@ -229,6 +258,8 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
       f.description,
       ...(f.impact ? ['', `**Why it matters:** ${f.impact}`] : []),
       ...(f.recommendation ? ['', `**Recommendation:** ${f.recommendation}`] : []),
+      ...suggestionBlock(f),
+      ...agentPrompt(f, loc.path!, loc.startLine!, end),
       '',
       source(f),
     ].join('\n')
@@ -244,7 +275,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
 
   const currentFps = report.findings.flatMap(fpsOf)
   const resolved: PublishPreview['resolved'] = [
-    ...plan.prior.inline.filter((p) => !currentFps.includes(p.fingerprint)).map((p) => ({ fingerprint: p.fingerprint, title: clean(p.title), url: p.url })),
+    ...plan.prior.inline.filter((p) => !currentFps.includes(p.fingerprint)).map((p) => ({ fingerprint: p.fingerprint, title: clean(p.title), url: p.url, commentId: p.commentId })),
     ...plan.prior.summaryPrefixes
       .filter((prefix) => !currentFps.some((fp) => fp.startsWith(prefix)))
       .map((prefix) => ({ fingerprint: prefix, title: 'An earlier summary-only finding' })),
@@ -261,6 +292,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
     `Head \`${report.run.headSha?.slice(0, 7) ?? '?'}\` · ${visible.length} finding(s)${counts.length ? ` (${counts.join(', ')})` : ''} · ${inline.length} new inline${stillOpen.length ? ` · ${stillOpen.length} still open` : ''}${resolved.length ? ` · ${resolved.length} resolved` : ''}`,
     '',
     report.coverage.headline,
+    ...walkthroughLines(report, clean),
     ...(report.gate.failedRules.length ? ['', '**Gate:**', ...report.gate.failedRules.map((r) => `- ${clean(r)}`)] : []),
     ...(summaryOnly.length
       ? [
@@ -279,7 +311,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
     ...(withheld ? ['', `_${withheld} finding(s) withheld from this post (deselected or dismissed); the overall result above is unchanged._`] : []),
     ...(report.limitations.length ? ['', '**Limitations:**', ...report.limitations.map((l) => `- ${clean(l)}`)] : []),
     '',
-    `<sub>Generated by PR Reviewer ${plan.productVersion} · AI: ${providers.length ? providers.join(', ') : 'none'} · ${plan.unattended ? 'published automatically' : 'published by the reviewer'}. Findings are suggestions; the reviewer decides.</sub>`,
+    `<sub>Generated by PR Reviewer ${plan.productVersion} · AI: ${providers.length ? providers.join(', ') : 'none'}${costNote(report)} · ${plan.unattended ? 'published automatically' : 'published by the reviewer'}. Findings are suggestions; the reviewer decides.</sub>`,
   ]
   const fps = summaryOnly.flatMap((f) => (f.fingerprint ? [f.fingerprint.slice(0, 16)] : []))
   const summaryBody = `${summaryLines.join('\n')}\n\n${markerFor(report, plan, 'summary', '-', fps)}`
@@ -288,6 +320,35 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
     ? `${summaryLines.join('\n').replace('published by the reviewer', 'left as a pending review for you to edit and submit')}\n\n${markerFor(report, plan, 'review')}`
     : `PR Reviewer: ${inline.length} inline comment(s) for \`${report.run.headSha?.slice(0, 7) ?? '?'}\`. The summary is in the conversation below.\n\n${markerFor(report, plan, 'review')}`
   return { event: plan.event, pending: plan.pending, reviewBody, summaryBody, inline, summaryOnly, withheld, stillOpen, resolved }
+}
+
+/** The AI's walkthrough: overview, effort, and a changed-files table (all model text sanitised). */
+function walkthroughLines(report: Report, clean: (t: string) => string): string[] {
+  const w = report.walkthrough
+  if (!w) return []
+  const cell = (t: string) => clean(t).replace(/\n+/g, ' ').replace(/\|/g, '\\|')
+  const files = w.files.slice(0, 50)
+  return [
+    '',
+    '**Walkthrough**',
+    '',
+    clean(w.summary),
+    ...(w.effort ? ['', `Estimated review effort: ${w.effort}/5`] : []),
+    ...(files.length
+      ? ['', '<details><summary>Changes by file</summary>', '', '| File | Change |', '|---|---|', ...files.map((f) => `| \`${f.path.replace(/[`|\n]/g, '')}\` | ${cell(f.change)} |`), '', '</details>']
+      : []),
+  ]
+}
+
+/** Tokens and cost, so every review shows what it cost (FR-12). */
+function costNote(report: Report): string {
+  const done = (report.ai?.attempts ?? []).filter((a) => a.outcome === 'SUCCEEDED' && a.usage)
+  if (!done.length) return ''
+  const tokens = done.reduce((n, a) => n + (a.usage?.input ?? 0) + (a.usage?.output ?? 0), 0)
+  const cost = done.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0)
+  const plan = done.some((a) => a.billing === 'PLAN')
+  const money = cost > 0 ? `, ${plan ? '≈ ' : ''}$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}${plan ? ' list price, from your plan' : ''}` : ''
+  return ` (${tokens.toLocaleString('en-US')} tokens${money})`
 }
 
 export const COMMIT_STATUS_CONTEXT = 'pr-reviewer'
@@ -397,6 +458,9 @@ export async function publish(report: Report, plan: PublishPlan, preview: Publis
     summary = await ports.writer.createIssueComment(ref, summaryBody)
   }
   if (!summary.ok) return record('FAILED', { reason: summary.error.message, reviewUrl, commentCount })
-  return record(status, { reviewUrl, summaryUrl: summary.value.url, commentCount })
+  // Close our own threads for findings that are gone (best effort; never fails the publish).
+  const fixed = preview.resolved.flatMap((r) => (r.commentId !== undefined ? [r.commentId] : []))
+  const closed = fixed.length ? await ports.writer.resolveThreads(ref, fixed) : undefined
+  return record(status, { reviewUrl, summaryUrl: summary.value.url, commentCount, ...(closed?.ok && closed.value > 0 ? { resolvedThreads: closed.value } : {}) })
 }
 

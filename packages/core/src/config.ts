@@ -1,5 +1,6 @@
 import * as z from 'zod'
 import { AutoReviewSettings } from './auto-review.js'
+import { Severity } from './findings.js'
 import { err, ok, type Result } from './result.js'
 
 /** Named Credential reference; values never live in Configuration (AD-10). */
@@ -71,6 +72,8 @@ export const Settings = z.strictObject({
       /** REQUEST_CHANGES is allowed only in manual runs and only when enabled here (FR-18). */
       allowRequestChanges: z.boolean().optional(),
       maxInlineComments: z.number().int().positive().optional(),
+      /** Findings below this severity are listed in the summary instead of inline (default MINOR). */
+      minInlineSeverity: Severity.optional(),
       /** Extra URL prefixes kept as links in published text (AD-9). */
       linkPrefixes: z.array(z.string()).optional(),
       /** Also set a `pr-reviewer` commit status on the head commit when posting (FR-21). Off by default. */

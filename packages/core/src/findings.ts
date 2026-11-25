@@ -110,6 +110,8 @@ export const Finding = z.strictObject({
   description: z.string(),
   impact: z.string().optional(),
   recommendation: z.string().optional(),
+  /** Exact replacement for the anchored lines (published as a committable suggestion). */
+  suggestion: z.string().optional(),
   evidence: z.string().optional(),
   location: Location,
   commitSha: z.string().optional(),

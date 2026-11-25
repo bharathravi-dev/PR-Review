@@ -69,6 +69,10 @@ export const Report = z.looseObject({
     })
     .optional(),
   rulesChecklist: z.array(z.string()),
+  /** The AI's overview of the PR (untrusted text). */
+  walkthrough: z.object({ summary: z.string(), files: z.array(z.object({ path: z.string(), change: z.string() })), effort: z.number().int().optional() }).optional(),
+  /** Repository guidance files the review read at the base commit. */
+  guidanceFiles: z.array(z.string()).optional(),
   /** Projects the PR touches, with their detected stack (FR-3). */
   projects: z.array(ProjectInfo).optional(),
   /** Present when repository tools ran in a Sandbox (AD-7). */
@@ -189,6 +193,11 @@ export function renderMarkdown(report: Report): string {
   out.push(`# PR review: ${ref}${report.title ? ` — ${report.title}` : ''}`, '')
   out.push(`**Overall: ${report.overallStatus}**  ·  head \`${report.run.headSha?.slice(0, 7) ?? '?'}\``, '')
   out.push(`> ${report.coverage.headline}`, '')
+  if (report.walkthrough) {
+    const w = report.walkthrough
+    out.push('## Walkthrough', '', w.summary, ...(w.effort ? ['', `Estimated review effort: ${w.effort}/5`] : []), '')
+    if (w.files.length) out.push('| File | Change |', '|---|---|', ...w.files.map((f) => `| \`${f.path}\` | ${f.change.replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`), '')
+  }
   if (report.gate.failedRules.length > 0) out.push('## Gate', ...report.gate.failedRules.map((r) => `- ${r}`), '')
 
   if (report.projects?.length) {
@@ -217,6 +226,7 @@ export function renderMarkdown(report: Report): string {
     out.push(`### ${f.severity} · ${f.category} · ${f.title}`, `${where} · ${tags.join(' · ')}`, '', f.description)
     if (f.impact) out.push('', `**Impact:** ${f.impact}`)
     if (f.recommendation) out.push('', `**Recommendation:** ${f.recommendation}`)
+    if (f.suggestion && !f.suggestion.includes('```')) out.push('', 'Suggested change:', '', '```', f.suggestion, '```')
     out.push('')
   }
   if (report.ai) {

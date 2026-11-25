@@ -27,7 +27,8 @@ export const RepoSettings = z.object({
       failOn: Severity.optional(),
     })
     .optional(),
-  publish: z.object({ maxInlineComments: z.number().int().nonnegative().optional() }).optional(),
+  /** Comment limits: a repository may only lower the cap or raise the inline severity floor. */
+  publish: z.object({ maxInlineComments: z.number().int().nonnegative().optional(), minInlineSeverity: Severity.optional() }).optional(),
   /** Optional Validators to turn on, by id. */
   validators: z.object({ enable: z.array(z.string().max(100)).max(50).optional() }).optional(),
   /** false asks automatic reviews to skip this repository (manual reviews still run). */
@@ -40,7 +41,7 @@ const ALLOWED: Record<string, readonly string[] | true> = {
   reviewRules: true,
   paths: ['include', 'exclude'],
   thresholds: ['failOn'],
-  publish: ['maxInlineComments'],
+  publish: ['maxInlineComments', 'minInlineSeverity'],
   validators: ['enable'],
   automatedReview: true,
 }

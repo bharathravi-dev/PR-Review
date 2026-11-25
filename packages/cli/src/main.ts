@@ -27,6 +27,7 @@ import { loadUserConfig, userConfigPath } from './config-file.js'
 import type { CliDeps, CliIo } from './deps.js'
 import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish } from './engine.js'
 import { autoCommand } from './auto.js'
+import { benchCommand } from './bench.js'
 import { initCommand } from './init.js'
 import { startServer } from './serve.js'
 import { startWeb, webConfigProblems } from './web.js'
@@ -47,6 +48,7 @@ Commands:
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
   serve              Open a review page in your browser, served only on this machine
+  bench <dataset>    Measure review quality on PRs with known issues (precision, recall, F1)
   web                Run the self-hosted Web App for a team (configured by environment variables; see the README)
   auto <command>     Automatic reviews of PRs in your account (pr-reviewer auto help)
   context <pr>       Load a PR's context from GitHub
@@ -150,6 +152,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'config') return configCommand(rest, io, deps)
   if (first === 'serve') return serveCommand(rest, io, deps, secrets)
   if (first === 'web') return webCommand(rest, io, deps)
+  if (first === 'bench') return benchCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'init') return initCommand(rest, io, deps, secrets, (m) => usageError(io, m))
   if (first === 'auto') return autoCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
 

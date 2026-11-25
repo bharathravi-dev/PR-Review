@@ -1,4 +1,4 @@
-import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger } from './ai-review.js'
+import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
 import { detectProjects, type ProjectInfo } from './detect.js'
@@ -13,6 +13,7 @@ import type { Finding, LayerId, LayerResult } from './findings.js'
 import type { PrRef } from './pr-ref.js'
 import type { GitHubReader } from './ports.js'
 import { redactContext, type SecretScanOutcome } from './redact.js'
+import { redactText } from './secret.js'
 import { compareFindings, evaluateGate, FPV, Report, type Channel } from './report.js'
 import { DEFAULT_CONTEXT_LIMITS, type ContextLimits, type PrContext } from './schemas.js'
 
@@ -197,6 +198,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   // redact → review
   const aiFindings: Finding[] = []
   let ai: Report['ai']
+  let walkthrough: Walkthrough | undefined
   const redacted = redactContext(ctx, scan)
   if (!redacted.ok) {
     record({ layer: 'AI_REVIEW', validator: 'ai.review', status: 'SKIPPED', reason: 'SECRET_SCAN_UNAVAILABLE', detail: redacted.error.message, durationMs: 0 })
@@ -210,6 +212,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       deterministicFindings: scan.findings,
       rules: input.review?.rules ?? [],
       repoRules,
+      guidance: repoConfig.guidance.map((g) => ({ path: g.path, text: redactText(g.text, scan.values) })),
       now: ports.now,
       channel: input.channel,
       limits: input.costLimits,
@@ -218,6 +221,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     record(outcome.layer)
     aiFindings.push(...outcome.findings)
     limitations.push(...outcome.notes)
+    walkthrough = outcome.walkthrough
     if (outcome.attempts.length > 0) {
       ai = { attempts: outcome.attempts, droppedFindings: { schema: 0, grounding: outcome.dropped }, partial: outcome.partial }
     }
@@ -245,7 +249,8 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     redactions: scan.values.length,
     ...(ai ? { ai } : {}),
     projects: detected.projects,
-    repo: { sha: ctx.baseSha, settings: repoSettings, ignored: repoConfig.ignored, rules: repoRules },
+    repo: { sha: ctx.baseSha, settings: repoSettings, ignored: repoConfig.ignored, rules: repoRules, guidance: repoConfig.guidance.map((g) => g.path) },
+    ...(walkthrough ? { walkthrough } : {}),
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
   })
   return { report, context: ctx }
@@ -363,7 +368,8 @@ async function assemble(a: {
   redactions: number
   ai?: Report['ai']
   projects?: ProjectInfo[]
-  repo?: { sha: string; settings: RepoSettings; ignored: string[]; rules: string[] }
+  repo?: { sha: string; settings: RepoSettings; ignored: string[]; rules: string[]; guidance: string[] }
+  walkthrough?: Walkthrough
   sandbox?: { planHash: string; imageDigest: string; ran: boolean }
 }): Promise<Report> {
   const { input, ctx } = a
@@ -412,6 +418,8 @@ async function assemble(a: {
     ...(a.ai ? { ai: a.ai } : {}),
     rulesChecklist: [...(input.review?.rules ?? []), ...(a.repo?.rules ?? []).map((r) => `(repository) ${r}`)],
     ...(a.projects ? { projects: a.projects } : {}),
+    ...(a.walkthrough ? { walkthrough: a.walkthrough } : {}),
+    ...(a.repo?.guidance.length ? { guidanceFiles: a.repo.guidance } : {}),
     ...(a.sandbox ? { sandbox: a.sandbox } : {}),
     audit: {
       configSources: input.configSources ?? {},
@@ -427,7 +435,7 @@ async function readRepoConfig(
   github: GitHubReader,
   repo: { host: string; owner: string; repo: string },
   sha: string,
-): Promise<ReturnType<typeof parseRepoConfig> & { rules: string[] }> {
+): Promise<ReturnType<typeof parseRepoConfig> & { rules: string[]; guidance: Array<{ path: string; text: string }> }> {
   const text = await github.readFile(repo, REPO_CONFIG_PATH, sha)
   const parsed = text.ok ? parseRepoConfig(text.value) : { settings: {} as RepoSettings, ignored: [], warnings: [`${REPO_CONFIG_PATH} could not be read: ${text.error.message}`] }
   const rules: string[] = []
@@ -439,5 +447,21 @@ async function readRepoConfig(
       else parsed.warnings.push(`Repository rules file ${REPO_RULES_DIR}${name} could not be read.`)
     }
   } else parsed.warnings.push(`Repository rules could not be listed: ${names.error.message}`)
-  return { ...parsed, rules: rules.slice(0, 200) }
+  // Guidance teams already keep for coding agents and other reviewers, read at the base commit only (AD-13).
+  const guidance: Array<{ path: string; text: string }> = []
+  let budget = GUIDANCE_TOTAL
+  for (const path of GUIDANCE_FILES) {
+    if (budget <= 0) break
+    const text = await github.readFile(repo, path, sha)
+    if (!text.ok || !text.value?.trim()) continue
+    const capped = text.value.length > Math.min(GUIDANCE_EACH, budget) ? `${text.value.slice(0, Math.min(GUIDANCE_EACH, budget))}\n[…truncated]` : text.value
+    budget -= capped.length
+    guidance.push({ path, text: capped })
+  }
+  return { ...parsed, rules: rules.slice(0, 200), guidance }
 }
+
+/** Repository guidance files other reviewers and coding agents read, in priority order. */
+export const GUIDANCE_FILES = ['REVIEW.md', '.github/REVIEW.md', 'AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', '.cursor/BUGBOT.md', '.gemini/styleguide.md', '.coderabbit.yaml']
+const GUIDANCE_EACH = 12_000
+const GUIDANCE_TOTAL = 32_000
