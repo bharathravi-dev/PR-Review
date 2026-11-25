@@ -15,7 +15,8 @@
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "static"
   ],
   "engines": {
     "node": ">=22"

@@ -1,6 +1,7 @@
 import { runAiReview, type ReviewProvider } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
+import { runEventEmitter, type EventSink } from './events.js'
 import { applyDismissals, ownInlineComments, readDismissals } from './feedback.js'
 import { fetchContext } from './fetch-context.js'
 import type { Finding, LayerId, LayerResult } from './findings.js'
@@ -43,7 +44,11 @@ export interface ReviewInput {
   configSources?: Record<string, string>
   /** Notes from earlier stages (e.g. unreadable Review Rules) to report as limitations. */
   limitations?: readonly string[]
-  onLayer?: (layer: LayerResult) => void
+  onLayer?: ((layer: LayerResult) => void) | undefined
+  /** Run id to use (a remote engine assigns it before the run starts); defaults to a new UUIDv7. */
+  runId?: string | undefined
+  /** Receives the run's progress events (AD-16). */
+  onEvent?: EventSink | undefined
 }
 
 /** configHash = H(review-affecting settings, defaults omitted) (AD-12). */
@@ -75,27 +80,41 @@ export async function runReview(input: ReviewInput, ports: EnginePorts): Promise
 /** Like `runReview`, also returning the PR context the Report was built from (used to plan a publish). */
 export async function runReviewWithContext(input: ReviewInput, ports: EnginePorts): Promise<{ report: Report; context?: PrContext }> {
   const startedAt = ports.now()
+  const runId = input.runId ?? uuidv7(startedAt)
+  const emit = runEventEmitter(runId, ports.now, input.onEvent)
   const layers: LayerResult[] = []
   const limitations: string[] = [...(input.limitations ?? [])]
   const record = (l: LayerResult) => {
     layers.push(l)
     input.onLayer?.(l)
+    emit('LAYER_STATUS', { layer: l.layer, validator: l.validator, status: l.status, ...(l.reason ? { reason: l.reason } : {}), ...(l.detail ? { detail: l.detail } : {}) })
+  }
+  const finish = async (a: Omit<Parameters<typeof assemble>[0], 'input' | 'ports' | 'startedAt' | 'configHash' | 'runId'>): Promise<Report> => {
+    emit('STAGE_STARTED', { stage: 'gate' })
+    const report = await assemble({ input, ports, startedAt, configHash, runId, ...a })
+    emit('STAGE_FINISHED', { stage: 'gate' })
+    emit('DONE', { overallStatus: report.overallStatus, findings: report.findings.length })
+    return report
   }
   const configHash = await computeConfigHash(input.review)
 
+  emit('STAGE_STARTED', { stage: 'fetchContext', pr: `${input.ref.owner}/${input.ref.repo}#${input.ref.number}` })
   const t0 = ports.now()
   const ctxRes = await fetchContext(ports.github, input.ref, input.limits ?? DEFAULT_CONTEXT_LIMITS)
   if (!ctxRes.ok) {
     record({ layer: 'CONTEXT', validator: 'github.context', status: 'ERROR', reason: 'TOOL_CRASHED', detail: ctxRes.error.message, durationMs: elapsed(ports, t0) })
-    return { report: await assemble({ input, ports, startedAt, configHash, layers, findings: [], limitations, redactions: 0 }) }
+    emit('STAGE_FINISHED', { stage: 'fetchContext', ok: false })
+    return { report: await finish({ layers, findings: [], limitations, redactions: 0 }) }
   }
   const ctx = ctxRes.value
   record({ layer: 'CONTEXT', validator: 'github.context', status: 'PASSED', durationMs: elapsed(ports, t0) })
+  emit('STAGE_FINISHED', { stage: 'fetchContext', ok: true, title: ctx.title, headSha: ctx.headSha, files: ctx.files.length })
   limitations.push(...ctx.truncated)
 
   // detect, plan: technology detection and Validator selection arrive with Epic 4.
 
   // execute (deterministic and file-only Validators)
+  emit('STAGE_STARTED', { stage: 'execute' })
   let scan: ReturnType<SecretScanner>
   try {
     scan = ports.scanSecrets(ctx)
@@ -108,6 +127,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     }
   }
   record(scan.layer)
+  emit('STAGE_FINISHED', { stage: 'execute' })
 
   // redact → review
   const aiFindings: Finding[] = []
@@ -118,6 +138,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   } else if (!ports.provider) {
     record({ layer: 'AI_REVIEW', validator: 'ai.review', status: 'SKIPPED', reason: 'PROVIDER_UNAVAILABLE', detail: ports.providerUnavailableReason ?? 'No AI Provider is configured.', durationMs: 0 })
   } else {
+    emit('STAGE_STARTED', { stage: 'review', provider: ports.provider.id, ...(input.review?.model ? { model: input.review.model } : {}) })
     const outcome = await runAiReview(redacted.value, ports.provider, {
       deterministicFindings: scan.findings,
       rules: input.review?.rules ?? [],
@@ -138,8 +159,10 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       droppedFindings: { schema: 0, grounding: outcome.dropped },
       partial: false,
     }
+    emit('STAGE_FINISHED', { stage: 'review', status: outcome.layer.status })
   }
 
+  emit('STAGE_STARTED', { stage: 'dedupe' })
   const normalized = normalize(ctx, [...scan.findings, ...aiFindings])
   let deduped = await dedupe(ctx, normalized)
 
@@ -149,7 +172,9 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     if (feedback.ok) deduped = applyDismissals(deduped, feedback.dismissals)
     else limitations.push(`Finding feedback could not be read: ${feedback.reason}`)
   }
-  const report = await assemble({ input, ports, startedAt, configHash, ctx, layers, findings: deduped, limitations, redactions: scan.values.length, ...(ai ? { ai } : {}) })
+  emit('STAGE_FINISHED', { stage: 'dedupe' })
+  emit('FINDING_COUNT', { count: deduped.length, dismissed: deduped.filter((f) => f.dismissed).length })
+  const report = await finish({ ctx, layers, findings: deduped, limitations, redactions: scan.values.length, ...(ai ? { ai } : {}) })
   return { report, context: ctx }
 }
 
@@ -254,6 +279,7 @@ async function assemble(a: {
   ports: EnginePorts
   startedAt: number
   configHash: string
+  runId: string
   ctx?: PrContext
   layers: LayerResult[]
   findings: Finding[]
@@ -279,7 +305,7 @@ async function assemble(a: {
   return Report.parse({
     schemaVersion: 1,
     run: {
-      id: uuidv7(a.startedAt),
+      id: a.runId,
       ...(idempotencyKey ? { idempotencyKey } : {}),
       host: input.ref.host,
       repo: { ...(ctx?.repoId !== undefined ? { id: ctx.repoId } : {}), fullName: `${input.ref.owner}/${input.ref.repo}`.toLowerCase() },

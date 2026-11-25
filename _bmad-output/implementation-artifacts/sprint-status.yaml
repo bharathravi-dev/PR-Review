@@ -93,3 +93,9 @@ development_status:
   7-2-findings-in-context-and-publish: backlog
   7-3-connected-mode: backlog
   epic-7-retrospective: optional
+
+  epic-8: done
+  8-1-start-the-local-review-page-and-run-a-review: done
+  8-2-pick-findings-and-post-from-the-page: done
+  8-3-pick-an-open-pr-from-the-page: done
+  epic-8-retrospective: optional

@@ -186,6 +186,10 @@ A team self-hosts the Web App; members sign in with GitHub, paste a PR link, wat
 A user installs the browser extension and reviews the PR they're looking at — Standalone with their own key, or Connected to their Web App or local CLI.
 **FRs covered:** FR36, FR37, FR38
 
+### Epic 8: Review from a local page on my machine (Release 1, pulled ahead by course correction 2026-11-25)
+A user runs `pr-reviewer serve`, opens a page on their own machine, pastes a PR link or picks an open PR, watches the run, reads the Report, and posts the Findings they select — using the CLI's own credentials and configuration. The server is the CLI companion of AD-16 and implements `ReviewService v1`, so the extension's Connected mode (Story 7.3) reuses it.
+**FRs covered:** FR23, FR25 (in the page), and the single-user local form of FR31, FR32, FR33
+
 ## Epic 1: Review a PR from my terminal
 
 A user installs the CLI, points it at any GitHub PR, and gets a trustworthy Report (Markdown and JSON) from an AI review grounded in the PR's real context — with secrets redacted and the AI unable to act.
@@ -786,3 +790,55 @@ So that I get full reviews including tool checks.
 **Given** a backend URL or a paired local CLI companion (loopback, pairing token, origin check)
 **When** the user reviews in Connected mode
 **Then** the backend runs the full engine and the panel shows the same Report (FR37)
+
+## Epic 8: Review from a local page on my machine
+
+Course correction (2026-11-25): the user asked for a UI before Epics 3–4. A local page served by the CLI gives that without hosting, sign-in, or server-side keys (Epic 6 still covers the hosted Web App). Stories follow AD-16 (`ReviewService v1`, CLI companion rules) and AD-23 (preview equals post).
+
+### Story 8.1: Start the local review page and run a review
+
+As a user,
+I want to run `pr-reviewer serve`, paste a PR link in a page, and watch the review,
+So that I can review PRs without reading terminal output.
+
+**Acceptance Criteria:**
+
+**Given** `pr-reviewer serve [--port n] [--open]`
+**When** it starts
+**Then** it binds `127.0.0.1` only, creates a ≥ 128-bit token per launch, and prints the page URL carrying the token in the fragment
+**And** every `/v1` request without the bearer token gets 401, a non-loopback Host or a foreign Origin gets 403, and no response carries CORS headers
+
+**Given** the page and a PR reference
+**When** the user starts a review
+**Then** `POST /v1/runs` starts the same engine the `review` command runs, `GET /v1/runs/:id/events` streams core `RunEvent`s (resumable via `Last-Event-ID`), and `GET /v1/runs/:id/report` returns the Report (JSON or Markdown)
+**And** the page shows the GitHub identity and AI provider readiness, layer progress, Overall Status, coverage, checks, Findings, and limitations, rendering untrusted text as text only, and every response is redacted of resolved Credentials
+
+### Story 8.2: Pick Findings and post from the page
+
+As a user,
+I want to choose which Findings to post, preview exactly what will be posted, and post it,
+So that only what I agree with reaches the PR.
+
+**Acceptance Criteria:**
+
+**Given** a finished run
+**When** the user selects Findings and an event and asks for a preview
+**Then** `POST /v1/runs/:id/publish` with `dryRun` returns the rendered preview and its digest; the server derives Reviewer Identity, hunks, and prior publication itself (the body carries only `event`, `include`, `dryRun`, `previewDigest`)
+
+**Given** a preview
+**When** the user posts
+**Then** the server re-renders and publishes only if the digest still matches, else answers 409 with the new preview; the result links to the review and summary, and the commit status is set when configured
+**And** REQUEST_CHANGES is offered only when `publish.allowRequestChanges` is set
+
+### Story 8.3: Pick an open PR from the page
+
+As a user,
+I want to list a repository's open PRs in the page with whether I reviewed their latest commit,
+So that I can start a review with one click.
+
+**Acceptance Criteria:**
+
+**Given** a repository reference
+**When** the user lists it
+**Then** `GET /v1/pulls?repo=` returns open PRs with their reviewed state (as `list` does), and choosing one starts a review
+

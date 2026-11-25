@@ -1,68 +1,38 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   DEFAULT_CONTEXT_LIMITS,
   EXIT_CODES,
-  err,
   fetchContext,
-  ok,
-  hunksFromContext,
   feedbackStats,
   FPV,
   ownInlineComments,
   parseRepoRef,
-  planPublish,
-  publish,
-  readPrior,
-  reviewedState,
-  setCommitStatus,
   renderMarkdown,
-  renderPublish,
-  runReviewWithContext,
   formatPrRef,
   parsePrRef,
   redactText,
   resolveSettings,
-  type CredentialResolver,
   type OverallStatus,
   type PrContext,
   type PublishPreview,
   type ResolvedConfig,
-  type Result,
-  type ReviewProvider,
   type Secret,
 } from '@pr-reviewer/core'
-import { apiUrlForHost, createAnthropicProvider, createCredentialResolver, createGitHub, secretScanner } from './compose.js'
+import { createCredentialResolver } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
-import { loadReviewRules } from './rules-loader.js'
+import type { CliDeps, CliIo } from './deps.js'
+import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish } from './engine.js'
+import { startServer } from './serve.js'
+import { VERSION } from './version.js'
 
-/** Output sinks for the CLI; injected so tests don't touch the real process. */
-export interface CliIo {
-  stdout: (text: string) => void
-  stderr: (text: string) => void
-}
-
-/** Effects the composition root needs; defaults come from the real process. */
-export interface CliDeps {
-  env: Readonly<Record<string, string | undefined>>
-  fetch: typeof fetch
-  platform: string
-  homedir: string
-  credentials: CredentialResolver
-  /** Whether stdin is an interactive terminal (confirmation prompts need one). */
-  isTTY: boolean
-  /** Asks a question on the terminal and resolves with the answer. */
-  prompt: (question: string) => Promise<string>
-}
+export type { CliDeps, CliIo } from './deps.js'
 
 /** Exit code for configuration errors (sysexits EX_CONFIG; in the 64+ usage range). */
 const EXIT_CONFIG = 78
-
-const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-  version: string
-}
 
 const USAGE = `Usage: pr-reviewer <command> [options]
 
@@ -72,6 +42,7 @@ Commands:
   review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
+  serve              Open a review page in your browser, served only on this machine
   context <pr>       Load a PR's context from GitHub
   config show        Print the resolved configuration and where each value came from
   config path        Print the user config file location
@@ -106,6 +77,10 @@ stats options:
 
 Dismiss a finding by reacting 👎 to its comment or replying "/dismiss"; it won't be posted again.
 
+serve options:
+  --port <n>         Port on 127.0.0.1 (default: any free port)
+  --open             Open the page in your default browser
+
 context options:
   --json             Print the full context as JSON
   --api-url <url>    GitHub API base URL (overrides config)
@@ -127,6 +102,8 @@ export async function main(argv: readonly string[], rawIo: CliIo, deps: Partial<
     credentials: deps.credentials ?? createCredentialResolver(env),
     isTTY: deps.isTTY ?? false,
     prompt: deps.prompt ?? (async () => ''),
+    openUrl: deps.openUrl ?? openInBrowser,
+    untilStopped: deps.untilStopped ?? untilSignal,
   }
   // Every byte the CLI prints passes through redaction of resolved Credentials (AD-10, NFR-2).
   const secrets: Secret[] = []
@@ -151,7 +128,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   }
   if (first === '-v' || first === '--version') {
     if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}`)
-    io.stdout(`${pkg.version}\n`)
+    io.stdout(`${VERSION}\n`)
     return EXIT_CODES.passed
   }
   if (first === 'context') return contextCommand(rest, io, deps, secrets)
@@ -159,6 +136,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'list') return listCommand(rest, io, deps, secrets)
   if (first === 'stats') return statsCommand(rest, io, deps, secrets)
   if (first === 'config') return configCommand(rest, io, deps)
+  if (first === 'serve') return serveCommand(rest, io, deps, secrets)
 
   const kind = first.startsWith('-') ? 'option' : 'command'
   return usageError(io, `Unknown ${kind}: ${first}`)
@@ -223,16 +201,7 @@ async function contextCommand(args: string[], io: CliIo, deps: CliDeps, secrets:
   const ref = parsePrRef(input, gh.host ?? 'github.com')
   if (!ref.ok) return usageError(io, ref.error.message)
 
-  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host: ref.value.host })
-  if (token.ok) secrets.push(token.value)
-
-  const sameHost = ref.value.host === (gh.host ?? 'github.com')
-  const { reader } = createGitHub({
-    apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(ref.value.host),
-    token: token.ok ? token.value.reveal() : undefined,
-    fetch: deps.fetch,
-    userAgent: `pr-reviewer/${pkg.version}`,
-  })
+  const { reader } = await connectGitHub(config, deps, secrets, ref.value.host, { viewer: false })
   const res = await fetchContext(reader, ref.value, DEFAULT_CONTEXT_LIMITS)
   if (!res.ok) {
     io.stderr(`Could not load ${formatPrRef(ref.value)}: ${res.error.message}\n`)
@@ -296,60 +265,26 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   const ref = parsePrRef(input, gh.host ?? 'github.com')
   if (!ref.ok) return usageError(io, ref.error.message)
 
-  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host: ref.value.host })
-  if (token.ok) secrets.push(token.value)
-  const sameHost = ref.value.host === (gh.host ?? 'github.com')
-  const github = createGitHub({
-    apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(ref.value.host),
-    token: token.ok ? token.value.reveal() : undefined,
-    fetch: deps.fetch,
-    userAgent: `pr-reviewer/${pkg.version}`,
-  })
-
   // The Reviewer Identity is part of the idempotency key (AD-11) and lets the review honour Finding feedback.
   // Posting requires it; plain reviews use it when a token is available.
-  let reviewerId: number | undefined
-  if (post && !token.ok) {
-    io.stderr(`Cannot post: ${token.error.message}\n`)
+  const github = await connectGitHub(config, deps, secrets, ref.value.host)
+  if (post && !github.viewer) {
+    io.stderr(`Cannot post: ${github.tokenError ?? github.viewerError}\n`)
     return EXIT_CODES.error
   }
-  if (token.ok) {
-    const viewer = await github.reader.viewer()
-    if (viewer.ok) reviewerId = viewer.value.id
-    else if (post) {
-      io.stderr(`Cannot post: ${viewer.error.message}\n`)
-      return EXIT_CODES.error
-    }
-  }
 
-  const provider = await buildProvider(config, parsed.values.provider, parsed.values.model, deps, secrets)
-  const providerName = parsed.values.provider ?? config.settings.defaultProvider ?? 'anthropic'
-  const rules = await loadReviewRules(config.settings.reviewRules ?? [], { configPath: userConfigPath(deps), homedir: deps.homedir, fetch: deps.fetch })
-  for (const w of rules.warnings) io.stderr(`warning: ${w}\n`)
-  io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`)
-  const { report, context } = await runReviewWithContext(
-    {
-      ref: ref.value,
-      engineVersion: pkg.version,
-      channel: 'CLI',
-      review: {
-        provider: providerName === 'anthropic' ? undefined : providerName,
-        model: parsed.values.model ?? config.settings.providers?.[providerName]?.model,
-        rules: rules.rules,
-      },
-      reviewerId,
-      configSources: config.sources,
-      limitations: rules.warnings,
-      onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
-    },
-    {
-      github: github.reader,
-      scanSecrets: secretScanner,
-      provider: provider.ok ? provider.value : undefined,
-      providerUnavailableReason: provider.ok ? undefined : provider.error.message,
-      now: () => Date.now(),
-    },
-  )
+  const { report, context } = await executeReview({
+    config,
+    deps,
+    secrets,
+    ref: ref.value,
+    github,
+    provider: parsed.values.provider,
+    model: parsed.values.model,
+    onWarning: (w) => io.stderr(`warning: ${w}\n`),
+    beforeRun: () => io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`),
+    onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
+  })
 
   const markdown = renderMarkdown(report)
   if (parsed.values.out) {
@@ -364,28 +299,20 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   const reviewCode = code === EXIT_CODES.passedWithWarnings && parsed.values['warnings-ok'] ? EXIT_CODES.passed : code
   if (!post) return reviewCode
 
-  if (!context || reviewerId === undefined) {
+  if (!context) {
     io.stderr('Nothing was posted: the PR could not be loaded.\n')
     return EXIT_CODES.publishFailed
   }
   // What was already published comes only from own markers (AD-11), read before rendering so the preview is exact.
-  const published = await github.reader.listPublished(ref.value)
-  if (!published.ok) {
-    io.stderr(`Nothing was posted: ${published.error.message}\n`)
+  const prepared = await preparePublish(report, context, ref.value, github, config, {
+    event,
+    unattended: parsed.values.yes === true && !deps.isTTY,
+  })
+  if (!prepared.ok) {
+    io.stderr(`Nothing was posted: ${prepared.error.message}\n`)
     return EXIT_CODES.publishFailed
   }
-  const plan = planPublish(report, {
-    prior: readPrior(published.value, reviewerId, report.run.fpv),
-    hunks: hunksFromContext(context),
-    rid: reviewerId,
-    engineMajor: Number(pkg.version.split('.')[0]) || 0,
-    productVersion: pkg.version,
-    unattended: parsed.values.yes === true && !deps.isTTY,
-    event,
-    maxInline: publishSettings.maxInlineComments,
-    extraLinkPrefixes: publishSettings.linkPrefixes,
-  })
-  const preview = renderPublish(report, plan)
+  const { plan, preview } = prepared.value
   io.stderr(formatPreview(formatPrRef(ref.value), preview))
 
   if (!parsed.values.yes) {
@@ -396,13 +323,10 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
     }
   }
 
-  const record = await publish(report, plan, preview, ref.value, { reader: github.reader, writer: github.writer, now: () => Date.now() })
-  if (publishSettings.commitStatus && (record.status === 'PUBLISHED' || record.status === 'SKIPPED_DUPLICATE')) {
-    const status = await setCommitStatus(report, ref.value, github.writer, record.summaryUrl)
-    if (status.outcome === 'SET') io.stderr(`Set the "pr-reviewer" commit status on ${report.run.headSha?.slice(0, 7)}.\n`)
-    else if (status.outcome === 'SKIPPED_NO_PERMISSION') io.stderr('Commit status skipped: the token cannot set statuses on this repository.\n')
-    else if (status.outcome === 'FAILED') io.stderr(`Commit status not set: ${status.reason}\n`)
-  }
+  const { record, commitStatus: status } = await performPublish(report, plan, preview, ref.value, github, config)
+  if (status?.outcome === 'SET') io.stderr(`Set the "pr-reviewer" commit status on ${report.run.headSha?.slice(0, 7)}.\n`)
+  else if (status?.outcome === 'SKIPPED_NO_PERMISSION') io.stderr('Commit status skipped: the token cannot set statuses on this repository.\n')
+  else if (status?.outcome === 'FAILED') io.stderr(`Commit status not set: ${status.reason}\n`)
   const where = [record.reviewUrl && `review: ${record.reviewUrl}`, record.summaryUrl && `summary: ${record.summaryUrl}`].filter(Boolean).join('\n  ')
   if (record.status === 'PUBLISHED') {
     const extra = [preview.stillOpen.length && `${preview.stillOpen.length} still open`, preview.resolved.length && `${preview.resolved.length} resolved`].filter(Boolean).join(', ')
@@ -434,26 +358,6 @@ function formatPreview(pr: string, preview: PublishPreview): string {
   return `${lines.join('\n')}\n`
 }
 
-/** Chooses the AI Provider from flags and Configuration. Only Anthropic is wired in this release (Epic 3 adds the rest). */
-async function buildProvider(
-  config: ResolvedConfig,
-  providerFlag: string | undefined,
-  modelFlag: string | undefined,
-  deps: CliDeps,
-  secrets: Secret[],
-): Promise<Result<ReviewProvider>> {
-  const name = providerFlag ?? config.settings.defaultProvider ?? 'anthropic'
-  const entry = config.settings.providers?.[name] ?? (name === 'anthropic' ? { type: 'anthropic' as const } : undefined)
-  if (!entry) return err('provider_unknown', `AI provider "${name}" is not defined in the user config.`)
-  if (entry.type !== 'anthropic' && entry.type !== 'anthropic-compatible') {
-    return err('provider_unsupported', `AI provider type "${entry.type}" is not available in this release yet.`)
-  }
-  const key = await deps.credentials.resolve(entry.credential ?? 'provider:anthropic')
-  if (!key.ok) return err('provider_credential_missing', key.error.message)
-  secrets.push(key.value)
-  return ok(createAnthropicProvider({ apiKey: key.value, model: modelFlag ?? entry.model, baseUrl: entry.baseUrl, fetch: deps.fetch }))
-}
-
 const STATE_LABEL = { CURRENT: 'reviewed', OUTDATED: 'outdated', NONE: '-', UNKNOWN: '?' } as const
 
 async function listCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
@@ -478,49 +382,26 @@ async function listCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Se
   const repo = parseRepoRef(input, gh.host ?? 'github.com')
   if (!repo.ok) return usageError(io, repo.error.message)
 
-  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host: repo.value.host })
-  if (token.ok) secrets.push(token.value)
-  const sameHost = repo.value.host === (gh.host ?? 'github.com')
-  const { reader } = createGitHub({
-    apiUrl: (sameHost ? gh.apiUrl : undefined) ?? apiUrlForHost(repo.value.host),
-    token: token.ok ? token.value.reveal() : undefined,
-    fetch: deps.fetch,
-    userAgent: `pr-reviewer/${pkg.version}`,
-  })
-
-  const pulls = await reader.listOpenPulls(repo.value, limit)
+  // Reviewed state needs the Reviewer Identity; without a token the column shows "?".
+  const github = await connectGitHub(config, deps, secrets, repo.value.host)
+  const rid = github.viewer?.id
+  const pulls = await listPullsWithState(github.reader, repo.value, limit, rid)
   if (!pulls.ok) {
     io.stderr(`Could not list PRs for ${repo.value.owner}/${repo.value.repo}: ${pulls.error.message}\n`)
     return EXIT_CODES.error
   }
-  // Reviewed state needs the Reviewer Identity; without a token the column shows "?".
-  const viewer = token.ok ? await reader.viewer() : undefined
-  const rid = viewer?.ok ? viewer.value.id : undefined
-  const states: Array<keyof typeof STATE_LABEL> = pulls.value.map(() => 'UNKNOWN')
-  if (rid !== undefined) {
-    let nextIndex = 0
-    const worker = async () => {
-      while (nextIndex < pulls.value.length) {
-        const i = nextIndex++
-        const p = pulls.value[i]!
-        const items = await reader.listPublished({ ...repo.value, number: p.number })
-        states[i] = items.ok ? reviewedState(items.value, rid, p.headSha) : 'UNKNOWN'
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(5, pulls.value.length) }, worker))
-  }
 
   if (parsed.values.json) {
-    io.stdout(`${JSON.stringify(pulls.value.map((p, i) => ({ ...p, reviewed: states[i] })), null, 2)}\n`)
+    io.stdout(`${JSON.stringify(pulls.value, null, 2)}\n`)
     return EXIT_CODES.passed
   }
   if (pulls.value.length === 0) {
     io.stdout(`No open PRs in ${repo.value.owner}/${repo.value.repo}.\n`)
     return EXIT_CODES.passed
   }
-  const rows = pulls.value.map((p, i) => [
+  const rows = pulls.value.map((p) => [
     `#${p.number}`,
-    STATE_LABEL[states[i]!],
+    STATE_LABEL[p.reviewed],
     p.headSha.slice(0, 7),
     p.author,
     `${p.draft ? '[draft] ' : ''}${p.title.replace(/\s+/g, ' ')}`,
@@ -563,19 +444,16 @@ async function statsCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
   const repo = parsed.values.repo ? parseRepoRef(parsed.values.repo, host) : undefined
   if (repo && !repo.ok) return usageError(io, repo.error.message)
 
-  const token = await deps.credentials.resolve(gh.credential ?? 'github', { host })
-  if (!token.ok) {
-    io.stderr(`stats needs a GitHub token: ${token.error.message}\n`)
+  const { reader, tokenError, viewer: me, viewerError } = await connectGitHub(config, deps, secrets, host)
+  if (tokenError) {
+    io.stderr(`stats needs a GitHub token: ${tokenError}\n`)
     return EXIT_CODES.error
   }
-  secrets.push(token.value)
-  const { reader } = createGitHub({ apiUrl: gh.apiUrl ?? apiUrlForHost(host), token: token.value.reveal(), fetch: deps.fetch, userAgent: `pr-reviewer/${pkg.version}` })
-  const viewer = await reader.viewer()
-  if (!viewer.ok) {
-    io.stderr(`Could not identify you on GitHub: ${viewer.error.message}\n`)
+  if (!me) {
+    io.stderr(`Could not identify you on GitHub: ${viewerError}\n`)
     return EXIT_CODES.error
   }
-  const pulls = await reader.searchCommentedPulls(viewer.value.login, sinceText, repo?.ok ? repo.value : undefined)
+  const pulls = await reader.searchCommentedPulls(me.login, sinceText, repo?.ok ? repo.value : undefined)
   if (!pulls.ok) {
     io.stderr(`Could not search PRs: ${pulls.error.message}\n`)
     return EXIT_CODES.error
@@ -586,13 +464,13 @@ async function statsCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
     const ref = { host, owner: p.owner, repo: p.repo, number: p.number }
     const published = await reader.listPublished(ref)
     if (!published.ok) continue
-    const own = ownInlineComments(published.value, viewer.value.id, FPV)
+    const own = ownInlineComments(published.value, me.id, FPV)
     const thumbs = new Map<number, string[]>()
     for (const c of own) {
       const t = await reader.listThumbsDown(ref, c.id)
       if (t.ok) thumbs.set(c.id, t.value)
     }
-    const st = feedbackStats(published.value, viewer.value.id, FPV, p.author, thumbs)
+    const st = feedbackStats(published.value, me.id, FPV, p.author, thumbs)
     if (st.posted + st.summaryOnly > 0) rows.push({ pr: `${p.owner}/${p.repo}#${p.number}`, title: p.title, ...st })
   }
   const total = rows.reduce(
@@ -600,7 +478,7 @@ async function statsCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
     { posted: 0, resolved: 0, dismissed: 0, open: 0, summaryOnly: 0 },
   )
   if (parsed.values.json) {
-    io.stdout(`${JSON.stringify({ since: sinceText, reviewer: viewer.value.login, prs: rows, total }, null, 2)}\n`)
+    io.stdout(`${JSON.stringify({ since: sinceText, reviewer: me.login, prs: rows, total }, null, 2)}\n`)
     return EXIT_CODES.passed
   }
   if (rows.length === 0) {
@@ -609,7 +487,7 @@ async function statsCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
   }
   const pct = (n: number) => (total.posted ? ` (${Math.round((100 * n) / total.posted)}%)` : '')
   const lines = [
-    `Reviews by ${viewer.value.login} since ${sinceText}: ${rows.length} PR(s)`,
+    `Reviews by ${me.login} since ${sinceText}: ${rows.length} PR(s)`,
     '',
     ...rows.map((r) => `  ${r.pr.padEnd(36)} posted ${String(r.posted).padStart(3)}  resolved ${String(r.resolved).padStart(3)}  dismissed ${String(r.dismissed).padStart(3)}  open ${String(r.open).padStart(3)}  summary-only ${r.summaryOnly}`),
     '',
@@ -648,6 +526,60 @@ function configCommand(args: string[], io: CliIo, deps: CliDeps): number {
   }
   io.stdout(`${lines.join('\n')}\n`)
   return EXIT_CODES.passed
+}
+
+async function serveCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, open: { type: 'boolean' }, profile: { type: 'string' } } })
+  } catch (e) {
+    return usageError(io, (e as Error).message)
+  }
+  const port = parsed.values.port === undefined ? 0 : Number(parsed.values.port)
+  if (!Number.isInteger(port) || port < 0 || port > 65535) return usageError(io, '--port must be a whole number from 0 to 65535')
+  const config = resolveConfig(io, deps, parsed.values.profile, {})
+  if (typeof config === 'number') return config
+
+  let server
+  try {
+    server = await startServer({ deps, config, secrets, port, log: (t) => io.stderr(t) })
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    io.stderr(code === 'EADDRINUSE' ? `Port ${port} is in use; pick another with --port, or leave it out to use any free port.\n` : `Could not start the page: ${(e as Error).message}\n`)
+    return EXIT_CODES.error
+  }
+  io.stdout(
+    [
+      'PR Reviewer page is running on this machine only.',
+      `  Open: ${server.pageUrl}`,
+      'The link carries a one-time key; anyone with it can use your GitHub and AI access while this runs. Do not share it.',
+      'Press Ctrl+C to stop.',
+      '',
+    ].join('\n'),
+  )
+  if (parsed.values.open) deps.openUrl(server.pageUrl)
+  await deps.untilStopped()
+  await server.close()
+  io.stderr('Stopped.\n')
+  return EXIT_CODES.passed
+}
+
+/** Opens a URL with the platform's default handler, without a shell. */
+function openInBrowser(url: string): void {
+  const [cmd, args] =
+    process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]]
+  try {
+    spawn(cmd as string, args as string[], { stdio: 'ignore', detached: true }).on('error', () => undefined).unref()
+  } catch {
+    // The URL is printed; opening it is a convenience.
+  }
+}
+
+function untilSignal(): Promise<void> {
+  return new Promise((resolve) => {
+    process.once('SIGINT', () => resolve())
+    process.once('SIGTERM', () => resolve())
+  })
 }
 
 function getPath(obj: unknown, path: string): unknown {

@@ -20,6 +20,9 @@ export * from './sanitize.js'
 export * from './publish.js'
 export * from './feedback.js'
 export * from './rules.js'
+export * from './events.js'
+export * from './service.js'
+export { canonicalJson, hashObject, uuidv7 } from './canonical.js'
 
 /** Version of every persisted or transmitted artefact shape (AD-4). */
 export const SCHEMA_VERSION = 1

@@ -28,11 +28,27 @@ asked to confirm; use `--yes` in scripts.
 | `review <pr>` | Review a PR and print the report (`--out <dir>` for files, `--json`, `--post`) |
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: resolved, dismissed, still open |
+| `serve` | Open a review page in your browser (`--open`, `--port <n>`); see below |
 | `context <pr>` | Show what the review reads from GitHub |
 | `config show` / `config path` | Your resolved settings and where they came from |
 
 Exit codes: 0 passed, 1 passed with warnings (0 with `--warnings-ok`), 2 failed, 3 incomplete, 4 error,
 5 cancelled, 6 post failed or blocked, 64 usage error, 78 configuration error.
+
+## Review from a page in your browser
+
+```sh
+pr-reviewer serve --open
+```
+
+This starts a page on your own machine (`127.0.0.1` only) using the same GitHub login and AI key as the
+CLI. Paste a PR link or list a repository's open PRs, watch the review run, read the findings, tick the
+ones you agree with, preview exactly what will be posted, and press Post. Nothing is posted before that.
+
+The link printed in the terminal carries a one-time key, so only you can use the page while it runs.
+Don't share the link; stop the page with Ctrl+C. The page speaks the `ReviewService v1` API
+(`/v1/runs`, `/v1/runs/:id/events`, `/v1/runs/:id/report`, `/v1/runs/:id/publish`), which the browser
+extension will also use.
 
 ## Configuration
 
