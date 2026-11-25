@@ -285,6 +285,40 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
   return { event: plan.event, pending: plan.pending, reviewBody, summaryBody, inline, summaryOnly, withheld, stillOpen, resolved }
 }
 
+export const COMMIT_STATUS_CONTEXT = 'pr-reviewer'
+
+/** Maps an Overall Status to a commit status (FR-21); CANCELLED sets none. */
+export function commitStatusFor(report: Report): { state: 'success' | 'failure' | 'error'; description: string } | undefined {
+  const n = report.findings.filter((f) => !f.dismissed).length
+  const tail = `${n} finding(s)`
+  switch (report.overallStatus) {
+    case 'PASSED':
+      return { state: 'success', description: `Passed · ${tail}` }
+    case 'PASSED_WITH_WARNINGS':
+      return { state: 'success', description: `Passed with warnings · ${tail}` }
+    case 'FAILED':
+      return { state: 'failure', description: `Failed · ${report.gate.failedRules.length} gate rule(s) · ${tail}` }
+    case 'INCOMPLETE':
+      return { state: 'error', description: 'Incomplete · a required check did not run' }
+    case 'ERROR':
+      return { state: 'error', description: 'Error · the review could not complete' }
+    case 'CANCELLED':
+      return undefined
+  }
+}
+
+export type CommitStatusOutcome = 'SET' | 'NOT_APPLICABLE' | 'SKIPPED_NO_PERMISSION' | 'FAILED'
+
+/** Sets the optional commit status for the Report's head commit through the writer (AD-9). */
+export async function setCommitStatus(report: Report, ref: PrRef, writer: GitHubWriter, targetUrl?: string): Promise<{ outcome: CommitStatusOutcome; reason?: string }> {
+  const status = commitStatusFor(report)
+  if (!status || !report.run.headSha) return { outcome: 'NOT_APPLICABLE' }
+  const res = await writer.createCommitStatus(ref, report.run.headSha, { ...status, context: COMMIT_STATUS_CONTEXT, ...(targetUrl ? { targetUrl } : {}) })
+  if (res.ok) return { outcome: 'SET' }
+  if (res.error.code === 'github_no_write_access') return { outcome: 'SKIPPED_NO_PERMISSION', reason: res.error.message }
+  return { outcome: 'FAILED', reason: res.error.message }
+}
+
 export interface PublishPorts {
   reader: GitHubReader
   writer: GitHubWriter

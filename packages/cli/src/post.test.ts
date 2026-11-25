@@ -11,7 +11,7 @@ const AI_KEY = ['sk-ant-', 'test-', 'key-abcdefghij0123456789'].join('')
 const ME = 4242
 
 /** A stateful fake of the GitHub and Anthropic APIs. */
-function fakeServer(opts: { headAfterReview?: string; headAfterContext?: string } = {}) {
+function fakeServer(opts: { headAfterReview?: string; headAfterContext?: string; statusForbidden?: boolean } = {}) {
   const reviews: Array<{ id: number; user: { id: number; login: string }; body: string; state: string; comments: unknown[]; event: string }> = []
   const comments: Array<{ id: number; user: { id: number; login: string }; body: string; created_at: string }> = []
   const writes: string[] = []
@@ -84,6 +84,13 @@ function fakeServer(opts: { headAfterReview?: string; headAfterContext?: string 
       comments.push({ id, user: { id: ME, login: 'me' }, body: body.body, created_at: '2026-11-25T00:00:00Z' })
       writes.push(`comment:create:${id}`)
       return Response.json({ id, html_url: `https://github.com/octo/app/pull/9#issuecomment-${id}` })
+    }
+    const status = /\/statuses\/([^/]+)$/.exec(url)
+    if (method === 'POST' && status) {
+      if (opts.statusForbidden) return Response.json({ message: 'Resource not accessible by integration' }, { status: 403 })
+      const body = JSON.parse(await req.text())
+      writes.push(`status:${status[1]}:${body.state}:${body.context}:${body.target_url ?? '-'}`)
+      return Response.json({ id: 1 }, { status: 201 })
     }
     const patch = /\/issues\/comments\/(\d+)$/.exec(url)
     if (method === 'PATCH' && patch) {
@@ -204,6 +211,26 @@ describe('review --post', () => {
     expect(r.code).toBe(6)
     expect(r.err).toContain('Not posted (CANCELLED): SUPERSEDED: the PR head moved to head000')
     expect(s.writes).toEqual([])
+  })
+
+  it('sets an optional commit status only when enabled in user config', async () => {
+    const off = fakeServer()
+    await run(['--post', '--yes'], off)
+    expect(off.writes.some((w) => w.startsWith('status:'))).toBe(false)
+
+    const on = fakeServer()
+    const config = configFile('version: 1\npublish:\n  commitStatus: true\n')
+    const r = await run(['--post', '--yes'], on, { config })
+    expect(on.writes).toContain('status:head0002:success:pr-reviewer:https://github.com/octo/app/pull/9#issuecomment-101')
+    expect(r.err).toContain('Set the "pr-reviewer" commit status on head000')
+  })
+
+  it('skips the commit status with a note when the token lacks permission', async () => {
+    const s = fakeServer({ statusForbidden: true })
+    const config = configFile('version: 1\npublish:\n  commitStatus: true\n')
+    const r = await run(['--post', '--yes'], s, { config })
+    expect(r.code).toBe(1)
+    expect(r.err).toContain('Commit status skipped: the token cannot set statuses on this repository.')
   })
 
   it('rejects --yes or --event without --post', async () => {

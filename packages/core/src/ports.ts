@@ -69,6 +69,12 @@ export interface GitHubWriter {
   createIssueComment(ref: PrRef, body: string): Promise<Result<{ id: number; url: string }>>
   updateIssueComment(ref: PrRef, id: number, body: string): Promise<Result<{ id: number; url: string }>>
   deleteIssueComment(ref: PrRef, id: number): Promise<Result<void>>
+  /** Sets a commit status; informational only, it never changes branch protection (FR-21). */
+  createCommitStatus(
+    ref: PrRef,
+    sha: string,
+    status: { state: 'success' | 'failure' | 'error'; description: string; context: string; targetUrl?: string | undefined },
+  ): Promise<Result<void>>
 }
 
 /** Resolves a Credential reference to a value (AD-10). `host` lets GitHub resolvers pick the right login. */

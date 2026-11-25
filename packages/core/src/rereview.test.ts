@@ -114,6 +114,7 @@ describe('publish never touches human comments', () => {
       createIssueComment: async () => (writes.push('create'), ok({ id: 6, url: 'u' })),
       updateIssueComment: async (_r, id) => (writes.push(`update:${id}`), ok({ id, url: 'u' })),
       deleteIssueComment: async (_r, id) => (writes.push(`delete:${id}`), ok(undefined)),
+      createCommitStatus: async () => ok(undefined),
     }
     const r = report([finding(1)])
     const plan = planPublish(r, { hunks: { 'a.ts': [{ newStart: 1, newLines: 5 }] }, rid: RID, engineMajor: 0, productVersion: '0.1.0', unattended: false })

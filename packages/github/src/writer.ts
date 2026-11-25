@@ -36,6 +36,20 @@ export class GitHubPrWriter implements GitHubWriter {
     return res.ok ? ok({ id: res.value.id, url: res.value.html_url }) : res
   }
 
+  async createCommitStatus(
+    ref: PrRef,
+    sha: string,
+    status: { state: 'success' | 'failure' | 'error'; description: string; context: string; targetUrl?: string | undefined },
+  ): Promise<Result<void>> {
+    const res = await this.client.send<unknown>('POST', `${repoPath(ref)}/statuses/${encodeURIComponent(sha)}`, {
+      state: status.state,
+      description: status.description.slice(0, 140),
+      context: status.context,
+      ...(status.targetUrl ? { target_url: status.targetUrl } : {}),
+    })
+    return res.ok ? ok(undefined) : res
+  }
+
   async deleteIssueComment(ref: PrRef, id: number): Promise<Result<void>> {
     const res = await this.client.send<void>('DELETE', `${repoPath(ref)}/issues/comments/${id}`)
     return res.ok ? ok(undefined) : res

@@ -104,6 +104,7 @@ function fakeGitHub(opts: { head?: string; failInlineOnce?: boolean } = {}) {
       writes.push(`updateIssueComment:${id}`)
       return ok({ id, url: `https://github.com/octo/app/pull/7#issuecomment-${id}` })
     },
+    createCommitStatus: async () => ok(undefined),
     deleteIssueComment: async (_ref, id) => {
       comments.splice(comments.findIndex((x) => x.id === id), 1)
       writes.push(`deleteIssueComment:${id}`)
@@ -243,5 +244,18 @@ describe('publish', () => {
     const p = plan(r, { event: 'REQUEST_CHANGES' })
     await publish(r, p, renderPublish(r, p), REF, { ...gh, now: () => 0 })
     expect(gh.writes[0]).toBe('createReview:REQUEST_CHANGES:1')
+  })
+})
+
+describe('commitStatusFor', () => {
+  it('maps the Overall Status to a commit status, and sets none for CANCELLED', async () => {
+    const { commitStatusFor } = await import('./publish.js')
+    const r = (overallStatus: string) => report([finding(1)], { overallStatus, gate: { result: overallStatus, failedRules: ['x'] } })
+    expect(commitStatusFor(r('PASSED'))?.state).toBe('success')
+    expect(commitStatusFor(r('PASSED_WITH_WARNINGS'))).toEqual({ state: 'success', description: 'Passed with warnings · 1 finding(s)' })
+    expect(commitStatusFor(r('FAILED'))).toEqual({ state: 'failure', description: 'Failed · 1 gate rule(s) · 1 finding(s)' })
+    expect(commitStatusFor(r('INCOMPLETE'))?.state).toBe('error')
+    expect(commitStatusFor(r('ERROR'))?.state).toBe('error')
+    expect(commitStatusFor(r('CANCELLED'))).toBeUndefined()
   })
 })

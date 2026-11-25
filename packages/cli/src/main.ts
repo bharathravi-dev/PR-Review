@@ -17,6 +17,7 @@ import {
   publish,
   readPrior,
   reviewedState,
+  setCommitStatus,
   renderMarkdown,
   renderPublish,
   runReviewWithContext,
@@ -392,6 +393,12 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   }
 
   const record = await publish(report, plan, preview, ref.value, { reader: github.reader, writer: github.writer, now: () => Date.now() })
+  if (publishSettings.commitStatus && (record.status === 'PUBLISHED' || record.status === 'SKIPPED_DUPLICATE')) {
+    const status = await setCommitStatus(report, ref.value, github.writer, record.summaryUrl)
+    if (status.outcome === 'SET') io.stderr(`Set the "pr-reviewer" commit status on ${report.run.headSha?.slice(0, 7)}.\n`)
+    else if (status.outcome === 'SKIPPED_NO_PERMISSION') io.stderr('Commit status skipped: the token cannot set statuses on this repository.\n')
+    else if (status.outcome === 'FAILED') io.stderr(`Commit status not set: ${status.reason}\n`)
+  }
   const where = [record.reviewUrl && `review: ${record.reviewUrl}`, record.summaryUrl && `summary: ${record.summaryUrl}`].filter(Boolean).join('\n  ')
   if (record.status === 'PUBLISHED') {
     const extra = [preview.stillOpen.length && `${preview.stillOpen.length} still open`, preview.resolved.length && `${preview.resolved.length} resolved`].filter(Boolean).join(', ')

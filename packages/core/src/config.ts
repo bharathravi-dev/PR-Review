@@ -30,6 +30,8 @@ export const Settings = z.strictObject({
       maxInlineComments: z.number().int().positive().optional(),
       /** Extra URL prefixes kept as links in published text (AD-9). */
       linkPrefixes: z.array(z.string()).optional(),
+      /** Also set a `pr-reviewer` commit status on the head commit when posting (FR-21). Off by default. */
+      commitStatus: z.boolean().optional(),
     })
     .optional(),
 })
