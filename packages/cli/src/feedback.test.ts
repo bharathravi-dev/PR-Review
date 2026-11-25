@@ -104,12 +104,14 @@ describe('Finding feedback (Story 2.5)', () => {
     const s = server()
     await cli(['review', 'octo/app#9', '--post', '--yes'], s)
     let r = await cli(['stats', '--since', '2026-11-01', '--json'], s)
-    expect(JSON.parse(r.out).total).toEqual({ posted: 1, resolved: 0, dismissed: 0, open: 1, summaryOnly: 0 })
+    expect(JSON.parse(r.out)).toMatchObject({ addressedRate: 0, total: { posted: 1, resolved: 0, dismissed: 0, open: 1, summaryOnly: 0, bySource: { AI: { posted: 1, open: 1 } }, bySeverity: { MAJOR: { posted: 1 } } } })
 
     s.state.inline[0]!.line = null
     s.state.inline[0]!.position = null // code changed: GitHub marks the comment outdated
     r = await cli(['stats', '--since', '2026-11-01'], s)
     expect(r.out).toContain('Inline findings posted: 1 — resolved 1 (100%), dismissed 0 (0%), still open 0 (0%).')
+    expect(r.out).toMatch(/major\s+1 posted\s+addressed 100%/)
+    expect(r.out).toMatch(/AI review\s+1 posted\s+addressed 100%/)
     expect((await cli(['stats', '--since', 'yesterday'], s)).code).toBe(64)
   })
 })

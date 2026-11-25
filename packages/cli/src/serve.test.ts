@@ -259,6 +259,12 @@ describe('picking an open PR (Story 8.3)', () => {
     expect(await res.json()).toMatchObject({ repo: 'octo/app', reviewerKnown: true, pulls: [{ number: 9, reviewed: 'NONE' }] })
     expect((await call('/v1/pulls?repo=nope')).status).toBe(400)
   })
+
+  it('checks the stats period and repository before asking GitHub', async () => {
+    const { call } = await start()
+    expect((await call('/v1/stats?days=0')).status).toBe(400)
+    expect((await call('/v1/stats?repo=nope')).status).toBe(400)
+  })
 })
 
 describe('pr-reviewer serve', () => {

@@ -40,6 +40,21 @@
         </form>
         <div id="pulls"></div>
       </details>
+      <details id="stats-box">
+        <summary>How your posted findings fared</summary>
+        <form id="stats-form" class="field-row" autocomplete="off">
+          <label for="stats-days" class="sr-only">Period</label>
+          <select id="stats-days" name="days">
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last year</option>
+          </select>
+          <label for="stats-repo" class="sr-only">Repository (optional)</label>
+          <input id="stats-repo" name="repo" type="text" placeholder="All repositories, or owner/repo" spellcheck="false">
+          <button type="submit" class="btn">Show</button>
+        </form>
+        <div id="stats"></div>
+      </details>
     </section>
 
     <section id="settings" class="card" hidden></section>

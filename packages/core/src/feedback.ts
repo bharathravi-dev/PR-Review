@@ -1,4 +1,4 @@
-import type { Finding } from './findings.js'
+import type { Finding, Severity } from './findings.js'
 import { ownMarker } from './marker.js'
 import type { PublishedItems } from './ports.js'
 
@@ -11,11 +11,28 @@ export interface Dismissal {
 
 const DISMISS_REPLY = /^\s*\/dismiss\b/i
 
-/** Own inline comments (AD-11) with the fingerprint their marker carries. */
-export function ownInlineComments(items: PublishedItems, rid: number, fpv: number): Array<{ id: number; fingerprint: string; outdated: boolean }> {
+export type FindingSource = 'AI' | 'TOOL' | 'UNKNOWN'
+
+export interface OwnInlineComment {
+  id: number
+  fingerprint: string
+  outdated: boolean
+  /** Read back from the comment's heading ("**MAJOR · correctness** — …"); undefined for older formats. */
+  severity?: Severity | undefined
+  /** Read back from the comment's "Source:" line. */
+  source: FindingSource
+}
+
+const HEADING = /^\*\*(BLOCKER|CRITICAL|MAJOR|MINOR|INFO) · /
+const SOURCE = /<sub>Source: (AI\b)?/
+
+/** Own inline comments (AD-11) with the fingerprint their marker carries, and the severity and source they show. */
+export function ownInlineComments(items: PublishedItems, rid: number, fpv: number): OwnInlineComment[] {
   return items.reviewComments.flatMap((c) => {
     const m = ownMarker(c, rid)
-    return m && m.kind === 'inline' && m.fpv === fpv && m.fp !== '-' ? [{ id: c.id, fingerprint: m.fp, outdated: c.outdated === true }] : []
+    if (!m || m.kind !== 'inline' || m.fpv !== fpv || m.fp === '-') return []
+    const src = SOURCE.exec(c.body)
+    return [{ id: c.id, fingerprint: m.fp, outdated: c.outdated === true, severity: HEADING.exec(c.body)?.[1] as Severity | undefined, source: src ? (src[1] ? 'AI' : 'TOOL') : 'UNKNOWN' }]
   })
 }
 
@@ -59,7 +76,19 @@ export function applyDismissals(findings: readonly Finding[], dismissals: Readon
   })
 }
 
-export interface FeedbackStats {
+/** What happened to posted inline Findings. Addressed rate = resolved / posted. */
+export interface Outcomes {
+  posted: number
+  resolved: number
+  dismissed: number
+  open: number
+}
+
+export interface FeedbackStats extends Outcomes {
+  /** Outcomes by the severity shown on the comment (UNRATED for older comments). */
+  bySeverity: Record<string, Outcomes>
+  /** Outcomes by where the finding came from: the AI review or a deterministic tool. */
+  bySource: Record<string, Outcomes>
   /** Inline Findings posted by the reviewer. */
   posted: number
   /** Posted Findings whose code changed afterwards (GitHub marks the comment outdated). */
@@ -83,19 +112,42 @@ export function feedbackStats(
   const inline = ownInlineComments(items, rid, fpv)
   const dismissals = readDismissals(items, rid, fpv, prAuthor, thumbsDown)
   const seen = new Set<string>()
-  let resolved = 0
-  let dismissed = 0
-  let open = 0
+  const total = none()
+  const bySeverity: Record<string, Outcomes> = {}
+  const bySource: Record<string, Outcomes> = {}
   for (const c of inline) {
     if (seen.has(c.fingerprint)) continue
     seen.add(c.fingerprint)
-    if (dismissals.has(c.fingerprint)) dismissed++
-    else if (c.outdated) resolved++
-    else open++
+    const outcome: keyof Outcomes = dismissals.has(c.fingerprint) ? 'dismissed' : c.outdated ? 'resolved' : 'open'
+    for (const o of [total, (bySeverity[c.severity ?? 'UNRATED'] ??= none()), (bySource[c.source] ??= none())]) {
+      o.posted++
+      o[outcome]++
+    }
   }
   const summaries = items.issueComments
     .map((c) => ({ c, m: ownMarker(c, rid) }))
     .filter((x) => x.m?.kind === 'summary' && x.m.fpv === fpv)
     .sort((a, b) => a.c.id - b.c.id)
-  return { posted: seen.size, resolved, dismissed, open, summaryOnly: summaries[summaries.length - 1]?.m?.fps?.length ?? 0 }
+  return { ...total, bySeverity, bySource, summaryOnly: summaries[summaries.length - 1]?.m?.fps?.length ?? 0 }
+}
+
+const none = (): Outcomes => ({ posted: 0, resolved: 0, dismissed: 0, open: 0 })
+
+function add(into: Outcomes, o: Outcomes): void {
+  into.posted += o.posted
+  into.resolved += o.resolved
+  into.dismissed += o.dismissed
+  into.open += o.open
+}
+
+/** Adds up per-PR feedback (for `stats` and the Web App). */
+export function combineFeedback(all: readonly FeedbackStats[]): FeedbackStats {
+  const out: FeedbackStats = { ...none(), bySeverity: {}, bySource: {}, summaryOnly: 0 }
+  for (const s of all) {
+    add(out, s)
+    out.summaryOnly += s.summaryOnly
+    for (const [k, o] of Object.entries(s.bySeverity)) add((out.bySeverity[k] ??= none()), o)
+    for (const [k, o] of Object.entries(s.bySource)) add((out.bySource[k] ??= none()), o)
+  }
+  return out
 }

@@ -173,3 +173,5 @@ details.edit > summary { margin-top: 0; font-size: 0.85rem; }
 details.edit .field { margin-top: 8px; }
 tr.current td { background: var(--surface-2); }
 [hidden] { display: none !important; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#stats-box { margin-top: 8px; }

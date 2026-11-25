@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyDismissals, feedbackStats, readDismissals } from './feedback.js'
+import { applyDismissals, combineFeedback, feedbackStats, readDismissals } from './feedback.js'
 import type { Finding } from './findings.js'
 import { formatMarker } from './marker.js'
 import type { PublishedItem, PublishedItems } from './ports.js'
@@ -68,12 +68,26 @@ describe('applyDismissals', () => {
   })
 })
 
+const withBody = (c: PublishedItem, text: string): PublishedItem => ({ ...c, body: `${text}\n\n${c.body.slice(c.body.indexOf('<!--'))}` })
+
 describe('feedbackStats', () => {
   it('counts posted inline findings as resolved, dismissed, or open', () => {
     const published = items({
-      reviewComments: [inline(1, fp('a'), { outdated: true }), inline(2, fp('b')), inline(3, fp('c')), inline(4, fp('c')), reply(5, 2, 'dev', '/dismiss')],
+      reviewComments: [
+        inline(1, fp('a'), { outdated: true }),
+        withBody(inline(2, fp('b')), '**CRITICAL · security** — Secret\n\n<sub>Source: secrets.builtin · confidence high · rule `secret/aws`</sub>'),
+        withBody(inline(3, fp('c')), '**MAJOR · correctness** — Bug\n\n<sub>Source: AI (opus) · confidence high · rule `ai/correctness`</sub>'),
+        inline(4, fp('c')),
+        reply(5, 2, 'dev', '/dismiss'),
+      ],
       issueComments: [{ id: 9, authorId: RID, body: formatMarker({ mv: 1, kind: 'summary', rid: RID, head: 'h', cfg: 'c', eng: 0, fpv: 1, key: 'k', fp: '-', u: '0/0/0', fps: ['p1', 'p2'] }) }],
     })
-    expect(feedbackStats(published, RID, 1, 'author', new Map())).toEqual({ posted: 3, resolved: 1, dismissed: 1, open: 1, summaryOnly: 2 })
+    const st = feedbackStats(published, RID, 1, 'author', new Map())
+    expect(st).toMatchObject({ posted: 3, resolved: 1, dismissed: 1, open: 1, summaryOnly: 2 })
+    expect(st.bySeverity).toEqual({ MAJOR: { posted: 2, resolved: 1, dismissed: 0, open: 1 }, CRITICAL: { posted: 1, resolved: 0, dismissed: 1, open: 0 } })
+    expect(st.bySource).toEqual({ UNKNOWN: { posted: 1, resolved: 1, dismissed: 0, open: 0 }, TOOL: { posted: 1, resolved: 0, dismissed: 1, open: 0 }, AI: { posted: 1, resolved: 0, dismissed: 0, open: 1 } })
+    const both = combineFeedback([st, st])
+    expect(both).toMatchObject({ posted: 6, resolved: 2, summaryOnly: 4 })
+    expect(both.bySource.AI).toEqual({ posted: 2, resolved: 0, dismissed: 0, open: 2 })
   })
 })

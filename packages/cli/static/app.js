@@ -221,6 +221,43 @@ async function listPulls(repo) {
   )
 }
 
+// ── Addressed rate: how posted findings fared ──────────────────────────────
+
+const SEVERITY_ROWS = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO', 'UNRATED']
+const SOURCE_ROWS = { AI: 'AI review', TOOL: 'Tools', UNKNOWN: 'Older comments' }
+
+async function loadStats() {
+  const box = $('stats')
+  box.replaceChildren(h('p', { class: 'muted' }, 'Reading your reviewed PRs from GitHub…'))
+  const params = new URLSearchParams({ days: $('stats-days').value })
+  const repo = $('stats-repo').value.trim()
+  if (repo) params.set('repo', repo)
+  const r = await api(`/v1/stats?${params}`)
+  if (!r.ok) {
+    box.replaceChildren(h('p', { class: 'error' }, errorText(r)))
+    return
+  }
+  const s = r.data
+  if (!s.prs.length) {
+    box.replaceChildren(h('p', { class: 'muted' }, `No PRs reviewed with pr-reviewer since ${s.since}.`))
+    return
+  }
+  const pct = (n, of) => (of ? `${Math.round((100 * n) / of)}%` : '–')
+  const row = (label, o) => h('tr', {}, h('td', {}, label), h('td', { class: 'num' }, String(o.posted)), h('td', { class: 'num' }, pct(o.resolved, o.posted)), h('td', { class: 'num' }, pct(o.dismissed, o.posted)), h('td', { class: 'num' }, String(o.open)))
+  const head = h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Posted'), h('th', {}, 'Addressed'), h('th', {}, 'Dismissed'), h('th', {}, 'Open')))
+  const t = s.total
+  const rows = [
+    row('All inline findings', t),
+    ...SEVERITY_ROWS.filter((k) => t.bySeverity[k]).map((k) => row(words(k), t.bySeverity[k])),
+    ...Object.entries(t.bySource).map(([k, o]) => row(SOURCE_ROWS[k] ?? k, o)),
+  ]
+  box.replaceChildren(
+    h('p', {}, h('strong', {}, s.addressedRate === null ? 'No inline findings posted' : `${Math.round(s.addressedRate * 100)}% addressed`), ` across ${s.prs.length} PR(s) since ${s.since}; ${t.summaryOnly} more in summaries only.`),
+    h('div', { class: 'table-scroll' }, h('table', {}, head, h('tbody', {}, rows))),
+    h('p', { class: 'muted' }, 'Addressed means the code at the comment changed afterwards; PRs still in progress lower it. Dismissed means 👎 or a /dismiss reply. Read from GitHub only.'),
+  )
+}
+
 // ── Run and watch (Story 8.1) ──────────────────────────────────────────────
 
 const STAGES = [
@@ -719,6 +756,13 @@ async function boot() {
     e.preventDefault()
     const repo = $('repo').value.trim()
     if (repo) listPulls(repo)
+  })
+  $('stats-form').addEventListener('submit', (e) => {
+    e.preventDefault()
+    loadStats()
+  })
+  $('stats-box').addEventListener('toggle', () => {
+    if ($('stats-box').open && !$('stats').childElementCount) loadStats()
   })
   // A ?pr= link only fills the box; a review (which may cost AI tokens) always needs a click.
   const prParam = new URLSearchParams(location.search).get('pr')

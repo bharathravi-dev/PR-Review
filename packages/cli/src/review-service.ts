@@ -24,6 +24,7 @@ import {
 } from '@pr-reviewer/core'
 import type { CliDeps } from './deps.js'
 import { buildProvider, connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish, providerName, type GitHubConnection, type PublishOutcome } from './engine.js'
+import { collectStats } from './stats.js'
 import { VERSION } from './version.js'
 
 export interface Principal {
@@ -314,12 +315,29 @@ export function createReviewService(opts: ServiceOptions) {
     return { repo: `${repo.value.owner}/${repo.value.repo}`, host: repo.value.host, reviewerKnown: github.viewer !== undefined, pulls: list.value }
   }
 
+  /** How the principal's posted findings fared (addressed rate), from GitHub only. */
+  const stats = async (p: Principal, url: URL) => {
+    const days = Number(url.searchParams.get('days') ?? 30)
+    if (!Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, 'invalid_days', 'days must be a whole number from 1 to 365.')
+    const host = p.config.settings.github?.host ?? 'github.com'
+    const repoText = url.searchParams.get('repo')
+    const repo = repoText ? parseRepoRef(repoText, host) : undefined
+    if (repo && !repo.ok) throw new HttpError(400, 'invalid_repo', repo.error.message)
+    const github = await connectGitHub(p.config, p.deps, p.secrets, host)
+    if (!github.viewer) throw new HttpError(502, 'no_reviewer_identity', github.tokenError ?? github.viewerError ?? 'The GitHub identity is unknown.')
+    const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+    const result = await collectStats(github.reader, github.viewer, host, since, repo?.ok ? repo.value : undefined)
+    if (!result.ok) throw new HttpError(502, 'github_error', result.message)
+    return { schemaVersion: SERVICE_SCHEMA_VERSION, ...result.value }
+  }
+
   /** Handles a /v1 request for an authenticated principal; returns false when the path is not a ReviewService route. */
   async function handle(req: IncomingMessage, res: ServerResponse, url: URL, p: Principal): Promise<boolean> {
     const method = req.method ?? 'GET'
     const send = (status: number, body: unknown, type?: string) => sendJson(res, status, body, p.secrets, type)
     if (url.pathname === '/v1/session' && method === 'GET') return send(200, await session(p)), true
     if (url.pathname === '/v1/pulls' && method === 'GET') return send(200, await pulls(p, url)), true
+    if (url.pathname === '/v1/stats' && method === 'GET') return send(200, await stats(p, url)), true
     if (url.pathname === '/v1/runs' && method === 'POST') {
       const body = CreateRunRequest.safeParse(await readJson(req))
       if (!body.success) throw new HttpError(400, 'invalid_request', 'Send {"pr": "<PR link or owner/repo#number>"}.')
