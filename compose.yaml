@@ -1,0 +1,21 @@
+# PR Reviewer Web App. Fill in .env (see docs/web-app.md), then: docker compose up -d
+services:
+  web:
+    build: .
+    image: pr-reviewer-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      PR_REVIEWER_DATA_DIR: /data
+    volumes:
+      - pr-reviewer-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+volumes:
+  pr-reviewer-data:

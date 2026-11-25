@@ -40,8 +40,33 @@ function readToken() {
   }
 }
 
-const token = readToken()
-const state = { session: null, runId: null, report: null, selected: new Set(), preview: null, digest: null, event: 'COMMENT', busy: false }
+/** "local": `pr-reviewer serve` with a one-time key. "web": the team Web App, signed in with GitHub (cookie session). */
+const MODE = document.querySelector('meta[name="pr-reviewer-mode"]')?.content === 'web' ? 'web' : 'local'
+const RUN_KEY = 'pr-reviewer-run'
+const token = MODE === 'local' ? readToken() : null
+const authHeaders = () => (MODE === 'local' ? { authorization: `Bearer ${token}`, 'accept-schema': '1' } : { 'accept-schema': '1' })
+const state = { session: null, runId: null, report: null, selected: new Set(), preview: null, digest: null, event: 'COMMENT', busy: false, edits: {} }
+
+function remember(key, value) {
+  try {
+    if (value === null) sessionStorage.removeItem(key)
+    else sessionStorage.setItem(key, value)
+  } catch {}
+}
+
+function recall(key) {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function signedOut() {
+  lock('Sign in with your GitHub account to review pull requests. Only people this server allows can sign in.')
+  $('locked').querySelector('h1').textContent = 'Sign in'
+  $('locked-action').hidden = false
+}
 
 function lock(message) {
   $('start').hidden = true
@@ -53,7 +78,7 @@ function lock(message) {
 }
 
 async function api(path, { method = 'GET', body } = {}) {
-  const headers = { authorization: `Bearer ${token}`, 'accept-schema': '1' }
+  const headers = authHeaders()
   if (body !== undefined) headers['content-type'] = 'application/json'
   let res
   try {
@@ -69,10 +94,11 @@ async function api(path, { method = 'GET', body } = {}) {
     data = { text }
   }
   if (res.status === 401) {
-    try {
-      sessionStorage.removeItem(TOKEN_KEY)
-    } catch {}
-    lock('This page’s key is no longer valid (pr-reviewer was restarted). Open the new link printed in your terminal.')
+    if (MODE === 'web') signedOut()
+    else {
+      remember(TOKEN_KEY, null)
+      lock('This page’s key is no longer valid (pr-reviewer was restarted). Open the new link printed in your terminal.')
+    }
     throw new Error('unauthorized')
   }
   return { status: res.status, ok: res.ok, data }
@@ -89,15 +115,74 @@ async function loadSession() {
   $('version').textContent = `v${r.data.version}`
   const gh = r.data.github
   const ai = r.data.ai
+  const user = r.data.user
   $('identity').replaceChildren(
-    h('span', { class: `chip ${gh.login ? 'ok' : 'bad'}`, title: gh.login ? `Signed in to ${gh.host}` : gh.error }, h('span', { class: 'dot' }), gh.login ? `GitHub: @${gh.login}` : 'GitHub: no token'),
     h(
       'span',
-      { class: `chip ${ai.ready ? 'ok' : 'bad'}`, title: ai.ready ? 'AI review is available' : ai.reason },
+      { class: `chip ${gh.login ? 'ok' : 'bad'}`, title: gh.login ? `Signed in to ${gh.host}` : gh.error },
+      user?.avatarUrl && /^https:\/\/avatars\.githubusercontent\.com\//.test(user.avatarUrl) ? h('img', { src: user.avatarUrl, alt: '', class: 'avatar' }) : h('span', { class: 'dot' }),
+      gh.login ? `${MODE === 'web' ? '' : 'GitHub: '}@${gh.login}` : 'GitHub: no token',
+    ),
+    h(
+      MODE === 'web' ? 'button' : 'span',
+      { class: `chip ${ai.ready ? 'ok' : 'bad'}`, title: ai.ready ? 'AI review is available' : ai.reason, type: 'button', onclick: MODE === 'web' ? () => toggleSettings() : undefined },
       h('span', { class: 'dot' }),
       `AI: ${ai.provider}${ai.model ? ` · ${ai.model}` : ''}${ai.ready ? '' : ' (not set up)'}`,
     ),
+    MODE === 'web'
+      ? h('button', { class: 'chip', type: 'button', onclick: async () => {
+          await fetch('/auth/logout', { method: 'POST' }).catch(() => undefined)
+          remember(RUN_KEY, null)
+          signedOut()
+        } }, 'Sign out')
+      : '',
   )
+  if (MODE === 'web' && !ai.ready) toggleSettings(true)
+}
+
+// ── Settings (Web App: the user's own AI key, kept on the server, encrypted) ─────
+
+async function toggleSettings(show) {
+  const box = $('settings')
+  if (show === undefined) show = box.hidden
+  if (!show) {
+    box.hidden = true
+    return
+  }
+  const r = await api('/v1/settings')
+  if (!r.ok) return
+  const s = r.data
+  const type = h('select', { id: 'set-type' }, h('option', { value: 'anthropic' }, 'Anthropic (Claude) API key'), h('option', { value: 'openai-compatible' }, 'OpenAI or compatible API key'))
+  type.value = s.provider.type
+  const model = h('input', { id: 'set-model', type: 'text', placeholder: 'Model (optional for Anthropic)', value: s.provider.model ?? '' })
+  const base = h('select', { id: 'set-base' }, s.allowedEndpoints.map((e) => h('option', { value: e }, e)))
+  if (s.provider.baseUrl) base.value = s.provider.baseUrl
+  const key = h('input', { id: 'set-key', type: 'password', autocomplete: 'off', placeholder: s.apiKeySaved ? 'Saved (leave empty to keep it)' : 'Paste your API key' })
+  const status = h('p', { class: 'muted' }, s.apiKeySaved ? 'Your key is stored encrypted on this server and never shown again.' : 'Reviews need your own API key. It is stored encrypted on this server and used only for your reviews.')
+  const baseRow = h('label', { class: 'field' }, 'Endpoint ', base)
+  const sync = () => (baseRow.hidden = type.value !== 'openai-compatible')
+  type.addEventListener('change', sync)
+  sync()
+  const save = async (removeKey) => {
+    const body = { provider: { type: type.value, ...(model.value.trim() ? { model: model.value.trim() } : {}), ...(type.value === 'openai-compatible' ? { baseUrl: base.value } : {}) } }
+    if (removeKey) body.apiKey = null
+    else if (key.value.trim()) body.apiKey = key.value.trim()
+    const res = await api('/v1/settings', { method: 'PUT', body })
+    status.textContent = res.ok ? 'Saved.' : errorText(res)
+    status.className = res.ok ? 'result ok' : 'result bad'
+    key.value = ''
+    if (res.ok) {
+      await loadSession()
+      if (res.data.apiKeySaved && !removeKey) setTimeout(() => toggleSettings(false), 1200)
+    }
+  }
+  box.replaceChildren(
+    h('h2', {}, 'AI settings'),
+    h('div', { class: 'settings-grid' }, h('label', { class: 'field' }, 'Provider ', type), h('label', { class: 'field' }, 'Model ', model), baseRow, h('label', { class: 'field' }, 'API key ', key)),
+    h('div', { class: 'publish-row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => save(false) }, 'Save'), s.apiKeySaved ? h('button', { class: 'btn', type: 'button', onclick: () => save(true) }, 'Remove key') : '', h('button', { class: 'btn link', type: 'button', onclick: () => toggleSettings(false) }, 'Close')),
+    status,
+  )
+  box.hidden = false
 }
 
 // ── Pick an open PR (Story 8.3) ───────────────────────────────────────────
@@ -194,7 +279,7 @@ function onEvent(e) {
 async function streamEvents(runId) {
   let last = 0
   for (let attempt = 0; attempt < 5; attempt++) {
-    const headers = { authorization: `Bearer ${token}`, 'accept-schema': '1' }
+    const headers = authHeaders()
     if (last) headers['last-event-id'] = String(last)
     let res
     try {
@@ -203,7 +288,7 @@ async function streamEvents(runId) {
       await new Promise((r) => setTimeout(r, 1000))
       continue
     }
-    if (res.status === 401) return lock('This page’s key is no longer valid. Open the new link printed in your terminal.')
+    if (res.status === 401) return MODE === 'web' ? signedOut() : lock('This page’s key is no longer valid. Open the new link printed in your terminal.')
     if (!res.ok || !res.body) throw new Error(`Progress stream failed (HTTP ${res.status}).`)
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
     let buf = ''
@@ -253,15 +338,10 @@ async function startReview(pr) {
     const r = await api('/v1/runs', { method: 'POST', body: { pr } })
     if (!r.ok) throw new Error(errorText(r))
     state.runId = r.data.id
+    remember(RUN_KEY, r.data.id)
     $('progress').querySelector('h2').textContent = `Reviewing ${r.data.pr}`
     await streamEvents(r.data.id)
-    const rep = await api(`/v1/runs/${r.data.id}/report`)
-    if (!rep.ok) throw new Error(errorText(rep))
-    state.report = rep.data
-    state.selected = new Set(rep.data.findings.filter((f) => f.fingerprint && !f.dismissed).map((f) => f.fingerprint))
-    $('progress').hidden = true
-    renderReport()
-    renderPublish()
+    await showRun(r.data.id)
   } catch (e) {
     if (e.message !== 'unauthorized') $('progress').append(h('p', { class: 'error' }, e.message))
   } finally {
@@ -269,6 +349,61 @@ async function startReview(pr) {
     state.busy = false
     $('review-btn').disabled = false
   }
+}
+
+/** Shows a finished run's Report (also used for history and after a reload). */
+async function showRun(id) {
+  const rep = await api(`/v1/runs/${id}/report`)
+  if (!rep.ok) throw new Error(errorText(rep))
+  state.runId = id
+  state.report = rep.data
+  state.edits = {}
+  state.preview = null
+  state.selected = new Set(rep.data.findings.filter((f) => f.fingerprint && !f.dismissed).map((f) => f.fingerprint))
+  $('progress').hidden = true
+  renderReport()
+  renderPublish()
+  if (MODE === 'web') loadHistory(`${rep.data.run.repo.fullName}#${rep.data.run.pr}`)
+}
+
+/** After a reload, picks the last run back up: still running → reattach to its progress; finished → show it. */
+async function resume() {
+  const id = recall(RUN_KEY)
+  if (!id || !/^[0-9a-f-]{36}$/.test(id)) return
+  const r = await api(`/v1/runs/${id}/report`)
+  if (r.status === 202) {
+    state.busy = true
+    renderProgress('your last review')
+    try {
+      await streamEvents(id)
+      await showRun(id)
+    } finally {
+      state.busy = false
+    }
+  } else if (r.ok) await showRun(id)
+  else remember(RUN_KEY, null)
+}
+
+// ── History (Web App, FR-34) ───────────────────────────────────────────────
+
+async function loadHistory(pr) {
+  const r = await api(`/v1/history?pr=${encodeURIComponent(pr)}`)
+  if (!r.ok || !r.data.runs.length) return
+  const rows = r.data.runs.map((x) =>
+    h(
+      'tr',
+      { class: x.id === state.runId ? 'current' : '' },
+      h('td', {}, new Date(x.startedAt).toLocaleString()),
+      h('td', {}, h('span', { class: `badge ${STATUS_TONE[x.overallStatus] ?? ''}` }, words(x.overallStatus))),
+      h('td', {}, String(x.findings)),
+      h('td', {}, `${x.new} new · ${x.resolved} resolved · ${x.unchanged} unchanged`),
+      h('td', {}, x.published ? words(x.published) : '—'),
+      h('td', {}, x.id === state.runId ? h('span', { class: 'muted' }, 'shown') : h('button', { class: 'btn small', type: 'button', onclick: () => showRun(x.id) }, 'Open')),
+    ),
+  )
+  $('report').append(
+    h('div', { class: 'card' }, h('h2', {}, `History for ${pr}`), h('div', { class: 'table-scroll' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'When'), h('th', {}, 'Result'), h('th', {}, 'Findings'), h('th', {}, 'Compared with the run before'), h('th', {}, 'Posted'), h('th', {}, ''))), h('tbody', {}, rows)))),
+  )
 }
 
 // ── Report view ───────────────────────────────────────────────────────────
@@ -316,7 +451,7 @@ function renderReport() {
       'div',
       { class: 'actions section' },
       h('button', { class: 'btn small', type: 'button', onclick: async () => {
-        const res = await fetch(`/v1/runs/${state.runId}/report?format=markdown`, { headers: { authorization: `Bearer ${token}` } })
+        const res = await fetch(`/v1/runs/${state.runId}/report?format=markdown`, { headers: authHeaders() })
         if (res.ok) download(`${base}.md`, 'text/markdown', await res.text())
       } }, 'Download Markdown'),
       h('button', { class: 'btn small', type: 'button', onclick: () => download(`${base}.json`, 'application/json', `${JSON.stringify(r, null, 2)}\n`) }, 'Download JSON'),
@@ -417,8 +552,30 @@ function renderFinding(f) {
       f.description,
       f.impact ? h('div', { class: 'section' }, h('span', { class: 'label' }, 'Why it matters: '), f.impact) : '',
       f.recommendation ? h('div', { class: 'section' }, h('span', { class: 'label' }, 'Recommendation: '), f.recommendation) : '',
+      f.fingerprint ? editor(f) : '',
     ),
   )
+}
+
+/** Lets the user reword a Finding before it is posted (Story 6.3); the original Report is kept. */
+function editor(f) {
+  const wrap = h('details', { class: 'edit' }, h('summary', {}, state.edits[f.fingerprint] ? 'Edited wording (will be posted)' : 'Edit wording before posting'))
+  const field = (name, label, value, rows) => {
+    const area = h('textarea', { rows, 'aria-label': label })
+    area.value = state.edits[f.fingerprint]?.[name] ?? value ?? ''
+    area.addEventListener('input', () => {
+      const e = { ...(state.edits[f.fingerprint] ?? {}) }
+      if (area.value.trim() && area.value !== (value ?? '')) e[name] = area.value
+      else delete e[name]
+      if (Object.keys(e).length) state.edits[f.fingerprint] = e
+      else delete state.edits[f.fingerprint]
+      wrap.querySelector('summary').textContent = state.edits[f.fingerprint] ? 'Edited wording (will be posted)' : 'Edit wording before posting'
+      selectionChanged()
+    })
+    return h('label', { class: 'field' }, label, area)
+  }
+  wrap.append(field('title', 'Title', f.title, 1), field('description', 'Description', f.description, 4), field('recommendation', 'Recommendation', f.recommendation, 2))
+  return wrap
 }
 
 function selectAll(on) {
@@ -518,6 +675,7 @@ async function doPublish(dryRun) {
     const inc = include()
     if (inc) body.include = inc
     if (!dryRun) body.previewDigest = state.digest
+    if (Object.keys(state.edits).length) body.edits = state.edits
     const r = await api(`/v1/runs/${state.runId}/publish`, { method: 'POST', body })
     if (r.status === 409 && r.data.preview) {
       state.preview = r.data.preview
@@ -549,7 +707,8 @@ async function doPublish(dryRun) {
 // ── Start ─────────────────────────────────────────────────────────────────
 
 async function boot() {
-  if (!token) return lock()
+  if (MODE === 'web') $('footer').textContent = 'Signed in with GitHub. Reviews use your own API key, stored encrypted on this server. Nothing is posted until you press Post.'
+  if (MODE === 'local' && !token) return lock()
   $('start').hidden = false
   $('review-form').addEventListener('submit', (e) => {
     e.preventDefault()
@@ -566,6 +725,7 @@ async function boot() {
   if (prParam) $('pr').value = prParam
   try {
     await loadSession()
+    await resume()
   } catch (e) {
     if (e.message !== 'unauthorized') $('identity').replaceChildren(h('span', { class: 'chip bad' }, e.message))
   }

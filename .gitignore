@@ -6,3 +6,4 @@ reviews/
 *.log
 dist/
 *.tsbuildinfo
+!.env.example

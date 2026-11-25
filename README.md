@@ -8,8 +8,8 @@ Status: Release 1. Available now: the CLI and a local review page; project and v
 Angular 12+ and React checks; reuse of your CI and SonarQube results; known-vulnerability checks for new
 dependencies; the repository's own `tsc`, ESLint, or TSLint in a container sandbox; secret scanning; AI
 review with your Claude or ChatGPT plan or an API key; posting, re-review without duplicates, Finding
-feedback, and stats; and automatic reviews of PRs in your account. Coming: a hosted web app and a browser
-extension.
+feedback, and stats; automatic reviews of PRs in your account; and a self-hosted Web App for teams. Coming: a
+browser extension.
 
 ## Quick start
 
@@ -37,6 +37,7 @@ asked to confirm; use `--yes` in scripts.
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: resolved, dismissed, still open |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
+| `web` | Run the self-hosted Web App (see docs/web-app.md) |
 | `serve` | Open a review page in your browser (`--open`, `--port <n>`); see below |
 | `context <pr>` | Show what the review reads from GitHub |
 | `config show` / `config path` | Your resolved settings and where they came from |
@@ -58,6 +59,18 @@ The link printed in the terminal carries a one-time key, so only you can use the
 Don't share the link; stop the page with Ctrl+C. The page speaks the `ReviewService v1` API
 (`/v1/runs`, `/v1/runs/:id/events`, `/v1/runs/:id/report`, `/v1/runs/:id/publish`), which the browser
 extension will also use.
+
+## For a team: the Web App
+
+```bash
+cp .env.example .env    # or write .env as described in docs/web-app.md
+docker compose up -d
+```
+
+Team members sign in with GitHub (only people or organisations you allow), paste a PR link, watch it run,
+edit and choose findings, post them, and see what changed since earlier runs of the same PR. Each person
+uses their own GitHub sign-in and AI key, stored encrypted on the server. See
+[docs/web-app.md](docs/web-app.md).
 
 ## Automatic reviews
 

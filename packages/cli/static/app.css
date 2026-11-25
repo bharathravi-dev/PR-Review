@@ -161,3 +161,15 @@ pre.preview { background: var(--surface-2); border: 1px solid var(--border); bor
   .finding { grid-template-columns: minmax(0, 1fr); }
   .finding .meta, .finding .body { grid-column: 1; }
 }
+
+.avatar { width: 18px; height: 18px; border-radius: 50%; }
+button.chip { font: inherit; color: inherit; cursor: pointer; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; }
+.field { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.field select, .field input, .field textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+textarea { width: 100%; resize: vertical; }
+details.edit { margin-top: 10px; }
+details.edit > summary { margin-top: 0; font-size: 0.85rem; }
+details.edit .field { margin-top: 8px; }
+tr.current td { background: var(--surface-2); }
+[hidden] { display: none !important; }

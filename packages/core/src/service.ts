@@ -28,6 +28,13 @@ export const PublishRequest = z.object({
   dryRun: z.boolean().optional(),
   /** Digest of the preview the user saw; required to post. */
   previewDigest: z.string().max(128).optional(),
+  /** The user's wording changes per Finding fingerprint (Story 6.3); applied before rendering, so the digest covers them. */
+  edits: z
+    .record(
+      z.string().max(128),
+      z.object({ title: z.string().min(1).max(500).optional(), description: z.string().min(1).max(5000).optional(), recommendation: z.string().max(5000).optional() }),
+    )
+    .optional(),
 })
 export type PublishRequest = z.infer<typeof PublishRequest>
 

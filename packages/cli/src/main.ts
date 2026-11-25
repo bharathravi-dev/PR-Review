@@ -29,6 +29,7 @@ import { connectGitHub, executeReview, listPullsWithState, performPublish, prepa
 import { autoCommand } from './auto.js'
 import { initCommand } from './init.js'
 import { startServer } from './serve.js'
+import { startWeb, webConfigProblems } from './web.js'
 import { VERSION } from './version.js'
 
 export type { CliDeps, CliIo } from './deps.js'
@@ -46,6 +47,7 @@ Commands:
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
   serve              Open a review page in your browser, served only on this machine
+  web                Run the self-hosted Web App for a team (configured by environment variables; see the README)
   auto <command>     Automatic reviews of PRs in your account (pr-reviewer auto help)
   context <pr>       Load a PR's context from GitHub
   config show        Print the resolved configuration and where each value came from
@@ -147,6 +149,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'stats') return statsCommand(rest, io, deps, secrets)
   if (first === 'config') return configCommand(rest, io, deps)
   if (first === 'serve') return serveCommand(rest, io, deps, secrets)
+  if (first === 'web') return webCommand(rest, io, deps)
   if (first === 'init') return initCommand(rest, io, deps, secrets, (m) => usageError(io, m))
   if (first === 'auto') return autoCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
 
@@ -574,6 +577,45 @@ async function serveCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
   await deps.untilStopped()
   await server.close()
   io.stderr('Stopped.\n')
+  return EXIT_CODES.passed
+}
+
+/** `pr-reviewer web`: the self-hosted Web App, configured by environment variables (container-friendly). */
+async function webCommand(args: string[], io: CliIo, deps: CliDeps): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, host: { type: 'string' } } })
+  } catch (e) {
+    return usageError(io, (e as Error).message)
+  }
+  const e = deps.env
+  const list = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  const opts = {
+    publicUrl: e.PR_REVIEWER_PUBLIC_URL ?? '',
+    clientId: e.PR_REVIEWER_GITHUB_CLIENT_ID ?? '',
+    clientSecret: e.PR_REVIEWER_GITHUB_CLIENT_SECRET ?? '',
+    secret: e.PR_REVIEWER_WEB_SECRET ?? '',
+    dataDir: e.PR_REVIEWER_DATA_DIR ?? join(deps.homedir, '.local', 'share', 'pr-reviewer-web'),
+    allowUsers: list(e.PR_REVIEWER_ALLOW_USERS),
+    allowOrgs: list(e.PR_REVIEWER_ALLOW_ORGS),
+    githubHost: e.PR_REVIEWER_GITHUB_HOST,
+    scope: e.PR_REVIEWER_OAUTH_SCOPE,
+    allowedEndpoints: list(e.PR_REVIEWER_ALLOWED_ENDPOINTS),
+    sandbox: e.PR_REVIEWER_SANDBOX === 'on',
+    fetch: deps.fetch,
+    port: Number(parsed.values.port ?? e.PORT ?? 8080),
+    host: parsed.values.host ?? '0.0.0.0',
+    log: (t: string) => io.stderr(t),
+  }
+  const problems = webConfigProblems(opts)
+  if (problems.length) {
+    io.stderr(`The Web App is not configured:\n${problems.map((p) => `  - ${p}`).join('\n')}\n`)
+    return EXIT_CONFIG
+  }
+  const web = await startWeb(opts)
+  io.stdout(`PR Reviewer Web App listening on ${web.url} (public URL ${opts.publicUrl}); ${opts.allowUsers.length} user(s) and ${opts.allowOrgs.length} org(s) allowed.\n`)
+  await deps.untilStopped()
+  await web.close()
   return EXIT_CODES.passed
 }
 

@@ -82,10 +82,10 @@ development_status:
   5-5-subscription-opt-in-for-auto-review: done
   epic-5-retrospective: optional
 
-  epic-6: backlog
-  6-1-self-host-and-sign-in: backlog
-  6-2-run-watch-and-read-the-report: backlog
-  6-3-selective-publish-and-history: backlog
+  epic-6: in-progress
+  6-1-self-host-and-sign-in: done
+  6-2-run-watch-and-read-the-report: done
+  6-3-selective-publish-and-history: done
   epic-6-retrospective: optional
 
   epic-7: backlog

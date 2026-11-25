@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="pr-reviewer-mode" content="local">
   <title>PR Reviewer</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%224%22 fill=%22%232f5bd3%22/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
@@ -20,6 +21,7 @@
   <main class="wrap">
     <section id="locked" class="card notice" hidden>
       <h1>Open this page from your terminal</h1>
+      <p id="locked-action" hidden><a class="btn primary" href="/auth/login">Sign in with GitHub</a></p>
       <p id="locked-text">Run <code>pr-reviewer serve</code> and open the link it prints. The link carries a one-time key, so this page only works from it.</p>
     </section>
 
@@ -40,11 +42,12 @@
       </details>
     </section>
 
+    <section id="settings" class="card" hidden></section>
     <section id="progress" class="card" hidden aria-live="polite"></section>
     <section id="report" hidden></section>
     <section id="publish" class="card" hidden></section>
   </main>
 
-  <footer class="wrap footer muted">Runs on this machine only, with your own GitHub and AI access. Nothing is posted until you press Post.</footer>
+  <footer class="wrap footer muted" id="footer">Runs on this machine only, with your own GitHub and AI access. Nothing is posted until you press Post.</footer>
 </body>
 </html>
