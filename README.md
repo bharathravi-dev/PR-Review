@@ -37,6 +37,7 @@ asked to confirm; use `--yes` in scripts.
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: addressed, dismissed, still open, by severity and by source |
 | `fix <pr>` | Have your own Claude Code or Codex fix your open findings in your checkout of the PR |
+| `mcp` | Run as an MCP server so your coding agent can review a PR and read its open findings; never posts |
 | `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
 | `web` | Run the self-hosted Web App (see docs/web-app.md) |
@@ -120,6 +121,12 @@ The agent may only read and edit files in that checkout: no shell, no web, no MC
 repository's own agent settings or hooks. Nothing is committed or pushed; you review `git diff` and commit
 yourself, and the next review closes what was fixed. `--only 1,3` picks findings, `--print` prints the
 prompt for any other agent.
+
+**From your coding agent (MCP).** `pr-reviewer mcp` is an MCP server on stdio with two read-only tools:
+`review_pr` (runs a review and returns the findings, each with a fix prompt) and `open_findings` (your posted
+findings on a PR that are not yet fixed or dismissed). It uses your normal config and credentials, and never
+posts: publishing stays with `review --post`, the review page, or the Web App. For Claude Code:
+`claude mcp add pr-reviewer -- pr-reviewer mcp`.
 
 **Is it useful?** `pr-reviewer stats` (and the "How your posted findings fared" panel on the review page)
 shows the **addressed rate**: the share of posted findings whose code changed afterwards, by severity and
