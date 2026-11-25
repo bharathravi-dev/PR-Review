@@ -134,10 +134,10 @@ describe('review --post', () => {
     const r = await run(['--post'], s, { tty: true, answer: 'y' })
     expect(r.asked).toEqual(['Post this review to octo/app#9? [y/N] '])
     expect(r.err).toContain('──── Preview: what will be posted to octo/app#9 (COMMENT) ────')
-    expect(r.err).toContain('Inline comments (1):')
+    expect(r.err).toContain('New inline comments (1):')
     expect(r.err).toContain('src/retry.ts:2  **MAJOR · correctness** — Retries without backoff')
     expect(s.writes).toEqual(['review:COMMENT:1:head0002', 'comment:create:101'])
-    expect(r.err).toContain('Posted 1 inline comment(s) and the summary.')
+    expect(r.err).toContain('Posted 1 new inline comment(s) and the summary.')
     expect(r.err).toContain('pullrequestreview-100')
     expect(r.code).toBe(1) // PASSED_WITH_WARNINGS: AI findings never fail the gate
 

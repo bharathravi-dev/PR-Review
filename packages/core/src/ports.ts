@@ -11,6 +11,13 @@ export interface PublishedItem {
   /** Reviews only. */
   state?: string | undefined
   createdAt?: string | undefined
+  url?: string | undefined
+}
+
+export interface PublishedItems {
+  reviews: PublishedItem[]
+  reviewComments: PublishedItem[]
+  issueComments: PublishedItem[]
 }
 
 /** Read side of GitHub (AD-6). The only write path is the engine's publish stage (AD-9). */
@@ -20,8 +27,8 @@ export interface GitHubReader {
   viewer(): Promise<Result<{ id: number; login: string }>>
   /** Current head SHA of the PR, re-read immediately before publishing (AD-23). */
   getHeadSha(ref: PrRef): Promise<Result<string>>
-  /** Reviews and issue comments on the PR, for marker-based self-recognition. */
-  listPublished(ref: PrRef): Promise<Result<{ reviews: PublishedItem[]; issueComments: PublishedItem[] }>>
+  /** Reviews, inline review comments, and issue comments on the PR, for marker-based self-recognition (AD-11). */
+  listPublished(ref: PrRef): Promise<Result<PublishedItems>>
 }
 
 export interface InlineComment {

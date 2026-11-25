@@ -11,6 +11,7 @@ import {
   hunksFromContext,
   planPublish,
   publish,
+  readPrior,
   renderMarkdown,
   renderPublish,
   runReviewWithContext,
@@ -341,7 +342,14 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
     io.stderr('Nothing was posted: the PR could not be loaded.\n')
     return EXIT_CODES.publishFailed
   }
+  // What was already published comes only from own markers (AD-11), read before rendering so the preview is exact.
+  const published = await github.reader.listPublished(ref.value)
+  if (!published.ok) {
+    io.stderr(`Nothing was posted: ${published.error.message}\n`)
+    return EXIT_CODES.publishFailed
+  }
   const plan = planPublish(report, {
+    prior: readPrior(published.value, reviewerId, report.run.fpv),
     hunks: hunksFromContext(context),
     rid: reviewerId,
     engineMajor: Number(pkg.version.split('.')[0]) || 0,
@@ -365,7 +373,8 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   const record = await publish(report, plan, preview, ref.value, { reader: github.reader, writer: github.writer, now: () => Date.now() })
   const where = [record.reviewUrl && `review: ${record.reviewUrl}`, record.summaryUrl && `summary: ${record.summaryUrl}`].filter(Boolean).join('\n  ')
   if (record.status === 'PUBLISHED') {
-    io.stderr(`Posted ${record.commentCount} inline comment(s) and the summary.\n  ${where}\n`)
+    const extra = [preview.stillOpen.length && `${preview.stillOpen.length} still open`, preview.resolved.length && `${preview.resolved.length} resolved`].filter(Boolean).join(', ')
+    io.stderr(`Posted ${record.commentCount} new inline comment(s) and the summary${extra ? ` (${extra})` : ''}.\n  ${where}\n`)
     return reviewCode
   }
   if (record.status === 'SKIPPED_DUPLICATE') {
@@ -383,8 +392,10 @@ function formatPreview(pr: string, preview: PublishPreview): string {
     `──── Preview: what will be posted to ${pr} (${preview.event}) ────`,
     strip(preview.summaryBody),
     '',
-    `Inline comments (${preview.inline.length}):`,
+    `New inline comments (${preview.inline.length}):`,
     ...preview.inline.map((c) => `  ${c.path}:${c.startLine ? `${c.startLine}-` : ''}${c.line}  ${c.body.split('\n')[0]}`),
+    ...(preview.stillOpen.length ? [`Still open from earlier reviews, not re-posted: ${preview.stillOpen.length}`] : []),
+    ...(preview.resolved.length ? [`Resolved since the last review: ${preview.resolved.length}`] : []),
     '────',
     '',
   ]

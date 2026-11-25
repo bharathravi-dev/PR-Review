@@ -74,7 +74,7 @@ function fakeGitHub(opts: { head?: string; failInlineOnce?: boolean } = {}) {
     getPrContext: async () => err('unused', 'unused'),
     viewer: async () => ok({ id: RID, login: 'me' }),
     getHeadSha: async () => ok(opts.head ?? 'head1'),
-    listPublished: async () => ok({ reviews: [...reviews], issueComments: [...comments] }),
+    listPublished: async () => ok({ reviews: [...reviews], reviewComments: [], issueComments: [...comments] }),
   }
   const writer: GitHubWriter = {
     createReview: async (_ref, r) => {

@@ -1,4 +1,4 @@
-import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItem, type Result } from '@pr-reviewer/core'
+import { err, ok, type ContextLimits, type GitHubReader, type PrContext, type PrRef, type PublishedItems, type Result } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
 interface ApiUser { login: string; id?: number }
@@ -21,7 +21,7 @@ interface ApiFile {
   patch?: string
 }
 interface ApiReview { id: number; user: ApiUser | null; state: string; body: string | null; submitted_at?: string }
-interface ApiComment { id: number; user: ApiUser | null; body: string | null; path?: string; line?: number | null; created_at: string }
+interface ApiComment { id: number; user: ApiUser | null; body: string | null; path?: string; line?: number | null; created_at: string; html_url?: string }
 
 const BINARY_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|icns|pdf|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|exe|dll|so|dylib|bin|woff2?|ttf|otf|eot|mp3|mp4|mov|avi|webm|wav|ogg|psd|sketch|fig)$/i
 const CONTENT_CONCURRENCY = 6
@@ -43,17 +43,21 @@ export class GitHubPrReader implements GitHubReader {
     return res.ok ? ok(res.value.data.head.sha) : res
   }
 
-  async listPublished(ref: PrRef): Promise<Result<{ reviews: PublishedItem[]; issueComments: PublishedItem[] }>> {
+  async listPublished(ref: PrRef): Promise<Result<PublishedItems>> {
     const repoPath = `/repos/${enc(ref.owner)}/${enc(ref.repo)}`
-    const [reviews, comments] = await Promise.all([
+    const [reviews, inline, comments] = await Promise.all([
       this.client.paginate<ApiReview>(`${repoPath}/pulls/${ref.number}/reviews?per_page=100`),
+      this.client.paginate<ApiComment>(`${repoPath}/pulls/${ref.number}/comments?per_page=100`),
       this.client.paginate<ApiComment>(`${repoPath}/issues/${ref.number}/comments?per_page=100`),
     ])
     if (!reviews.ok) return reviews
+    if (!inline.ok) return inline
     if (!comments.ok) return comments
+    const item = (c: ApiComment) => ({ id: c.id, authorId: c.user?.id, body: c.body ?? '', createdAt: c.created_at, ...(c.html_url ? { url: c.html_url } : {}) })
     return ok({
       reviews: reviews.value.items.map((r) => ({ id: r.id, authorId: r.user?.id, body: r.body ?? '', state: r.state })),
-      issueComments: comments.value.items.map((c) => ({ id: c.id, authorId: c.user?.id, body: c.body ?? '', createdAt: c.created_at })),
+      reviewComments: inline.value.items.map(item),
+      issueComments: comments.value.items.map(item),
     })
   }
 

@@ -2,13 +2,44 @@ import { isInHunk, parsePatch, type Hunk } from './diff.js'
 import type { Finding } from './findings.js'
 import { formatMarker, MARKER_VERSION, ownMarker, type MarkerFields } from './marker.js'
 import type { PrRef } from './pr-ref.js'
-import type { GitHubReader, GitHubWriter, InlineComment, PublishedItem } from './ports.js'
+import type { GitHubReader, GitHubWriter, InlineComment, PublishedItem, PublishedItems } from './ports.js'
 import type { Report } from './report.js'
 import type { Result } from './result.js'
 import { sanitizeText } from './sanitize.js'
 import type { PrContext } from './schemas.js'
 
 export const DEFAULT_MAX_INLINE = 30
+
+/** What this reviewer already published on the PR, read only from own markers (AD-11). */
+export interface PriorPublication {
+  /** Inline comments still on the PR, by fingerprint. */
+  inline: Array<{ fingerprint: string; title: string; url?: string | undefined }>
+  /** 16-hex fingerprint prefixes from the latest own summary (Findings listed only there). */
+  summaryPrefixes: string[]
+}
+
+export const NO_PRIOR: PriorPublication = { inline: [], summaryPrefixes: [] }
+
+/**
+ * Reads prior publication state from own markers only (AD-11): inline comments and the latest summary authored by
+ * `rid` with a matching marker rid and the same fingerprint version. Everything else is ignored.
+ */
+export function readPrior(items: PublishedItems, rid: number, fpv: number): PriorPublication {
+  const inline: PriorPublication['inline'] = []
+  for (const c of items.reviewComments) {
+    const m = ownMarker(c, rid)
+    if (!m || m.kind !== 'inline' || m.fpv !== fpv || m.fp === '-') continue
+    const first = c.body.split('\n')[0] ?? ''
+    const title = first.replace(/^\*\*[^*]*\*\*\s*—\s*/, '').trim() || 'Earlier finding'
+    if (!inline.some((x) => x.fingerprint === m.fp)) inline.push({ fingerprint: m.fp, title, ...(c.url ? { url: c.url } : {}) })
+  }
+  const summaries = items.issueComments
+    .map((c) => ({ c, m: ownMarker(c, rid) }))
+    .filter((x) => x.m?.kind === 'summary' && x.m.fpv === fpv)
+    .sort((a, b) => a.c.id - b.c.id)
+  const latest = summaries[summaries.length - 1]?.m
+  return { inline, summaryPrefixes: latest?.fps ?? [] }
+}
 
 /** What to publish (AD-23). Pure data; the preview and the post are both rendered from it. */
 export interface PublishPlan {
@@ -27,6 +58,8 @@ export interface PublishPlan {
   engineMajor: number
   productVersion: string
   unattended: boolean
+  /** What was already published; inline comments are not repeated for unchanged Findings (FR-19). */
+  prior: PriorPublication
 }
 
 export interface PlannedInline extends InlineComment {
@@ -44,6 +77,10 @@ export interface PublishPreview {
   summaryOnly: Finding[]
   /** Findings left out by the plan (deselected or dismissed). */
   withheld: number
+  /** Findings already posted inline on an earlier head and unchanged (not re-posted). */
+  stillOpen: Array<{ finding: Finding; url?: string | undefined }>
+  /** Earlier Findings no longer present. */
+  resolved: Array<{ fingerprint: string; title: string; url?: string | undefined }>
 }
 
 export type PublishStatus = 'PUBLISHED' | 'SKIPPED_DUPLICATE' | 'CANCELLED' | 'SKIPPED_NEWER_ENGINE' | 'BLOCKED_PENDING_DRAFT' | 'FAILED'
@@ -67,7 +104,8 @@ export function hunksFromContext(ctx: PrContext): Record<string, Hunk[]> {
 
 export function planPublish(
   report: Report,
-  opts: Omit<PublishPlan, 'event' | 'pending' | 'maxInline' | 'allowedLinkPrefixes'> & {
+  opts: Omit<PublishPlan, 'event' | 'pending' | 'maxInline' | 'allowedLinkPrefixes' | 'prior'> & {
+    prior?: PriorPublication | undefined
     event?: PublishPlan['event'] | undefined
     maxInline?: number | undefined
     extraLinkPrefixes?: readonly string[] | undefined
@@ -85,6 +123,7 @@ export function planPublish(
     engineMajor: opts.engineMajor,
     productVersion: opts.productVersion,
     unattended: opts.unattended,
+    prior: opts.prior ?? NO_PRIOR,
   }
 }
 
@@ -146,6 +185,9 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
 
   const inline: PlannedInline[] = []
   const summaryOnly: Finding[] = []
+  const stillOpen: PublishPreview['stillOpen'] = []
+  const priorByFp = new Map(plan.prior.inline.map((p) => [p.fingerprint, p]))
+  const fpsOf = (f: Finding) => f.fingerprints ?? (f.fingerprint ? [f.fingerprint] : [])
   for (const f of visible) {
     const loc = f.location
     const eligible =
@@ -156,6 +198,12 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
       loc.path !== undefined &&
       loc.startLine !== undefined &&
       anchorRange(plan.hunks[loc.path], loc.startLine, loc.endLine ?? loc.startLine)
+    const earlier = fpsOf(f).map((fp) => priorByFp.get(fp)).find((p) => p !== undefined)
+    if (earlier) {
+      // Already posted inline on an earlier head and unchanged: never repeat it (FR-19).
+      stillOpen.push({ finding: f, url: earlier.url })
+      continue
+    }
     if (!eligible || inline.length >= plan.maxInline) {
       summaryOnly.push(f)
       continue
@@ -180,6 +228,14 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
     })
   }
 
+  const currentFps = report.findings.flatMap(fpsOf)
+  const resolved: PublishPreview['resolved'] = [
+    ...plan.prior.inline.filter((p) => !currentFps.includes(p.fingerprint)).map((p) => ({ fingerprint: p.fingerprint, title: clean(p.title), url: p.url })),
+    ...plan.prior.summaryPrefixes
+      .filter((prefix) => !currentFps.some((fp) => fp.startsWith(prefix)))
+      .map((prefix) => ({ fingerprint: prefix, title: 'An earlier summary-only finding' })),
+  ]
+
   const counts = (['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'] as const)
     .map((s) => [s, visible.filter((f) => f.severity === s).length] as const)
     .filter(([, n]) => n > 0)
@@ -188,7 +244,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
   const summaryLines = [
     `### PR Reviewer: ${report.overallStatus.replace(/_/g, ' ')}`,
     '',
-    `Head \`${report.run.headSha?.slice(0, 7) ?? '?'}\` · ${visible.length} finding(s)${counts.length ? ` (${counts.join(', ')})` : ''} · ${inline.length} inline`,
+    `Head \`${report.run.headSha?.slice(0, 7) ?? '?'}\` · ${visible.length} finding(s)${counts.length ? ` (${counts.join(', ')})` : ''} · ${inline.length} new inline${stillOpen.length ? ` · ${stillOpen.length} still open` : ''}${resolved.length ? ` · ${resolved.length} resolved` : ''}`,
     '',
     report.coverage.headline,
     ...(report.gate.failedRules.length ? ['', '**Gate:**', ...report.gate.failedRules.map((r) => `- ${clean(r)}`)] : []),
@@ -202,6 +258,10 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
           ),
         ]
       : []),
+    ...(stillOpen.length
+      ? ['', '**Still open from earlier reviews:**', ...stillOpen.map(({ finding: f, url }) => `- ${title(f)}${url ? ` ([comment](${url}))` : ''}`)]
+      : []),
+    ...(resolved.length ? ['', '**Resolved since the last review:**', ...resolved.map((r) => `- ~~${r.title}~~${r.url ? ` ([comment](${r.url}))` : ''}`)] : []),
     ...(withheld ? ['', `_${withheld} finding(s) withheld from this post (deselected or dismissed); the overall result above is unchanged._`] : []),
     ...(report.limitations.length ? ['', '**Limitations:**', ...report.limitations.map((l) => `- ${clean(l)}`)] : []),
     '',
@@ -210,7 +270,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
   const fps = summaryOnly.flatMap((f) => (f.fingerprint ? [f.fingerprint.slice(0, 16)] : []))
   const summaryBody = `${summaryLines.join('\n')}\n\n${markerFor(report, plan, 'summary', '-', fps)}`
   const reviewBody = `PR Reviewer: ${inline.length} inline comment(s) for \`${report.run.headSha?.slice(0, 7) ?? '?'}\`. The summary is in the conversation below.\n\n${markerFor(report, plan, 'review')}`
-  return { event: plan.event, pending: plan.pending, reviewBody, summaryBody, inline, summaryOnly, withheld }
+  return { event: plan.event, pending: plan.pending, reviewBody, summaryBody, inline, summaryOnly, withheld, stillOpen, resolved }
 }
 
 export interface PublishPorts {
