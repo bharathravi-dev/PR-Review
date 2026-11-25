@@ -5,6 +5,8 @@ import { err, ok, type Result, type ReviewProvider, type ReviewRequest, type Rev
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5-5'
 
 export interface AnthropicProviderOptions {
+  /** Name from Configuration (default "anthropic"); Anthropic-compatible gateways use their own. */
+  name?: string | undefined
   apiKey: Secret
   model?: string | undefined
   /** For Anthropic-compatible gateways (FR-9a). */
@@ -18,6 +20,7 @@ export interface AnthropicProviderOptions {
   browser?: boolean
   /** SDK retries for 408/409/429/5xx and connection errors (default 2). */
   maxRetries?: number
+  timeoutMs?: number | undefined
 }
 
 /**
@@ -25,19 +28,22 @@ export interface AnthropicProviderOptions {
  * structured JSON output, no tools (AD-8), server-side refusal fallbacks enabled.
  */
 export class AnthropicProvider implements ReviewProvider {
-  readonly id = 'anthropic'
+  readonly id: string
+  readonly billing = 'METERED' as const
   readonly #client: Anthropic
   readonly #model: string
   readonly #effort: NonNullable<AnthropicProviderOptions['effort']>
   readonly #maxTokens: number
 
   constructor(opts: AnthropicProviderOptions) {
+    this.id = opts.name ?? 'anthropic'
     this.#client = new Anthropic({
       apiKey: opts.apiKey.reveal(),
       ...(opts.baseUrl ? { baseURL: opts.baseUrl } : {}),
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
       ...(opts.browser ? { dangerouslyAllowBrowser: true } : {}),
       maxRetries: opts.maxRetries ?? 2,
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     })
     this.#model = opts.model ?? DEFAULT_ANTHROPIC_MODEL
     this.#effort = opts.effort ?? 'high'
@@ -87,6 +93,7 @@ function describeError(e: unknown): Result<never> {
   if (e instanceof Anthropic.NotFoundError) return err('ai_model_not_found', 'The configured model was not found.')
   if (e instanceof Anthropic.BadRequestError) return err('ai_bad_request', `Anthropic rejected the request: ${e.message}`)
   if (e instanceof Anthropic.RateLimitError) return err('ai_rate_limited', 'Anthropic rate limit reached; try again later.', true)
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return err('ai_timeout', 'The Anthropic API did not answer in time.', true)
   if (e instanceof Anthropic.APIConnectionError) return err('ai_unreachable', 'Could not reach the Anthropic API.', true)
   if (e instanceof Anthropic.APIError) return err('ai_error', `Anthropic API error ${e.status ?? ''}`.trim(), (e.status ?? 500) >= 500)
   return err('ai_error', `Unexpected error calling Anthropic: ${(e as Error).message}`)

@@ -4,12 +4,15 @@
 //         require, eval, or new Function; no internal package imports.
 //   AD-2  dependencies point inward: adapters import only @pr-reviewer/core;
 //         Channels (cli, action, web, extension, gh-extension) may import anything.
+//   AD-8  providers-http is isomorphic (reused by the browser extension): no Node built-ins.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const CHANNELS = new Set(['cli', 'action', 'web', 'extension', 'gh-extension'])
+/** Adapters that must run in browsers too (AD-1 isomorphic set, AD-8). */
+export const ISOMORPHIC_ADAPTERS = new Set(['providers-http'])
 const BUILTINS = new Set(builtinModules.flatMap((m) => [m, m.split('/')[0]]))
 
 const CORE_FORBIDDEN_CODE = [
@@ -64,6 +67,7 @@ export function checkBoundaries(root) {
       for (const spec of importsOf(code)) {
         const target = internalPackage(spec)
         if (isCore && isBuiltin(spec)) violations.push(`${rel}: core imports Node built-in '${spec}' (AD-1)`)
+        else if (ISOMORPHIC_ADAPTERS.has(pkg) && isBuiltin(spec)) violations.push(`${rel}: isomorphic adapter '${pkg}' imports Node built-in '${spec}' (AD-1, AD-8)`)
         else if (isCore && target) violations.push(`${rel}: core imports internal package '${spec}' (AD-1)`)
         else if (!isCore && !isChannel && target && target !== 'core') {
           violations.push(`${rel}: adapter '${pkg}' imports '${spec}'; adapters may import only @pr-reviewer/core (AD-2)`)

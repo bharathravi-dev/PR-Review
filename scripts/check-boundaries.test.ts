@@ -55,12 +55,19 @@ describe('checkBoundaries', () => {
 
   it('flags an adapter importing another adapter, in code and in package.json (AD-2)', () => {
     const root = workspace({
-      'packages/github/src/a.ts': "import { x } from '@pr-reviewer/providers'\nimport { y } from '@pr-reviewer/core'\n",
-      'packages/github/package.json': JSON.stringify({ dependencies: { '@pr-reviewer/providers': 'workspace:*' } }),
+      'packages/github/src/a.ts': "import { x } from '@pr-reviewer/providers-http'\nimport { y } from '@pr-reviewer/core'\n",
+      'packages/github/package.json': JSON.stringify({ dependencies: { '@pr-reviewer/providers-http': 'workspace:*' } }),
     })
     const v = checkBoundaries(root)
     expect(v).toHaveLength(2)
-    expect(v.join('\n')).toContain("adapter 'github' imports '@pr-reviewer/providers'")
+    expect(v.join('\n')).toContain("adapter 'github' imports '@pr-reviewer/providers-http'")
+  })
+
+  it('keeps providers-http free of Node built-ins (AD-1 isomorphic set, AD-8)', () => {
+    const bad = workspace({ 'packages/providers-http/src/a.ts': "import { spawn } from 'node:child_process'\n" })
+    expect(checkBoundaries(bad).join('\n')).toContain("isomorphic adapter 'providers-http' imports Node built-in 'node:child_process'")
+    const ok = workspace({ 'packages/providers-cli/src/a.ts': "import { spawn } from 'node:child_process'\nimport { x } from '@pr-reviewer/core'\n" })
+    expect(checkBoundaries(ok)).toEqual([])
   })
 
   it('lets Channels import adapters only in src/compose.ts (composition root)', () => {

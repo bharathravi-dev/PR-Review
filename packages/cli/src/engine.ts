@@ -16,6 +16,8 @@ import {
   type GitHubWriter,
   type LayerResult,
   type PrContext,
+  type ProviderCandidate,
+  type ProviderSettings,
   type PrRef,
   type PublishPlan,
   type PublishPreview,
@@ -28,10 +30,21 @@ import {
   type ReviewProvider,
   type Secret,
 } from '@pr-reviewer/core'
-import { apiUrlForHost, createAnthropicProvider, createGitHub, secretScanner } from './compose.js'
+import {
+  apiUrlForHost,
+  createAnthropicProvider,
+  createClaudeCodeProvider,
+  createCodexProvider,
+  createGitHub,
+  createOpenAiProvider,
+  findClaudeCode,
+  findCodex,
+  secretScanner,
+} from './compose.js'
 import { userConfigPath } from './config-file.js'
 import type { CliDeps } from './deps.js'
 import { loadReviewRules } from './rules-loader.js'
+import { fileLedger, firstTime, stateDir } from './state.js'
 import { ENGINE_MAJOR, USER_AGENT, VERSION } from './version.js'
 
 export interface GitHubConnection {
@@ -77,7 +90,20 @@ export function providerName(config: ResolvedConfig, flag?: string): string {
   return flag ?? config.settings.defaultProvider ?? 'anthropic'
 }
 
-/** Chooses the AI Provider from flags and Configuration. Only Anthropic is wired in this release (Epic 3 adds the rest). */
+/** Providers usable by name without any configuration. */
+const BUILT_IN: Record<string, ProviderSettings> = {
+  anthropic: { type: 'anthropic' },
+  openai: { type: 'openai-compatible', credential: 'provider:openai' },
+  'claude-code': { type: 'claude-code' },
+  codex: { type: 'codex' },
+}
+
+/** The configured (or built-in) settings for a provider name. */
+export function providerEntry(config: ResolvedConfig, name: string): ProviderSettings | undefined {
+  return config.settings.providers?.[name] ?? BUILT_IN[name]
+}
+
+/** Builds one AI Provider from Configuration (FR-9, FR-9a, FR-10). Credentials are resolved, never stored. */
 export async function buildProvider(
   config: ResolvedConfig,
   providerFlag: string | undefined,
@@ -86,15 +112,73 @@ export async function buildProvider(
   secrets: Secret[],
 ): Promise<Result<ReviewProvider>> {
   const name = providerName(config, providerFlag)
-  const entry = config.settings.providers?.[name] ?? (name === 'anthropic' ? { type: 'anthropic' as const } : undefined)
-  if (!entry) return err('provider_unknown', `AI provider "${name}" is not defined in the user config.`)
-  if (entry.type !== 'anthropic' && entry.type !== 'anthropic-compatible') {
-    return err('provider_unsupported', `AI provider type "${entry.type}" is not available in this release yet.`)
+  const entry = providerEntry(config, name)
+  if (!entry) return err('provider_unknown', `AI provider "${name}" is not defined in the user config (providers.${name}).`)
+  const model = modelFlag ?? entry.model
+  switch (entry.type) {
+    case 'anthropic':
+    case 'anthropic-compatible': {
+      const key = await deps.credentials.resolve(entry.credential ?? (entry.type === 'anthropic' ? 'provider:anthropic' : `provider:${name}`))
+      if (!key.ok) return err('provider_credential_missing', key.error.message)
+      secrets.push(key.value)
+      return ok(createAnthropicProvider({ name, apiKey: key.value, model, baseUrl: entry.baseUrl, timeoutMs: entry.timeoutMs, fetch: deps.fetch }))
+    }
+    case 'openai-compatible': {
+      if (!model) return err('provider_model_missing', `Set the model for "${name}" (providers.${name}.model in the user config, or --model).`)
+      const ref = entry.credential ?? `provider:${name}`
+      const key = await deps.credentials.resolve(ref)
+      // A local endpoint (e.g. Ollama) may need no key; a configured credential must resolve.
+      if (!key.ok && (entry.credential || !entry.baseUrl)) return err('provider_credential_missing', key.error.message)
+      if (key.ok) secrets.push(key.value)
+      return ok(
+        createOpenAiProvider({
+          name,
+          apiKey: key.ok ? key.value : undefined,
+          model,
+          baseUrl: entry.baseUrl,
+          apiKeyHeader: entry.apiKeyHeader,
+          responseFormat: entry.responseFormat,
+          timeoutMs: entry.timeoutMs,
+          fetch: deps.fetch,
+        }),
+      )
+    }
+    case 'claude-code': {
+      const command = entry.command ?? findClaudeCode(deps.env, deps.homedir, deps.platform)
+      if (!command) return err('cli_missing', 'Claude Code was not found. Install it (https://claude.com/claude-code) and log in, or set providers.claude-code.command to its path.')
+      return ok(createClaudeCodeProvider({ name, command, model, env: deps.env, timeoutMs: entry.timeoutMs }))
+    }
+    case 'codex': {
+      const command = entry.command ?? findCodex(deps.env, deps.platform)
+      if (!command) return err('cli_missing', 'Codex was not found. Install the Codex CLI and run "codex login", or set providers.codex.command to its path.')
+      return ok(createCodexProvider({ name, command, model, env: deps.env, homedir: deps.homedir, timeoutMs: entry.timeoutMs }))
+    }
   }
-  const key = await deps.credentials.resolve(entry.credential ?? 'provider:anthropic')
-  if (!key.ok) return err('provider_credential_missing', key.error.message)
-  secrets.push(key.value)
-  return ok(createAnthropicProvider({ apiKey: key.value, model: modelFlag ?? entry.model, baseUrl: entry.baseUrl, fetch: deps.fetch }))
+}
+
+/** The provider order for a run (AD-8, FR-11): the chosen provider, then the configured fallbacks. */
+export async function buildProviderChain(
+  config: ResolvedConfig,
+  providerFlag: string | undefined,
+  modelFlag: string | undefined,
+  deps: CliDeps,
+  secrets: Secret[],
+): Promise<ProviderCandidate[]> {
+  const primary = providerName(config, providerFlag)
+  const names = [primary, ...(config.settings.fallback ?? []).filter((n) => n !== primary)].filter((n, i, all) => all.indexOf(n) === i)
+  const out: ProviderCandidate[] = []
+  for (const name of names) {
+    const model = name === primary ? modelFlag : undefined
+    const built = await buildProvider(config, name, model, deps, secrets)
+    const entry = providerEntry(config, name)
+    out.push({
+      name,
+      ...(built.ok ? { provider: built.value } : { unavailableReason: built.error.message }),
+      model: model ?? entry?.model,
+      pricing: entry?.pricing,
+    })
+  }
+  return out
 }
 
 export interface ExecuteReviewOptions {
@@ -108,6 +192,8 @@ export interface ExecuteReviewOptions {
   runId?: string | undefined
   /** Notes about Review Rules that could not be read. */
   onWarning?: (text: string) => void
+  /** One-time notices (e.g. that a subscription is used). */
+  onNotice?: (text: string) => void
   /** Called once the run is about to start (after configuration is loaded). */
   beforeRun?: () => void
   onLayer?: (layer: LayerResult) => void
@@ -116,8 +202,21 @@ export interface ExecuteReviewOptions {
 
 /** Runs the Review Engine for one PR exactly as the `review` command does. */
 export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: Report; context?: PrContext }> {
-  const provider = await buildProvider(o.config, o.provider, o.model, o.deps, o.secrets)
+  const chain = await buildProviderChain(o.config, o.provider, o.model, o.deps, o.secrets)
   const name = providerName(o.config, o.provider)
+  const dir = stateDir(o.deps)
+  for (const c of chain) {
+    const type = providerEntry(o.config, c.name)?.type
+    if (c.provider?.billing !== 'PLAN' || (type !== 'claude-code' && type !== 'codex')) continue
+    if (firstTime(dir, `plan-usage:${type}`)) {
+      const via = type === 'codex' ? 'Codex login (ChatGPT plan)' : 'Claude Code login (Claude plan)'
+      o.onNotice?.(
+        `Note: "${c.name}" reviews through your own ${via}. Each review uses your plan's usage allowance, like any other request you make with it. It runs with no tools, in an empty folder, without your GitHub or API keys. (Shown once.)`,
+      )
+    }
+  }
+  // Usage is recorded locally only when it matters: pricing or limits are configured (FR-12).
+  const tracked = o.config.settings.limits !== undefined || chain.some((c) => c.pricing)
   const rules = await loadReviewRules(o.config.settings.reviewRules ?? [], { configPath: userConfigPath(o.deps), homedir: o.deps.homedir, fetch: o.deps.fetch })
   for (const w of rules.warnings) o.onWarning?.(w)
   o.beforeRun?.()
@@ -132,6 +231,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
         rules: rules.rules,
       },
       reviewerId: o.github.viewer?.id,
+      costLimits: o.config.settings.limits,
       configSources: o.config.sources,
       limitations: rules.warnings,
       runId: o.runId,
@@ -141,8 +241,8 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
     {
       github: o.github.reader,
       scanSecrets: secretScanner,
-      provider: provider.ok ? provider.value : undefined,
-      providerUnavailableReason: provider.ok ? undefined : provider.error.message,
+      providers: chain,
+      ledger: tracked ? fileLedger(dir) : undefined,
       now: () => Date.now(),
     },
   )

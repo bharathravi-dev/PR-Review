@@ -196,9 +196,12 @@ importers:
       '@pr-reviewer/github':
         specifier: workspace:*
         version: link:../github
-      '@pr-reviewer/providers':
+      '@pr-reviewer/providers-cli':
         specifier: workspace:*
-        version: link:../providers
+        version: link:../providers-cli
+      '@pr-reviewer/providers-http':
+        specifier: workspace:*
+        version: link:../providers-http
       '@pr-reviewer/validators':
         specifier: workspace:*
         version: link:../validators
@@ -228,7 +231,13 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/providers:
+  packages/providers-cli:
+    dependencies:
+      '@pr-reviewer/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/providers-http:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: 1.9.0

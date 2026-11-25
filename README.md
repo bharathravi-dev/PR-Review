@@ -4,9 +4,11 @@ Review GitHub pull requests before you merge them. `pr-reviewer` reads the PR in
 that can run deterministically, adds an AI review with the provider you choose, and can post the result
 on the PR as precise inline comments plus one summary, without ever approving or merging.
 
-Status: Release 1 in progress. Available now: the CLI with context loading, secret scanning, AI review
-(Anthropic), posting, re-review without duplicates, Finding feedback, and stats. Coming: more AI
-providers, compiler and lint checks in a sandbox, automatic reviews, a web app, and a browser extension.
+Status: Release 1 in progress. Available now: the CLI and a local review page, with context loading,
+secret scanning, AI review with your Claude or ChatGPT plan or an API key (Anthropic, OpenAI, or any
+compatible endpoint), fallback and cost limits, posting, re-review without duplicates, Finding feedback,
+and stats. Coming: compiler and lint checks in a sandbox, automatic reviews, a hosted web app, and a
+browser extension.
 
 ## Quick start
 
@@ -14,9 +16,13 @@ Requirements: Node.js 22 or later, pnpm 12, and a GitHub login (`gh auth login`)
 
 ```bash
 pnpm install && pnpm build
-export ANTHROPIC_API_KEY=...              # optional; without it the AI step is reported as not run
+node packages/cli/bin/pr-reviewer.js init      # finds your GitHub login and AI, tests them, writes your config
 node packages/cli/bin/pr-reviewer.js review https://github.com/<owner>/<repo>/pull/<n>
 ```
+
+`init` finds Claude Code (including the copy inside the VS Code, Cursor, or Windsurf extension) and the
+Codex CLI, so a Claude or ChatGPT plan works without an API key. It also finds `ANTHROPIC_API_KEY` and
+`OPENAI_API_KEY`.
 
 Add `--post` to put the review on the PR. You see a preview of exactly what will be posted and are
 asked to confirm; use `--yes` in scripts.
@@ -25,6 +31,7 @@ asked to confirm; use `--yes` in scripts.
 
 | Command | What it does |
 |---|---|
+| `init` | Find your GitHub login and AI, test each with a small call, and write your config |
 | `review <pr>` | Review a PR and print the report (`--out <dir>` for files, `--json`, `--post`) |
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: resolved, dismissed, still open |
@@ -58,10 +65,24 @@ Optional, in `~/.config/pr-reviewer/config.yml` (or `$XDG_CONFIG_HOME`, `%APPDAT
 version: 1
 github:
   host: github.com            # or your GitHub Enterprise host
+defaultProvider: claude-code  # used unless --provider says otherwise
+fallback: [anthropic]         # tried in order when the default is rate-limited, down, or logged out
 providers:
+  claude-code:
+    type: claude-code         # your Claude plan via Claude Code; also: codex (your ChatGPT plan)
+    model: opus               # optional
   anthropic:
-    type: anthropic
+    type: anthropic           # key: ANTHROPIC_API_KEY
     model: claude-opus-5-5
+    pricing: { inputPerMTok: 5, outputPerMTok: 25 }   # optional; enables cost estimates and limits
+  openrouter:
+    type: openai-compatible   # OpenAI, OpenRouter, Ollama, Azure OpenAI, or a company gateway
+    baseUrl: https://openrouter.ai/api/v1
+    model: <model id>
+    credential: provider:openrouter   # key: PR_REVIEWER_OPENROUTER_API_KEY or the OS keychain
+limits:                       # apply to API-key providers that have pricing
+  maxCostPerRunUsd: 1
+  maxCostPerMonthUsd: 20
 reviewRules:
   - ~/review-rules/team.md    # Markdown; each top-level list item is a rule
 publish:
@@ -69,8 +90,17 @@ publish:
   commitStatus: false         # true: also set a "pr-reviewer" commit status when posting
 ```
 
-Credentials are never stored in this file. They come from environment variables, the OS keychain, or
-your `gh` login, and are redacted from every output.
+Credentials are never stored in this file. They come from environment variables, the OS keychain, your
+`gh` login, or the vendor CLI's own login, and are redacted from every output.
+
+**Using your Claude or ChatGPT plan.** The `claude-code` and `codex` providers run your own logged-in
+CLI, so each review uses your plan's allowance (a one-time notice says so). They run with no tools, no
+MCP servers, no project or user customisations, in an empty temporary folder, without your GitHub or API
+keys; the PR reaches them only as text. pr-reviewer never reads their login files.
+
+**Usage and cost.** Each report lists the tokens used. With `pricing` set for a provider it also shows an
+estimated cost, and `limits` stop the AI step before a call that would exceed them. Usage is then kept
+locally in `~/.local/state/pr-reviewer/usage.json` (`$XDG_STATE_HOME`, or `%LOCALAPPDATA%` on Windows).
 
 ## From your phone (GitHub Actions)
 

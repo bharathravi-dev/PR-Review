@@ -1,5 +1,5 @@
 {
-  "name": "@pr-reviewer/providers",
+  "name": "@pr-reviewer/providers-cli",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,6 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "1.9.0",
     "@pr-reviewer/core": "workspace:*"
   }
 }

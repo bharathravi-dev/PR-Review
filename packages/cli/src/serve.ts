@@ -167,6 +167,7 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
       model: body.model,
       runId: run.id,
       onEvent: (e) => pushEvent(run, e),
+      onNotice: (t) => log(`${t}\n`),
     }).then(
       ({ report, context }) => {
         run.report = report

@@ -1,6 +1,7 @@
 import * as z from 'zod'
 import { Category, Confidence, Severity, type Finding, type LayerResult } from './findings.js'
 import type { RedactedContext } from './redact.js'
+import type { AiAttempt, Channel } from './report.js'
 import { err, ok, type Result } from './result.js'
 
 /**
@@ -46,14 +47,81 @@ export interface ReviewResponse {
   output: unknown
   provider: string
   model: string
-  usage?: { inputTokens: number; outputTokens: number } | undefined
+  usage?:
+    | {
+        inputTokens: number
+        outputTokens: number
+        /** Cost the provider itself reported (e.g. Claude Code's list-price figure). */
+        costUsd?: number | undefined
+      }
+    | undefined
 }
 
 /** Port for AI Providers (AD-8): one structured request in, one structured response out. No tools. */
 export interface ReviewProvider {
   readonly id: string
+  /** METERED: billed per token (API keys). PLAN: drawn from a subscription through the vendor's own CLI. */
+  readonly billing?: 'METERED' | 'PLAN'
+  /** Channels this provider may run in (AD-8, PRD FR-10); undefined means every Channel. */
+  readonly channels?: readonly Channel[]
   complete(request: ReviewRequest): Promise<Result<ReviewResponse>>
 }
+
+/** USD per million tokens, from user Configuration only (no built-in price list). */
+export interface Pricing {
+  inputPerMTok: number
+  outputPerMTok: number
+}
+
+/** One entry of the provider order (AD-8 fallback). */
+export interface ProviderCandidate {
+  /** Name from Configuration, e.g. "anthropic" or "work-gateway". */
+  name: string
+  /** Absent when it could not be built (missing key, unsupported type); the attempt is then SKIPPED. */
+  provider?: ReviewProvider | undefined
+  unavailableReason?: string | undefined
+  /** Model the provider will use, for the Report when no call is made. */
+  model?: string | undefined
+  pricing?: Pricing | undefined
+}
+
+/** Spending limits for metered providers (FR-12). */
+export interface CostLimits {
+  maxCostPerRunUsd?: number | undefined
+  maxCostPerMonthUsd?: number | undefined
+}
+
+export interface UsageEntry {
+  at: string
+  provider: string
+  model: string
+  billing: 'METERED' | 'PLAN'
+  inputTokens: number
+  outputTokens: number
+  /** Known cost of a metered call; 0 when unknown or drawn from a plan. */
+  costUsd: number
+}
+
+/** Local per-user usage record (`UsageLedgerPort`, AD-25); the CLI stores it in a file. */
+export interface UsageLedger {
+  /** Metered spend recorded so far this calendar month (UTC). */
+  monthToDateUsd(): Promise<number>
+  record(entry: UsageEntry): Promise<void>
+}
+
+/** Output tokens assumed when estimating a call's cost before making it. */
+export const ESTIMATED_OUTPUT_TOKENS = 4000
+
+/** Rough token estimate for text (≈ 4 characters per token). */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
+export function costOf(pricing: Pricing, inputTokens: number, outputTokens: number): number {
+  return (inputTokens * pricing.inputPerMTok + outputTokens * pricing.outputPerMTok) / 1_000_000
+}
+
+const usd = (n: number) => `$${n < 0.01 ? n.toFixed(4) : n.toFixed(2)}`
 
 const SYSTEM = `You are a senior code reviewer. Review the pull request described in the user message and report concrete, actionable problems.
 
@@ -121,20 +189,37 @@ export interface AiReviewOutcome {
   layer: LayerResult
   /** AI findings dropped because their location doesn't exist in the Head Commit (FR-6). */
   dropped: number
+  /** Every provider tried, in order (AD-8). */
+  attempts: AiAttempt[]
+  /** True when a cost ceiling stopped the AI layer (FR-12). */
+  partial: boolean
+  /** Notes for the Report's limitations. */
+  notes: string[]
   usage?: ReviewResponse['usage']
   provider?: string
   model?: string
 }
 
+export interface AiReviewOptions extends BuildRequestOptions {
+  now?: () => number
+  /** The run's Channel; providers not allowed in it are skipped (AD-8). */
+  channel?: Channel | undefined
+  limits?: CostLimits | undefined
+  ledger?: UsageLedger | undefined
+}
+
 /**
- * Stage `review`: calls the provider once, validates the output against the schema, maps it to canonical
- * Findings (source family AI), and drops any whose file or line doesn't exist in the Head Commit.
+ * Stage `review` (AD-8): tries the provider order until one answers. Falls back only on retryable errors
+ * (rate limit, 5xx, timeout, CLI missing or logged out), never on schema failures; skips providers that are
+ * unavailable, not allowed in this Channel, or over a cost ceiling. Validates the output against the schema,
+ * maps it to canonical Findings, and drops any whose file or line doesn't exist in the Head Commit.
  */
 export async function runAiReview(
   ctx: RedactedContext,
-  provider: ReviewProvider,
-  opts: BuildRequestOptions & { now?: () => number } = {},
+  providers: ReviewProvider | readonly ProviderCandidate[],
+  opts: AiReviewOptions = {},
 ): Promise<AiReviewOutcome> {
+  const candidates: readonly ProviderCandidate[] = 'complete' in providers ? [{ name: providers.id, provider: providers }] : providers
   const now = opts.now ?? (() => 0)
   const started = now()
   const layer = (status: LayerResult['status'], extra: Partial<LayerResult> = {}): LayerResult => ({
@@ -144,61 +229,131 @@ export async function runAiReview(
     durationMs: Math.max(0, Math.round(now() - started)),
     ...extra,
   })
+  const request = buildReviewRequest(ctx, opts)
+  const attempts: AiAttempt[] = []
+  const notes: string[] = []
+  const done = (l: LayerResult, extra: Partial<AiReviewOutcome> = {}): AiReviewOutcome => ({ findings: [], dropped: 0, attempts, partial: false, notes, layer: l, ...extra })
+  const limits = opts.limits ?? {}
+  const hasLimits = limits.maxCostPerRunUsd !== undefined || limits.maxCostPerMonthUsd !== undefined
+  const estimatedInput = estimateTokens(request.system) + estimateTokens(request.prompt)
+  let spentThisRun = 0
+  let monthToDate: number | undefined
 
-  const res = await provider.complete(buildReviewRequest(ctx, opts))
-  if (!res.ok) {
-    return { findings: [], dropped: 0, layer: layer('ERROR', { reason: 'PROVIDER_UNAVAILABLE', detail: res.error.message }) }
-  }
-  const parsed = AiReviewResponse.safeParse(res.value.output)
-  if (!parsed.success) {
-    return {
-      findings: [],
-      dropped: 0,
-      layer: layer('ERROR', { reason: 'SCHEMA_INVALID', detail: 'The AI response did not match the findings schema.' }),
-      provider: res.value.provider,
-      model: res.value.model,
-      usage: res.value.usage,
-    }
-  }
-
-  const lineCounts = new Map<string, number | undefined>()
-  for (const f of ctx.files) {
-    if (f.status === 'removed') continue
-    lineCounts.set(f.path, f.head?.text === undefined ? undefined : f.head.text.split('\n').length)
-  }
-
-  const findings: Finding[] = []
-  let dropped = 0
-  for (const item of parsed.data.findings) {
-    const location = locate(item, lineCounts)
-    if (!location) {
-      dropped++
+  for (const c of candidates) {
+    const model = c.model ?? 'default'
+    if (!c.provider) {
+      attempts.push({ provider: c.name, model, outcome: 'SKIPPED', reason: c.unavailableReason ?? 'Not available.' })
       continue
     }
-    findings.push({
-      ruleId: `ai/${item.category.toLowerCase()}`,
-      category: item.category,
-      severity: item.severity,
-      confidence: item.confidence,
-      scope: 'UNKNOWN',
-      sourceFamily: 'AI',
-      title: item.title,
-      description: item.description,
-      ...(item.impact ? { impact: item.impact } : {}),
-      ...(item.recommendation ? { recommendation: item.recommendation } : {}),
-      location,
-      provenance: { validator: 'ai.review', provider: res.value.provider, model: res.value.model },
-    })
+    const p = c.provider
+    const billing = p.billing ?? 'METERED'
+    if (opts.channel && p.channels && !p.channels.includes(opts.channel)) {
+      attempts.push({ provider: c.name, model, outcome: 'SKIPPED', reason: `Not allowed in the ${opts.channel} channel.`, billing })
+      continue
+    }
+
+    // Cost ceilings apply to metered providers with configured pricing (FR-12).
+    if (hasLimits && billing === 'METERED') {
+      if (!c.pricing) {
+        notes.push(`Cost ceiling not enforced for "${c.name}": no pricing is configured for it.`)
+      } else {
+        const estimate = costOf(c.pricing, estimatedInput, ESTIMATED_OUTPUT_TOKENS)
+        let over: string | undefined
+        if (limits.maxCostPerRunUsd !== undefined && spentThisRun + estimate > limits.maxCostPerRunUsd) {
+          over = `estimated ${usd(spentThisRun + estimate)} for this run, limit ${usd(limits.maxCostPerRunUsd)}`
+        } else if (limits.maxCostPerMonthUsd !== undefined) {
+          monthToDate ??= opts.ledger ? await opts.ledger.monthToDateUsd() : 0
+          if (monthToDate + spentThisRun + estimate > limits.maxCostPerMonthUsd) {
+            over = `${usd(monthToDate)} spent this month + estimated ${usd(spentThisRun + estimate)}, limit ${usd(limits.maxCostPerMonthUsd)}`
+          }
+        }
+        if (over) {
+          attempts.push({ provider: c.name, model, outcome: 'SKIPPED', reason: `Cost ceiling reached (${over}).`, billing })
+          return done(layer('SKIPPED', { reason: 'COST_CEILING', detail: `Cost ceiling reached (${over}).` }), { partial: true })
+        }
+      }
+    }
+
+    const res = await p.complete(request)
+    if (!res.ok) {
+      attempts.push({ provider: c.name, model, outcome: 'FAILED', reason: res.error.message, billing })
+      if (res.error.retryable) continue
+      return done(layer('ERROR', { reason: 'PROVIDER_UNAVAILABLE', detail: res.error.message }))
+    }
+
+    const u = res.value.usage
+    const cost = u && c.pricing ? { costUsd: costOf(c.pricing, u.inputTokens, u.outputTokens), costSource: 'PRICING' as const } : u?.costUsd !== undefined ? { costUsd: u.costUsd, costSource: 'PROVIDER' as const } : {}
+    const metered = billing === 'METERED' && cost.costUsd !== undefined ? cost.costUsd : 0
+    spentThisRun += metered
+    if (u && opts.ledger) {
+      await opts.ledger
+        .record({ at: new Date(now()).toISOString(), provider: c.name, model: res.value.model, billing, inputTokens: u.inputTokens, outputTokens: u.outputTokens, costUsd: metered })
+        .catch(() => notes.push('Usage could not be recorded locally.'))
+    }
+    const attempt: AiAttempt = {
+      provider: c.name,
+      model: res.value.model,
+      outcome: 'SUCCEEDED',
+      billing,
+      ...(u ? { usage: { input: u.inputTokens, output: u.outputTokens, ...cost } } : {}),
+    }
+
+    const parsed = AiReviewResponse.safeParse(res.value.output)
+    if (!parsed.success) {
+      // A malformed answer is not retried on another provider (AD-8).
+      attempts.push({ ...attempt, outcome: 'FAILED', reason: 'The response did not match the findings schema.' })
+      return done(layer('ERROR', { reason: 'SCHEMA_INVALID', detail: 'The AI response did not match the findings schema.' }), { provider: c.name, model: res.value.model, usage: u })
+    }
+    attempts.push(attempt)
+
+    const lineCounts = new Map<string, number | undefined>()
+    for (const f of ctx.files) {
+      if (f.status === 'removed') continue
+      lineCounts.set(f.path, f.head?.text === undefined ? undefined : f.head.text.split('\n').length)
+    }
+    const findings: Finding[] = []
+    let dropped = 0
+    for (const item of parsed.data.findings) {
+      const location = locate(item, lineCounts)
+      if (!location) {
+        dropped++
+        continue
+      }
+      findings.push({
+        ruleId: `ai/${item.category.toLowerCase()}`,
+        category: item.category,
+        severity: item.severity,
+        confidence: item.confidence,
+        scope: 'UNKNOWN',
+        sourceFamily: 'AI',
+        title: item.title,
+        description: item.description,
+        ...(item.impact ? { impact: item.impact } : {}),
+        ...(item.recommendation ? { recommendation: item.recommendation } : {}),
+        location,
+        provenance: { validator: 'ai.review', provider: c.name, model: res.value.model },
+      })
+    }
+    const fellBack = attempts.length > 1 ? `Used "${c.name}" after: ${attempts.slice(0, -1).map((a) => `${a.provider} ${a.outcome.toLowerCase()} (${a.reason})`).join('; ')}.` : undefined
+    const detail = [dropped > 0 ? `${dropped} finding(s) dropped: location not in the Head Commit` : undefined, fellBack].filter(Boolean).join(' ')
+    return {
+      findings,
+      dropped,
+      attempts,
+      partial: false,
+      notes,
+      usage: u,
+      provider: c.name,
+      model: res.value.model,
+      layer: layer(findings.length > 0 ? 'WARNING' : 'PASSED', detail ? { detail } : {}),
+    }
   }
 
-  return {
-    findings,
-    dropped,
-    usage: res.value.usage,
-    provider: res.value.provider,
-    model: res.value.model,
-    layer: layer(findings.length > 0 ? 'WARNING' : 'PASSED', dropped > 0 ? { detail: `${dropped} finding(s) dropped: location not in the Head Commit` } : {}),
+  if (attempts.every((a) => a.outcome === 'SKIPPED')) {
+    return done(layer('SKIPPED', { reason: 'PROVIDER_UNAVAILABLE', detail: attempts.map((a) => a.reason).filter(Boolean).join(' ') || 'No AI Provider is configured.' }))
   }
+  const last = attempts.filter((a) => a.outcome === 'FAILED').at(-1)
+  return done(layer('ERROR', { reason: 'PROVIDER_UNAVAILABLE', detail: `Every AI provider failed. Last: ${last?.provider}: ${last?.reason}` }))
 }
 
 function locate(

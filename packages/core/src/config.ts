@@ -4,12 +4,26 @@ import { err, ok, type Result } from './result.js'
 /** Named Credential reference; values never live in Configuration (AD-10). */
 export const CredentialRef = z.string().regex(/^(github|provider:[a-z0-9][a-z0-9-]*)$/, 'expected "github" or "provider:<id>"')
 
+export const ProviderType = z.enum(['anthropic', 'anthropic-compatible', 'openai-compatible', 'claude-code', 'codex'])
+export type ProviderType = z.infer<typeof ProviderType>
+
 export const ProviderSettings = z.strictObject({
-  type: z.enum(['anthropic', 'anthropic-compatible', 'openai-compatible', 'claude-code', 'codex']),
+  type: ProviderType,
   model: z.string().optional(),
+  /** API base URL for HTTP providers (FR-9a), e.g. an OpenRouter, Ollama, Azure, or company gateway URL. */
   baseUrl: z.string().optional(),
   credential: CredentialRef.optional(),
+  /** Header that carries the key for openai-compatible gateways that don't use `Authorization: Bearer` (e.g. "api-key"). */
+  apiKeyHeader: z.string().regex(/^[A-Za-z0-9-]+$/).optional(),
+  /** Structured output mode for openai-compatible endpoints; json_object for gateways without JSON-schema support. */
+  responseFormat: z.enum(['json_schema', 'json_object']).optional(),
+  /** Path to the vendor CLI for claude-code / codex (default: found on PATH or in editor extensions). */
+  command: z.string().optional(),
+  /** USD per million tokens, used to estimate cost and enforce ceilings (FR-12). */
+  pricing: z.strictObject({ inputPerMTok: z.number().nonnegative(), outputPerMTok: z.number().nonnegative() }).optional(),
+  timeoutMs: z.number().int().positive().optional(),
 })
+export type ProviderSettings = z.infer<typeof ProviderSettings>
 
 /** Settings shared by the top level of a user config and each named profile. */
 export const Settings = z.strictObject({
@@ -21,7 +35,16 @@ export const Settings = z.strictObject({
     })
     .optional(),
   defaultProvider: z.string().optional(),
+  /** Providers tried in order after the default when it fails with a retryable error (FR-11). */
+  fallback: z.array(z.string()).optional(),
   providers: z.record(z.string(), ProviderSettings).optional(),
+  /** Spending limits for metered providers (FR-12). */
+  limits: z
+    .strictObject({
+      maxCostPerRunUsd: z.number().positive().optional(),
+      maxCostPerMonthUsd: z.number().positive().optional(),
+    })
+    .optional(),
   /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */
   reviewRules: z.array(z.string()).optional(),
   publish: z

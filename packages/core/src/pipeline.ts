@@ -1,4 +1,4 @@
-import { runAiReview, type ReviewProvider } from './ai-review.js'
+import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
 import { runEventEmitter, type EventSink } from './events.js'
@@ -17,10 +17,14 @@ export type SecretScanner = (ctx: PrContext) => SecretScanOutcome & { findings: 
 export interface EnginePorts {
   github: GitHubReader
   scanSecrets: SecretScanner
-  /** Absent when no AI Provider is available; the AI layer is then SKIPPED. */
+  /** Provider order (AD-8): the first is the primary, the rest are fallbacks. Takes precedence over `provider`. */
+  providers?: readonly ProviderCandidate[] | undefined
+  /** A single provider (shorthand for a one-entry order). Absent with no `providers`: the AI layer is SKIPPED. */
   provider?: ReviewProvider | undefined
   /** Why no provider is available, shown in the Report. */
   providerUnavailableReason?: string | undefined
+  /** Local usage record for monthly ceilings and stats (FR-12). */
+  ledger?: UsageLedger | undefined
   /** Milliseconds since the epoch. */
   now: () => number
 }
@@ -45,6 +49,8 @@ export interface ReviewInput {
   /** Notes from earlier stages (e.g. unreadable Review Rules) to report as limitations. */
   limitations?: readonly string[]
   onLayer?: ((layer: LayerResult) => void) | undefined
+  /** Spending limits for metered providers (FR-12). */
+  costLimits?: CostLimits | undefined
   /** Run id to use (a remote engine assigns it before the run starts); defaults to a new UUIDv7. */
   runId?: string | undefined
   /** Receives the run's progress events (AD-16). */
@@ -135,31 +141,27 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   const redacted = redactContext(ctx, scan)
   if (!redacted.ok) {
     record({ layer: 'AI_REVIEW', validator: 'ai.review', status: 'SKIPPED', reason: 'SECRET_SCAN_UNAVAILABLE', detail: redacted.error.message, durationMs: 0 })
-  } else if (!ports.provider) {
-    record({ layer: 'AI_REVIEW', validator: 'ai.review', status: 'SKIPPED', reason: 'PROVIDER_UNAVAILABLE', detail: ports.providerUnavailableReason ?? 'No AI Provider is configured.', durationMs: 0 })
   } else {
-    emit('STAGE_STARTED', { stage: 'review', provider: ports.provider.id, ...(input.review?.model ? { model: input.review.model } : {}) })
-    const outcome = await runAiReview(redacted.value, ports.provider, {
+    const candidates: ProviderCandidate[] = ports.providers
+      ? [...ports.providers]
+      : [{ name: ports.provider?.id ?? 'anthropic', provider: ports.provider, unavailableReason: ports.providerUnavailableReason ?? 'No AI Provider is configured.', model: input.review?.model }]
+    const first = candidates.find((c) => c.provider)
+    if (first) emit('STAGE_STARTED', { stage: 'review', provider: first.name, ...(first.model ? { model: first.model } : {}) })
+    const outcome = await runAiReview(redacted.value, candidates, {
       deterministicFindings: scan.findings,
       rules: input.review?.rules ?? [],
       now: ports.now,
+      channel: input.channel,
+      limits: input.costLimits,
+      ledger: ports.ledger,
     })
     record(outcome.layer)
     aiFindings.push(...outcome.findings)
-    ai = {
-      attempts: [
-        {
-          provider: outcome.provider ?? ports.provider.id,
-          model: outcome.model ?? input.review?.model ?? 'unknown',
-          outcome: outcome.layer.status === 'ERROR' ? 'FAILED' : 'SUCCEEDED',
-          ...(outcome.layer.status === 'ERROR' && outcome.layer.detail ? { reason: outcome.layer.detail } : {}),
-          ...(outcome.usage ? { usage: { input: outcome.usage.inputTokens, output: outcome.usage.outputTokens } } : {}),
-        },
-      ],
-      droppedFindings: { schema: 0, grounding: outcome.dropped },
-      partial: false,
+    limitations.push(...outcome.notes)
+    if (outcome.attempts.length > 0) {
+      ai = { attempts: outcome.attempts, droppedFindings: { schema: 0, grounding: outcome.dropped }, partial: outcome.partial }
     }
-    emit('STAGE_FINISHED', { stage: 'review', status: outcome.layer.status })
+    if (first) emit('STAGE_FINISHED', { stage: 'review', status: outcome.layer.status, ...(outcome.provider ? { provider: outcome.provider, model: outcome.model } : {}) })
   }
 
   emit('STAGE_STARTED', { stage: 'dedupe' })

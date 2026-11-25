@@ -26,6 +26,7 @@ import { createCredentialResolver } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
 import type { CliDeps, CliIo } from './deps.js'
 import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish } from './engine.js'
+import { initCommand } from './init.js'
 import { startServer } from './serve.js'
 import { VERSION } from './version.js'
 
@@ -39,6 +40,7 @@ const USAGE = `Usage: pr-reviewer <command> [options]
 Review GitHub pull requests with deterministic checks and the AI provider of your choice.
 
 Commands:
+  init               Find your GitHub login and AI (Claude Code, Codex, API keys) and write your config
   review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
@@ -56,8 +58,8 @@ Options:
 review options:
   --out <dir>        Also write report.md and report.json to <dir>
   --json             Print the Report as JSON instead of Markdown
-  --provider <name>  AI provider from the user config (default: anthropic)
-  --model <id>       Model override
+  --provider <name>  AI provider: a name from the user config, or anthropic, openai, claude-code, codex
+  --model <id>       Model override for that provider
   --warnings-ok      Exit 0 instead of 1 for PASSED_WITH_WARNINGS
   --post             Post the review to the PR (shows a preview and asks first)
   --yes              Post without asking (required when not in an interactive terminal)
@@ -77,6 +79,11 @@ stats options:
 
 Dismiss a finding by reacting 👎 to its comment or replying "/dismiss"; it won't be posted again.
 
+init options:
+  --yes              Don't ask; use what works (subscriptions first, then API keys)
+  --force            Replace an existing config (kept as config.yml.bak)
+  --skip-test        Don't make a test call to each AI provider
+
 serve options:
   --port <n>         Port on 127.0.0.1 (default: any free port)
   --open             Open the page in your default browser
@@ -88,7 +95,7 @@ context options:
 
 Config file: $XDG_CONFIG_HOME/pr-reviewer/config.yml (or ~/.config/..., %APPDATA%\\... on Windows),
 or the path in $PR_REVIEWER_CONFIG. GitHub token: GITHUB_TOKEN, GH_TOKEN, the OS keychain, or gh.
-Anthropic key: ANTHROPIC_API_KEY or the OS keychain.
+AI: your Claude Code or Codex login (no key needed), or ANTHROPIC_API_KEY / OPENAI_API_KEY / the OS keychain.
 `
 
 /** Runs the CLI with the given arguments (without the node/script prefix) and returns the exit code. */
@@ -137,6 +144,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'stats') return statsCommand(rest, io, deps, secrets)
   if (first === 'config') return configCommand(rest, io, deps)
   if (first === 'serve') return serveCommand(rest, io, deps, secrets)
+  if (first === 'init') return initCommand(rest, io, deps, secrets, (m) => usageError(io, m))
 
   const kind = first.startsWith('-') ? 'option' : 'command'
   return usageError(io, `Unknown ${kind}: ${first}`)
@@ -282,6 +290,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
     provider: parsed.values.provider,
     model: parsed.values.model,
     onWarning: (w) => io.stderr(`warning: ${w}\n`),
+    onNotice: (t) => io.stderr(`${t}\n`),
     beforeRun: () => io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`),
     onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
   })

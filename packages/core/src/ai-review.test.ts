@@ -133,7 +133,77 @@ describe('runAiReview', () => {
     expect(bad.layer).toMatchObject({ status: 'ERROR', reason: 'SCHEMA_INVALID' })
     const down: ReviewProvider = { id: 'down', complete: async () => err('ai_unreachable', 'offline', true) }
     const failed = await runAiReview(redacted(), down)
-    expect(failed.layer).toMatchObject({ status: 'ERROR', reason: 'PROVIDER_UNAVAILABLE', detail: 'offline' })
+    expect(failed.layer).toMatchObject({ status: 'ERROR', reason: 'PROVIDER_UNAVAILABLE', detail: 'Every AI provider failed. Last: down: offline' })
     expect(failed.findings).toEqual([])
+  })
+})
+
+describe('provider order, fallback, and ceilings (Stories 3.2, 3.5)', () => {
+  const answer = { findings: [] }
+  const good = (id: string, usage = { inputTokens: 1000, outputTokens: 200 }): ReviewProvider => ({ id, complete: async () => ok({ output: answer, provider: id, model: `${id}-model`, usage }) })
+  const failing = (id: string, retryable: boolean, calls: string[]): ReviewProvider => ({
+    id,
+    complete: async () => {
+      calls.push(id)
+      return err('x', `${id} down`, retryable)
+    },
+  })
+
+  it('falls back on retryable errors and records every attempt', async () => {
+    const calls: string[] = []
+    const out = await runAiReview(redacted(), [
+      { name: 'nokey', unavailableReason: 'No key.' },
+      { name: 'primary', provider: failing('primary', true, calls) },
+      { name: 'backup', provider: good('backup') },
+    ])
+    expect(calls).toEqual(['primary'])
+    expect(out.layer).toMatchObject({ status: 'PASSED' })
+    expect(out.layer.detail).toContain('Used "backup" after')
+    expect(out.attempts.map((a) => [a.provider, a.outcome])).toEqual([['nokey', 'SKIPPED'], ['primary', 'FAILED'], ['backup', 'SUCCEEDED']])
+    expect(out.attempts[2]).toMatchObject({ model: 'backup-model', billing: 'METERED', usage: { input: 1000, output: 200 } })
+  })
+
+  it('stops on a non-retryable error or a schema failure (no fallback)', async () => {
+    const calls: string[] = []
+    const hard = await runAiReview(redacted(), [{ name: 'a', provider: failing('a', false, calls) }, { name: 'b', provider: failing('b', true, calls) }])
+    expect(calls).toEqual(['a'])
+    expect(hard.layer).toMatchObject({ status: 'ERROR', detail: 'a down' })
+    const schema = await runAiReview(redacted(), [{ name: 'a', provider: recordingProvider({ bad: true }) }, { name: 'b', provider: failing('b', true, calls) }])
+    expect(calls).toEqual(['a'])
+    expect(schema.layer).toMatchObject({ status: 'ERROR', reason: 'SCHEMA_INVALID' })
+  })
+
+  it('skips providers not allowed in the Channel', async () => {
+    const cliOnly: ReviewProvider = { ...good('sub'), billing: 'PLAN', channels: ['CLI'] }
+    const out = await runAiReview(redacted(), [{ name: 'sub', provider: cliOnly }], { channel: 'AUTO_REVIEW' })
+    expect(out.layer).toMatchObject({ status: 'SKIPPED', reason: 'PROVIDER_UNAVAILABLE' })
+    expect(out.attempts[0]!.reason).toBe('Not allowed in the AUTO_REVIEW channel.')
+    expect((await runAiReview(redacted(), [{ name: 'sub', provider: cliOnly }], { channel: 'CLI' })).attempts[0]).toMatchObject({ outcome: 'SUCCEEDED', billing: 'PLAN' })
+  })
+
+  it('prices metered calls from configured pricing and records usage', async () => {
+    const entries: unknown[] = []
+    const ledger = { monthToDateUsd: async () => 0, record: async (e: unknown) => void entries.push(e) }
+    const out = await runAiReview(redacted(), [{ name: 'api', provider: good('api'), pricing: { inputPerMTok: 5, outputPerMTok: 25 } }], { ledger })
+    expect(out.attempts[0]!.usage).toEqual({ input: 1000, output: 200, costUsd: 0.01, costSource: 'PRICING' })
+    expect(entries).toEqual([expect.objectContaining({ provider: 'api', billing: 'METERED', costUsd: 0.01, inputTokens: 1000 })])
+  })
+
+  it('stops at a per-run or monthly ceiling before calling, and says when a ceiling cannot be enforced', async () => {
+    const calls: string[] = []
+    const spy: ReviewProvider = { id: 'api', complete: async () => (calls.push('api'), ok({ output: answer, provider: 'api', model: 'm' })) }
+    const pricing = { inputPerMTok: 5, outputPerMTok: 25 }
+    const run = await runAiReview(redacted(), [{ name: 'api', provider: spy, pricing }], { limits: { maxCostPerRunUsd: 0.01 } })
+    expect(calls).toEqual([])
+    expect(run.layer).toMatchObject({ status: 'SKIPPED', reason: 'COST_CEILING' })
+    expect(run.partial).toBe(true)
+    const month = await runAiReview(redacted(), [{ name: 'api', provider: spy, pricing }], { limits: { maxCostPerMonthUsd: 10 }, ledger: { monthToDateUsd: async () => 9.99, record: async () => undefined } })
+    expect(month.layer.detail).toContain('$9.99 spent this month')
+    const unpriced = await runAiReview(redacted(), [{ name: 'api', provider: spy }], { limits: { maxCostPerRunUsd: 0.01 } })
+    expect(calls).toEqual(['api'])
+    expect(unpriced.notes).toEqual(['Cost ceiling not enforced for "api": no pricing is configured for it.'])
+    // Plan-billed providers are not metered, so ceilings do not apply to them.
+    const plan = await runAiReview(redacted(), [{ name: 'sub', provider: { ...spy, billing: 'PLAN' }, pricing }], { limits: { maxCostPerRunUsd: 0.000001 } })
+    expect(plan.layer.status).toBe('PASSED')
   })
 })

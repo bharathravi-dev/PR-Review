@@ -18,8 +18,19 @@ export const AiAttempt = z.object({
   model: z.string(),
   outcome: z.enum(['SUCCEEDED', 'FAILED', 'SKIPPED']),
   reason: z.string().optional(),
-  usage: z.object({ input: z.number().optional(), output: z.number().optional() }).optional(),
+  /** METERED (billed per token) or PLAN (subscription through the vendor's CLI). */
+  billing: z.enum(['METERED', 'PLAN']).optional(),
+  usage: z
+    .object({
+      input: z.number().optional(),
+      output: z.number().optional(),
+      /** Estimated USD; from configured pricing, or as reported by the provider. */
+      costUsd: z.number().optional(),
+      costSource: z.enum(['PRICING', 'PROVIDER']).optional(),
+    })
+    .optional(),
 })
+export type AiAttempt = z.infer<typeof AiAttempt>
 
 /** The consolidated output of a Review Run (AD-15). Immutable after `assemble`; Channels render only from it. */
 export const Report = z.looseObject({
@@ -132,6 +143,20 @@ export function evaluateGate(
   return done('PASSED')
 }
 
+/** One line about an AI attempt: tokens and cost, honest about what is known (FR-12). */
+export function describeAttempt(a: AiAttempt): string {
+  const u = a.usage
+  const parts = [`${a.provider} ${a.model} ${a.outcome}`]
+  if (a.reason) parts.push(a.reason)
+  if (u) parts.push(`${u.input ?? '?'} input / ${u.output ?? '?'} output tokens`)
+  if (a.outcome === 'SUCCEEDED') {
+    if (a.billing === 'PLAN') parts.push(`drawn from your plan's usage${u?.costUsd !== undefined ? ` (≈ $${u.costUsd.toFixed(2)} at list price, as reported)` : ''}`)
+    else if (u?.costUsd !== undefined) parts.push(`≈ $${u.costUsd < 0.01 ? u.costUsd.toFixed(4) : u.costUsd.toFixed(2)}${u.costSource === 'PROVIDER' ? ' (reported by the provider)' : ''}`)
+    else parts.push('cost not reported (set pricing for this provider to estimate it)')
+  }
+  return parts.join(', ')
+}
+
 const SEVERITY_ORDER: Severity[] = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO']
 
 /** Sort order for Report Findings (AD-15): severity, disposition, path, start line, fingerprint. */
@@ -171,10 +196,7 @@ export function renderMarkdown(report: Report): string {
     out.push('')
   }
   if (report.ai) {
-    for (const a of report.ai.attempts) {
-      const u = a.usage
-      out.push(`_AI: ${a.provider} ${a.model} ${a.outcome}${u ? `, ${u.input ?? '?'} input / ${u.output ?? '?'} output tokens` : ''}._`)
-    }
+    for (const a of report.ai.attempts) out.push(`_AI: ${describeAttempt(a)}._`)
     const d = report.ai.droppedFindings
     if (d.schema + d.grounding > 0) out.push(`_${d.grounding} AI finding(s) dropped for locations outside the Head Commit._`)
   }
