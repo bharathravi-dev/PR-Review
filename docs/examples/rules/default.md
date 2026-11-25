@@ -1,6 +1,6 @@
 # Default review rules
 
-Used for any repository without its own `rules/<repo>.md`.
+Example Review Rules. Point `reviewRules` in your user config at a file like this; every top-level list item is checked on every review and listed in the Report.
 
 - Correctness first: logic errors, unhandled null/empty/error cases, off-by-one, race conditions.
 - Security: injection, secrets in code, unsafe HTML, missing auth checks, untrusted input reaching sensitive calls.

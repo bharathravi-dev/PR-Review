@@ -22,6 +22,7 @@ export const Settings = z.strictObject({
     .optional(),
   defaultProvider: z.string().optional(),
   providers: z.record(z.string(), ProviderSettings).optional(),
+  /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */
   reviewRules: z.array(z.string()).optional(),
   publish: z
     .strictObject({

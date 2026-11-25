@@ -1,56 +1,83 @@
-name: AI PR review
+name: PR review
 
-# Run from the Actions tab (or the GitHub mobile app): Actions → AI PR review → Run workflow.
+# Run from the Actions tab (or the GitHub mobile app): Actions → PR review → Run workflow.
+# Secrets (Settings → Secrets and variables → Actions):
+#   ANTHROPIC_API_KEY  AI provider key
+#   GH_REVIEW_TOKEN    GitHub token that can read the PR (and comment on it, to post)
 on:
   workflow_dispatch:
     inputs:
       pr:
-        description: 'PR URL, e.g. https://github.com/KB-iGOT/sunbird-cb-portal/pull/2549'
+        description: 'PR URL or owner/repo#number'
         required: true
       post:
-        description: 'Post the review on the PR (as you)'
+        description: 'Post the review on the PR (as the token owner)'
         type: boolean
         default: false
       event:
-        description: 'Review type when posting'
+        description: 'Review type when posting (never approve)'
         type: choice
         options: [COMMENT, REQUEST_CHANGES]
         default: COMMENT
       model:
-        description: 'Claude model'
-        type: choice
-        options: [claude-sonnet-5-5, claude-opus-5-5]
-        default: claude-sonnet-5-5
+        description: 'Model id (leave empty for the default)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
+
+concurrency:
+  group: pr-review-${{ inputs.pr }}
+  cancel-in-progress: false
 
 jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 20
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12.21.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
       - name: Review PR
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GH_REVIEW_TOKEN }}
+          # Legacy secret name, mapped to the variable the CLI reads (AD-10, AD-20).
+          GH_TOKEN: ${{ secrets.GH_REVIEW_TOKEN }}
           PR: ${{ inputs.pr }}
           POST: ${{ inputs.post }}
           EVENT: ${{ inputs.event }}
           MODEL: ${{ inputs.model }}
+          REPO_IS_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          set -euo pipefail
-          args=("$PR" --yes --event "$EVENT" --model "$MODEL" --out reviews)
-          if [ "$POST" = "true" ]; then args+=(--post); fi
-          node review.mjs "${args[@]}"
-          cat reviews/*.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: review
-          path: reviews/
-          if-no-files-found: ignore
+          set -uo pipefail
+          config="$RUNNER_TEMP/pr-reviewer.yml"
+          echo 'version: 1' > "$config"
+          # Choosing REQUEST_CHANGES in this form is the explicit opt-in FR-18 asks for.
+          if [ "$EVENT" = "REQUEST_CHANGES" ]; then printf 'publish:\n  allowRequestChanges: true\n' >> "$config"; fi
+          export PR_REVIEWER_CONFIG="$config"
+
+          args=(review "$PR" --warnings-ok)
+          if [ -n "$MODEL" ]; then args+=(--model "$MODEL"); fi
+          if [ "$POST" = "true" ]; then args+=(--post --yes --event "$EVENT"); fi
+
+          report="$RUNNER_TEMP/report.md"
+          node packages/cli/bin/pr-reviewer.js "${args[@]}" > "$report"
+          code=$?
+
+          # Findings never go to the step summary or to artifacts. Logs of a public repository are public,
+          # so the report is printed only when this repository is private.
+          if [ "$REPO_IS_PRIVATE" = "true" ]; then cat "$report"; else head -n 3 "$report"; echo '(Full report printed only in private repositories; post it to the PR to read it.)'; fi
+          rm -f "$report"
+          exit "$code"

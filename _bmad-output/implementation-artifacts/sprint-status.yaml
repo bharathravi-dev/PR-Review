@@ -44,14 +44,14 @@ development_status:
   1-6-end-to-end-review-with-a-report-and-exit-codes: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-publish-a-review-with-inline-comments: done
   2-2-preview-before-posting: done
   2-3-re-review-without-duplicates: done
   2-4-list-prs-and-see-what-s-been-reviewed: done
   2-5-finding-feedback-and-local-stats: done
   2-6-optional-commit-status: done
-  2-7-migrate-from-review-mjs: backlog
+  2-7-migrate-from-review-mjs: done
   epic-2-retrospective: optional
 
   epic-3: backlog

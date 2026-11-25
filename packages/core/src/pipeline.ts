@@ -41,6 +41,8 @@ export interface ReviewInput {
   limits?: ContextLimits
   mandatoryLayers?: readonly LayerId[]
   configSources?: Record<string, string>
+  /** Notes from earlier stages (e.g. unreadable Review Rules) to report as limitations. */
+  limitations?: readonly string[]
   onLayer?: (layer: LayerResult) => void
 }
 
@@ -74,7 +76,7 @@ export async function runReview(input: ReviewInput, ports: EnginePorts): Promise
 export async function runReviewWithContext(input: ReviewInput, ports: EnginePorts): Promise<{ report: Report; context?: PrContext }> {
   const startedAt = ports.now()
   const layers: LayerResult[] = []
-  const limitations: string[] = []
+  const limitations: string[] = [...(input.limitations ?? [])]
   const record = (l: LayerResult) => {
     layers.push(l)
     input.onLayer?.(l)

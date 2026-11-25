@@ -36,6 +36,7 @@ import {
 } from '@pr-reviewer/core'
 import { apiUrlForHost, createAnthropicProvider, createCredentialResolver, createGitHub, secretScanner } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
+import { loadReviewRules } from './rules-loader.js'
 
 /** Output sinks for the CLI; injected so tests don't touch the real process. */
 export interface CliIo {
@@ -323,6 +324,8 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
 
   const provider = await buildProvider(config, parsed.values.provider, parsed.values.model, deps, secrets)
   const providerName = parsed.values.provider ?? config.settings.defaultProvider ?? 'anthropic'
+  const rules = await loadReviewRules(config.settings.reviewRules ?? [], { configPath: userConfigPath(deps), homedir: deps.homedir, fetch: deps.fetch })
+  for (const w of rules.warnings) io.stderr(`warning: ${w}\n`)
   io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`)
   const { report, context } = await runReviewWithContext(
     {
@@ -332,10 +335,11 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
       review: {
         provider: providerName === 'anthropic' ? undefined : providerName,
         model: parsed.values.model ?? config.settings.providers?.[providerName]?.model,
-        rules: config.settings.reviewRules ?? [],
+        rules: rules.rules,
       },
       reviewerId,
       configSources: config.sources,
+      limitations: rules.warnings,
       onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
     },
     {

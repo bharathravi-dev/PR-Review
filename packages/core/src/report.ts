@@ -178,6 +178,9 @@ export function renderMarkdown(report: Report): string {
     const d = report.ai.droppedFindings
     if (d.schema + d.grounding > 0) out.push(`_${d.grounding} AI finding(s) dropped for locations outside the Head Commit._`)
   }
+  if (report.rulesChecklist.length > 0) {
+    out.push('', `## Review Rules checked (${report.rulesChecklist.length})`, ...report.rulesChecklist.map((r) => `- ${r}`))
+  }
   if (report.limitations.length > 0) out.push('', '## Limitations', ...report.limitations.map((n) => `- ${n}`))
   return `${out.join('\n')}\n`
 }

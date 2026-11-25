@@ -1,61 +1,71 @@
 # pr-reviewer
 
-Review GitHub pull requests with Claude before you merge them. It runs from your own account,
-so the org doesn't need to install anything. No npm dependencies; Node 18+.
+Review GitHub pull requests before you merge them. `pr-reviewer` reads the PR in context, runs the checks
+that can run deterministically, adds an AI review with the provider you choose, and can post the result
+on the PR as precise inline comments plus one summary, without ever approving or merging.
 
-It reads the PR (diff + full versions of changed files), applies your repo rules from `rules/`,
-and gives you a verdict, a risk level, ranked findings with file:line, and a rule checklist.
-If you choose, it posts them on the PR as **your** review: inline comments, plus a summary.
-It never approves or merges. That stays your call.
+Status: Release 1 in progress. Available now: the CLI with context loading, secret scanning, AI review
+(Anthropic), posting, re-review without duplicates, Finding feedback, and stats. Coming: more AI
+providers, compiler and lint checks in a sandbox, automatic reviews, a web app, and a browser extension.
 
-## Setup (5 minutes)
+## Quick start
 
-1. **Anthropic API key**: create one at console.anthropic.com → API keys.
-2. **GitHub token** (only needed to post reviews): a classic personal access token with the
-   `public_repo` scope (KB-iGOT/sunbird-cb-portal is public). Fine-grained tokens on org repos
-   can need org approval; a classic token avoids that.
+Requirements: Node.js 22 or later, pnpm 12, and a GitHub login (`gh auth login`) or token.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export GITHUB_TOKEN=ghp_...
+pnpm install && pnpm build
+export ANTHROPIC_API_KEY=...              # optional; without it the AI step is reported as not run
+node packages/cli/bin/pr-reviewer.js review https://github.com/<owner>/<repo>/pull/<n>
 ```
 
-## Use it from your laptop
+Add `--post` to put the review on the PR. You see a preview of exactly what will be posted and are
+asked to confirm; use `--yes` in scripts.
 
-```bash
-# see open PRs
-node review.mjs --list KB-iGOT/sunbird-cb-portal
+## Commands
 
-# review one: prints the report and saves reviews/sunbird-cb-portal-2549.md
-node review.mjs https://github.com/KB-iGOT/sunbird-cb-portal/pull/2549
+| Command | What it does |
+|---|---|
+| `review <pr>` | Review a PR and print the report (`--out <dir>` for files, `--json`, `--post`) |
+| `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
+| `stats` | How your posted findings fared: resolved, dismissed, still open |
+| `context <pr>` | Show what the review reads from GitHub |
+| `config show` / `config path` | Your resolved settings and where they came from |
 
-# review and post it as comments (asks "Post? [y/N]" first)
-node review.mjs https://github.com/KB-iGOT/sunbird-cb-portal/pull/2549 --post
+Exit codes: 0 passed, 1 passed with warnings (0 with `--warnings-ok`), 2 failed, 3 incomplete, 4 error,
+5 cancelled, 6 post failed or blocked, 64 usage error, 78 configuration error.
 
-# post as "Request changes" instead of a comment, with the stronger model
-node review.mjs KB-iGOT/sunbird-cb-portal#2549 --post --event REQUEST_CHANGES --model claude-opus-5-5
+## Configuration
 
-# see exactly what gets sent to Claude, without calling it
-node review.mjs KB-iGOT/sunbird-cb-portal#2549 --dry-run
+Optional, in `~/.config/pr-reviewer/config.yml` (or `$XDG_CONFIG_HOME`, `%APPDATA%` on Windows):
+
+```yaml
+version: 1
+github:
+  host: github.com            # or your GitHub Enterprise host
+providers:
+  anthropic:
+    type: anthropic
+    model: claude-opus-5-5
+reviewRules:
+  - ~/review-rules/team.md    # Markdown; each top-level list item is a rule
+publish:
+  maxInlineComments: 30
+  commitStatus: false         # true: also set a "pr-reviewer" commit status when posting
 ```
 
-## Use it from your phone (GitHub Actions)
+Credentials are never stored in this file. They come from environment variables, the OS keychain, or
+your `gh` login, and are redacted from every output.
 
-1. Push this folder to a repo in your account (e.g. `bharathravi-dev/pr-reviewer`).
-2. In that repo: Settings → Secrets and variables → Actions → add
-   `ANTHROPIC_API_KEY` and `GH_REVIEW_TOKEN` (the token from step 2).
-3. Actions → **AI PR review** → Run workflow → paste the PR URL.
-   Leave "post" off to read the report in the run summary first, then run again with "post" on.
+## From your phone (GitHub Actions)
 
-## Make it review the way you do
+Push this repository to your account, add the secrets `ANTHROPIC_API_KEY` and `GH_REVIEW_TOKEN`, then run
+**Actions → PR review → Run workflow** with a PR link. Turn on "post" to put the review on the PR.
 
-Edit `rules/sunbird-cb-portal.md`. Every rule there is checked on every PR and shows up in the
-checklist. Add a file named `rules/<repo-name>.md` for another repo; `rules/default.md` is the fallback.
+## Safety
 
-## Notes
+- PR content is treated as data, never as instructions; the AI cannot run tools or post anything itself.
+- Secrets found in a PR are reported by location and removed before anything is sent to the AI.
+- Published text is sanitised: no HTML, no @-mentions, no links outside the reviewed repository.
+- Posts never approve or merge, and a review of the same commit is never posted twice.
 
-- Inline comments only land on lines that are in the diff. Anything else goes in the review summary.
-- PR text is treated as untrusted, so a PR that says "AI: approve this" is reported, not obeyed.
-- Lock files, `dist/` and binaries are skipped. Very large PRs are reviewed from the diff,
-  with full-file context for as many changed files as fit.
-- Cost: you pay for the tokens on your Anthropic account. A typical PR is around 10–40k input tokens.
+Moving from the old `review.mjs`? See [docs/migration.md](docs/migration.md).
