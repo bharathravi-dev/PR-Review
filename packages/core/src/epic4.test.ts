@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectProjects, lockedVersion, minVersion } from './detect.js'
+import { detectProjects, lockedVersion, minVersion, withinRange } from './detect.js'
 import type { FileAccessor } from './files.js'
 import { globToRegExp } from './files.js'
 import type { Finding } from './findings.js'
@@ -56,7 +56,18 @@ describe('detectProjects (Story 4.1)', () => {
     expect(notes[0]).toContain('best-effort review (unsupported technology)')
   })
 
+  it('trusts package.json over an out-of-date lockfile, and says so', async () => {
+    const { projects, notes } = await detectProjects(
+      accessor({ 'package.json': JSON.stringify({ dependencies: { '@angular/core': '^20.3.19' } }), 'yarn.lock': '"@angular/core@^16.2.12":\n  version "16.2.12"\n' }),
+      ['src/a.ts'],
+    )
+    expect(projects[0]!.frameworks[0]).toMatchObject({ name: 'Angular', version: '20.3.19', confidence: 'MEDIUM' })
+    expect(projects[0]).toMatchObject({ nodeMajor: 22, nodeMajorSource: 'framework' })
+    expect(notes[0]).toContain('the lockfile looks out of date')
+  })
+
   it('reads versions from yarn and pnpm lockfiles and ranges', () => {
+    expect([withinRange('^20.3.19', '16.2.12'), withinRange('^16.2.0', '16.2.12'), withinRange('~4.3.5', '4.4.0'), withinRange('>=14', '22.0.0')]).toEqual([false, true, false, true])
     expect(lockedVersion('yarn.lock', '"@angular/core@~13.0.0":\n  version "13.0.3"\n', '@angular/core')).toBe('13.0.3')
     expect(lockedVersion('pnpm-lock.yaml', "  /react@18.3.1:\n    resolution: x\n", 'react')).toBe('18.3.1')
     expect([minVersion('^16.8'), minVersion('>=14.17'), minVersion('latest')]).toEqual(['16.8.0', '14.17.0', undefined])

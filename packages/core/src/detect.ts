@@ -71,6 +71,21 @@ function nodeForAngular(major: number | undefined): number | undefined {
   return 22
 }
 
+/** Whether a resolved version fits a simple declared range (^, ~, exact); other ranges are assumed to fit. */
+export function withinRange(declared: string, version: string): boolean {
+  const d = declared.trim()
+  if (!/^[\^~]?\d/.test(d) || /\s|\|\||[<>*x]/i.test(d)) return true
+  const min = minVersion(d)
+  if (!min) return true
+  const [a, b] = [min.split('.').map(Number), version.split('.').map((n) => Number.parseInt(n, 10))]
+  if (a.some(Number.isNaN) || b.some(Number.isNaN)) return true
+  const cmp = (x: number[], y: number[]) => x[0]! - y[0]! || x[1]! - y[1]! || x[2]! - y[2]!
+  if (cmp(b, a) < 0) return false
+  if (d.startsWith('~')) return b[0] === a[0] && b[1] === a[1]
+  if (d.startsWith('^')) return a[0]! > 0 ? b[0] === a[0] : a[1]! > 0 ? b[0] === 0 && b[1] === a[1] : cmp(b, a) === 0
+  return cmp(b, a) === 0
+}
+
 export const majorOf = (version: string | undefined) => (version ? Number(version.split('.')[0]) : undefined)
 
 /** Resolved version of `pkg` from a lockfile's text. */
@@ -152,7 +167,13 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
       const declared = deps[name]
       if (!declared) return undefined
       const locked = lockfile && lockText ? lockedVersion(lockfile, lockText, name, relDir) : undefined
-      if (locked) return { version: locked, declared, confidence: 'HIGH', evidence: [`${source} declares ${name}@${declared}`, `${lockfile} resolves ${locked}`] }
+      if (locked && withinRange(declared, locked)) return { version: locked, declared, confidence: 'HIGH', evidence: [`${source} declares ${name}@${declared}`, `${lockfile} resolves ${locked}`] }
+      if (locked) {
+        // The lockfile disagrees with package.json (e.g. mid-upgrade): trust the declaration, and say so.
+        notes.push(`${lockfile} resolves ${name} ${locked}, outside ${src}'s ${declared}; the lockfile looks out of date, so the declared version is used.`)
+        const min = minVersion(declared)
+        return { ...(min ? { version: min } : {}), declared, confidence: 'MEDIUM', evidence: [`${source} declares ${name}@${declared}`, `${lockfile} resolves ${locked} (out of date)`] }
+      }
       const min = minVersion(declared)
       return { ...(min ? { version: min } : {}), declared, confidence: min ? 'MEDIUM' : 'LOW', evidence: [`${source} declares ${name}@${declared}`] }
     }
