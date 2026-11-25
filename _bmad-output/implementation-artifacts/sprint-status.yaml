@@ -1,0 +1,95 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 11-25-2026 10:00
+last_updated: 11-25-2026 10:00
+project: pr-reviewer
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-install-and-run-the-cli-skeleton: backlog
+  1-2-fetch-a-pr-s-full-context-from-github: backlog
+  1-3-user-configuration-and-credentials-without-leaks: backlog
+  1-4-secrets-never-reach-the-ai: backlog
+  1-5-ai-review-that-can-only-answer: backlog
+  1-6-end-to-end-review-with-a-report-and-exit-codes: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-publish-a-review-with-inline-comments: backlog
+  2-2-preview-before-posting: backlog
+  2-3-re-review-without-duplicates: backlog
+  2-4-list-prs-and-see-what-s-been-reviewed: backlog
+  2-5-finding-feedback-and-local-stats: backlog
+  2-6-optional-commit-status: backlog
+  2-7-migrate-from-review-mjs: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-openai-and-any-compatible-endpoint: backlog
+  3-2-choose-provider-and-model-with-fallback: backlog
+  3-3-use-my-claude-subscription-through-claude-code: backlog
+  3-4-use-my-chatgpt-subscription-through-codex: backlog
+  3-5-usage-cost-and-ceilings: backlog
+  3-6-guided-setup: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-detect-technologies-and-versions: backlog
+  4-2-validator-contract-honest-layer-status-and-coverage: backlog
+  4-3-reuse-existing-ci-and-sonarqube-results: backlog
+  4-4-repository-settings-and-review-rules-safely: backlog
+  4-5-run-pr-code-only-in-a-sandbox: backlog
+  4-6-typescript-and-lint-checks-with-the-repo-s-own-config: backlog
+  4-7-angular-12-and-react-framework-checks: backlog
+  4-8-dependency-audit-and-result-caching: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-enable-auto-review-in-one-command: backlog
+  5-2-watch-scope-and-discovery: backlog
+  5-3-pending-reviews-for-review-requests: backlog
+  5-4-sandbox-job-and-health-reporting: backlog
+  5-5-subscription-opt-in-for-auto-review: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-self-host-and-sign-in: backlog
+  6-2-run-watch-and-read-the-report: backlog
+  6-3-selective-publish-and-history: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-standalone-review-from-the-side-panel: backlog
+  7-2-findings-in-context-and-publish: backlog
+  7-3-connected-mode: backlog
+  epic-7-retrospective: optional
