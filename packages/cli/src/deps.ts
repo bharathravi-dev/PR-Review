@@ -23,4 +23,8 @@ export interface CliDeps {
   untilStopped: () => Promise<void>
   /** Runs the GitHub CLI (used only to store Actions secrets, which gh encrypts). */
   runGh: (args: readonly string[], stdin?: string) => Promise<{ code: number | null; stdout: string; stderr: string }>
+  /** The directory the command was started in (`fix` edits the checkout found here). */
+  cwd?: string | undefined
+  /** Runs a process without a shell (git and the user's coding agent, for `fix`); injected in tests. */
+  run?: ((command: string, args: readonly string[], opts: { cwd: string; env: Record<string, string>; stdin: string; timeoutMs: number }) => Promise<{ code: number | null; stdout: string; stderr: string; spawnError?: Error | undefined; timedOut: boolean }>) | undefined
 }

@@ -198,13 +198,20 @@ function suggestionBlock(f: Finding): string[] {
 }
 
 /** A ready-to-paste prompt for the author's own coding agent (fix without giving the reviewer write access). */
-function agentPrompt(f: Finding, path: string, start: number, end: number): string[] {
+/** One finding as a self-contained instruction for a coding agent (posted with each comment; used by `fix`). */
+export function agentPromptText(f: Pick<Finding, 'title' | 'description' | 'recommendation'>, path: string, start: number, end: number): string {
   const lines = start === end ? `line ${start}` : `lines ${start}-${end}`
-  const text = [`In ${path} at ${lines}: ${f.title}.`, f.description, f.recommendation ? `Suggested fix: ${f.recommendation}` : '', 'Make the smallest change that fixes this, and keep the existing behaviour otherwise.']
+  return [`In ${path} at ${lines}: ${f.title}.`, f.description, f.recommendation ? `Suggested fix: ${f.recommendation}` : '', 'Make the smallest change that fixes this, and keep the existing behaviour otherwise.']
     .filter(Boolean)
     .join(' ')
     .replace(/`{3,}/g, "'''")
-  return ['', '<details><summary>Prompt for your AI agent</summary>', '', '```text', text, '```', '', '</details>']
+}
+
+/** The heading of the collapsible agent prompt in an inline comment; `fix` finds prompts by it. */
+export const AGENT_PROMPT_SUMMARY = 'Prompt for your AI agent'
+
+function agentPrompt(f: Finding, path: string, start: number, end: number): string[] {
+  return ['', `<details><summary>${AGENT_PROMPT_SUMMARY}</summary>`, '', '```text', agentPromptText(f, path, start, end), '```', '', '</details>']
 }
 
 /** Renders exactly what will be posted (AD-23): untrusted text sanitised, then the marker appended. */

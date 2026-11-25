@@ -25,6 +25,7 @@ import type { CliDeps, CliIo } from './deps.js'
 import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish } from './engine.js'
 import { autoCommand } from './auto.js'
 import { benchCommand } from './bench.js'
+import { fixCommand } from './fix.js'
 import { collectStats, formatStats } from './stats.js'
 import { initCommand } from './init.js'
 import { startServer } from './serve.js'
@@ -47,6 +48,7 @@ Commands:
   stats              How your posted findings fared: resolved, dismissed, still open
   serve              Open a review page in your browser, served only on this machine
   bench <dataset>    Measure review quality on PRs with known issues (precision, recall, F1)
+  fix <PR>           Have your Claude Code or Codex fix your open findings in this checkout
   web                Run the self-hosted Web App for a team (configured by environment variables; see the README)
   auto <command>     Automatic reviews of PRs in your account (pr-reviewer auto help)
   context <pr>       Load a PR's context from GitHub
@@ -75,6 +77,14 @@ Exit codes: 0 PASSED, 1 PASSED_WITH_WARNINGS, 2 FAILED, 3 INCOMPLETE, 4 ERROR, 5
 list options:
   --limit <n>        How many open PRs to show (default 30)
   --json             Print the list as JSON (no prompt)
+
+fix options:
+  --agent <name>     claude-code or codex (default: your configured provider's kind)
+  --only <n,n>       Only these findings, by the numbers fix lists
+  --print            Print the prompt for any agent instead of running one
+  --model <model>    Model for the agent
+  --allow-dirty      Allow uncommitted changes in the checkout
+  --any-head         Allow a checkout that is not at the PR's current head
 
 stats options:
   --since <date>     Count PRs updated since this date, YYYY-MM-DD (default: 30 days ago)
@@ -116,6 +126,8 @@ export async function main(argv: readonly string[], rawIo: CliIo, deps: Partial<
     openUrl: deps.openUrl ?? openInBrowser,
     untilStopped: deps.untilStopped ?? untilSignal,
     runGh: deps.runGh ?? runGh,
+    cwd: deps.cwd,
+    run: deps.run,
   }
   // Every byte the CLI prints passes through redaction of resolved Credentials (AD-10, NFR-2).
   const secrets: Secret[] = []
@@ -150,6 +162,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'config') return configCommand(rest, io, deps)
   if (first === 'serve') return serveCommand(rest, io, deps, secrets)
   if (first === 'web') return webCommand(rest, io, deps)
+  if (first === 'fix') return fixCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'bench') return benchCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'init') return initCommand(rest, io, deps, secrets, (m) => usageError(io, m))
   if (first === 'auto') return autoCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))

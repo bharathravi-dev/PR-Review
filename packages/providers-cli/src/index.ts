@@ -2,5 +2,7 @@ export { CLAUDE_CODE_REQUIRED_FLAGS, ClaudeCodeProvider, checkClaudeCode, findCl
 export type { ClaudeCodeOptions } from './claude-code.js'
 export { CODEX_REQUIRED_FLAGS, CodexProvider, checkCodex, findCodex } from './codex.js'
 export type { CodexOptions } from './codex.js'
+export { CLAUDE_FIX_TOOLS, runFixAgent } from './fix-agent.js'
+export type { FixAgentKind, FixAgentOptions } from './fix-agent.js'
 export { minimalEnv, runProcess } from './process.js'
 export type { Env, ProcessRunner, RunResult } from './process.js'

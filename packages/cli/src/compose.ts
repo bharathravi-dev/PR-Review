@@ -3,12 +3,13 @@ import type { AdvisoryPort, CredentialResolver, GitHubReader, GitHubWriter, Revi
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
 import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
-import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex } from '@pr-reviewer/providers-cli'
+import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
 import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
 import { BUILT_IN_VALIDATORS, installSteps, scanSecrets } from '@pr-reviewer/validators'
 
-export { apiUrlForHost, envNamesFor, findClaudeCode, findCodex }
+export { apiUrlForHost, envNamesFor, findClaudeCode, findCodex, runFixAgent, runProcess }
+export type { ProcessRunner }
 export type { AutomationClient }
 
 /** Node majors the Sandbox has pinned images for. */

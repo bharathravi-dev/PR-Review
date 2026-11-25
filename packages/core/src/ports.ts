@@ -17,6 +17,10 @@ export interface PublishedItem {
   inReplyTo?: number | undefined
   /** Inline review comments only: GitHub no longer maps it to a line because the code there changed. */
   outdated?: boolean | undefined
+  /** Inline review comments only: the file and the (first and last) head line it is anchored to. */
+  path?: string | undefined
+  line?: number | undefined
+  startLine?: number | undefined
 }
 
 export interface PublishedItems {

@@ -23,7 +23,7 @@ interface ApiFile {
   patch?: string
 }
 interface ApiReview { id: number; user: ApiUser | null; state: string; body: string | null; submitted_at?: string }
-interface ApiComment { id: number; user: ApiUser | null; body: string | null; path?: string; line?: number | null; position?: number | null; in_reply_to_id?: number; created_at: string; html_url?: string }
+interface ApiComment { id: number; user: ApiUser | null; body: string | null; path?: string; line?: number | null; start_line?: number | null; position?: number | null; in_reply_to_id?: number; created_at: string; html_url?: string }
 
 const BINARY_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|icns|pdf|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|exe|dll|so|dylib|bin|woff2?|ttf|otf|eot|mp3|mp4|mov|avi|webm|wav|ogg|psd|sketch|fig)$/i
 const CONTENT_CONCURRENCY = 6
@@ -142,6 +142,8 @@ export class GitHubPrReader implements GitHubReader {
       reviewComments: inline.value.items.map((c) => ({
         ...item(c),
         ...(c.in_reply_to_id !== undefined ? { inReplyTo: c.in_reply_to_id } : {}),
+        ...(c.path ? { path: c.path } : {}),
+        ...(typeof c.line === 'number' ? { line: c.line, ...(typeof c.start_line === 'number' ? { startLine: c.start_line } : {}) } : {}),
         outdated: c.line === null || c.line === undefined ? c.position === null : false,
       })),
       issueComments: comments.value.items.map(item),

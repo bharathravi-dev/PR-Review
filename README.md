@@ -35,7 +35,9 @@ asked to confirm; use `--yes` in scripts.
 | `init` | Find your GitHub login and AI, test each with a small call, and write your config |
 | `review <pr>` | Review a PR and print the report (`--out <dir>` for files, `--json`, `--post`) |
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
-| `stats` | How your posted findings fared: resolved, dismissed, still open |
+| `stats` | How your posted findings fared: addressed, dismissed, still open, by severity and by source |
+| `fix <pr>` | Have your own Claude Code or Codex fix your open findings in your checkout of the PR |
+| `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
 | `web` | Run the self-hosted Web App (see docs/web-app.md) |
 | `serve` | Open a review page in your browser (`--open`, `--port <n>`); see below |
@@ -110,6 +112,17 @@ recommended route for automatic reviews.
 - **Your team's existing guidance is used**: `REVIEW.md`, `AGENTS.md`, `CLAUDE.md`,
   `.github/copilot-instructions.md`, `.cursor/BUGBOT.md`, `.gemini/styleguide.md`, and `.coderabbit.yaml`
   are read from the base branch, so a PR cannot change how it is reviewed.
+
+**Fixing findings.** In a checkout of the PR at its latest commit (e.g. after `gh pr checkout 123`),
+`pr-reviewer fix 123` hands your open findings (not fixed, not dismissed) to your own Claude Code or Codex.
+The agent may only read and edit files in that checkout: no shell, no web, no MCP servers, and none of the
+repository's own agent settings or hooks. Nothing is committed or pushed; you review `git diff` and commit
+yourself, and the next review closes what was fixed. `--only 1,3` picks findings, `--print` prints the
+prompt for any other agent.
+
+**Is it useful?** `pr-reviewer stats` (and the "How your posted findings fared" panel on the review page)
+shows the **addressed rate**: the share of posted findings whose code changed afterwards, by severity and
+by source (AI or tools), next to the dismissed and still-open shares. It is computed from GitHub alone.
 
 ## Measuring review quality
 
