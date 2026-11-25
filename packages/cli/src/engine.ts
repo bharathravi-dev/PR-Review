@@ -255,6 +255,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
         provider: name === 'anthropic' ? undefined : name,
         model: o.model ?? o.config.settings.providers?.[name]?.model,
         rules: rules.rules,
+        toolResults: o.config.settings.ai?.toolResults,
       },
       reviewerId: o.github.viewer?.id,
       costLimits: o.config.settings.limits,
@@ -381,6 +382,11 @@ function stricterSeverity(user: SeverityName | undefined, repo: unknown): Severi
   if (!user) return r
   if (!r) return user
   return SEVERITY_ORDER.indexOf(r) < SEVERITY_ORDER.indexOf(user) ? r : user
+}
+
+/** The lowest severity posted as an inline comment for this review: the stricter of the user's and the repository's floor. */
+export function inlineSeverityFloor(report: Report, config: ResolvedConfig): SeverityName {
+  return stricterSeverity(config.settings.publish?.minInlineSeverity, repoSetting(report, 'minInlineSeverity')) ?? 'MINOR'
 }
 
 /** A repository's comment limit may only lower the user's (AD-13). */

@@ -7,3 +7,7 @@ reviews/
 dist/
 *.tsbuildinfo
 !.env.example
+
+# Benchmark data downloaded by scripts/bench-import-golden.mjs and bench results
+bench/data/
+bench/results/

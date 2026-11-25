@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, runAiReview, type ReviewProvider, type ReviewRequest } from './ai-review.js'
+import type { Finding, LayerResult } from './findings.js'
 import { redactContext } from './redact.js'
 import { err, ok } from './result.js'
 import type { PrContext } from './schemas.js'
@@ -223,5 +224,31 @@ describe('walkthrough, suggestions, and repository guidance (competitive feature
     const old = await runAiReview(redacted(), recordingProvider({ findings: [] }))
     expect(old.layer.status).toBe('PASSED')
     expect(old.walkthrough).toBeUndefined()
+  })
+})
+
+describe('tool results in the prompt', () => {
+  it('passes compile, lint, and CI results inside the untrusted data, new problems first, capped', () => {
+    const tool = (i: number, over: Partial<Finding> = {}): Finding => ({
+      ruleId: 'tsc/TS2345', category: 'CORRECTNESS', severity: 'MINOR', confidence: 'HIGH', scope: 'NEW', sourceFamily: 'DETERMINISTIC', title: `Type error ${i}`, description: 'd',
+      location: { anchorKind: 'LINE', path: 'src/cache.ts', startLine: i, endLine: i }, provenance: { validator: 'typescript.tsc' }, ...over,
+    })
+    const findings = [tool(1, { scope: 'PRE_EXISTING', severity: 'CRITICAL' }), tool(2), tool(3, { severity: 'MAJOR' }), ...Array.from({ length: 70 }, (_, i) => tool(100 + i))]
+    const layers = [
+      { layer: 'TYPECHECK', validator: 'typescript.tsc', status: 'FAILED', durationMs: 1 },
+      { layer: 'LINT', validator: 'eslint', status: 'SKIPPED', reason: 'NO_SANDBOX', durationMs: 0 },
+      { layer: 'SECRETS', validator: 'secrets.builtin', status: 'PASSED', durationMs: 0 },
+    ] as LayerResult[]
+    const req = buildReviewRequest(redacted(), { toolResults: { findings, layers } })
+    const pr = req.prompt.slice(req.prompt.indexOf('<pr_data>'), req.prompt.indexOf('</pr_data>'))
+    expect(pr).toContain('- typescript.tsc: FAILED\n- eslint: SKIPPED (NO_SANDBOX)\n</checks>')
+    expect(pr).not.toContain('secrets.builtin')
+    const lines = pr.split('<findings>\n')[1]!.split('\n')
+    expect(lines[0]).toBe('- [MAJOR] tsc/TS2345 src/cache.ts:3 Type error 3')
+    expect(lines[1]).toBe('- [MINOR] tsc/TS2345 src/cache.ts:2 Type error 2')
+    expect(pr).toContain('(13 more not shown)')
+    expect(pr).not.toContain('[pre-existing]')
+    expect(req.system).toContain('never contradict a failed check')
+    expect(buildReviewRequest(redacted()).prompt).not.toContain('<tool_results>')
   })
 })

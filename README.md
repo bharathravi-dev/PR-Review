@@ -117,11 +117,29 @@ recommended route for automatic reviews.
 pr-reviewer bench my-dataset.yml --runs 3 --judge openai --out results.json
 ```
 
-A dataset lists PRs and the issues a good review should find (`path`, `line`, `description`, optional
-`severity`). `bench` reviews each PR (nothing is posted) and reports **precision, recall, and F1** (mean ±
-spread over runs), recall by severity, comments per PR, tokens, and time. A finding counts only if it is an
-inline comment in the same file within ±5 lines; with `--judge`, an LLM from another provider must also
-agree it is the same root cause. Use it to check that a change to models, prompts, or settings really helps.
+A dataset lists PRs and the issues a good review should find: a `description`, and optionally `path`,
+`line`, `severity`, and `optional: true` for low-value issues. `bench` reviews each PR (nothing is posted,
+nothing is cached between runs) and reports **precision, recall, and F1** (mean ± spread over runs), recall
+by severity, comments per PR, the share of PRs with no comments, tokens, cost, and p50/p95 time.
+
+Only the comments a reader would see inline count: line-anchored, about the change, at or above your
+inline severity floor. An issue with a location is matched by a comment in the same file within ±5 lines;
+with `--judge`, a second model must also agree it is the same root cause, and issues without a location
+are matched by the judge alone (one call per PR). A comment that matches only an optional issue counts as
+neither right nor wrong. Choose a judge from a different model family than the reviewer.
+
+**The public 50-PR set.** `node scripts/bench-import-golden.mjs` downloads the
+[golden comments](https://github.com/ai-code-review-evaluations/golden_comments) that Augment published
+for Greptile's benchmark (Sentry, Cal.com, Grafana, Discourse, Keycloak; 10 PRs each) into
+`bench/data/golden-50.json`, so results sit next to the published tables for other tools. It is public and
+old, so use it for comparison, not for tuning. Then, for example:
+
+```bash
+pr-reviewer bench bench/data/golden-50.json --filter cal_dot_com --judge openai --concurrency 2
+```
+
+Flags: `--runs` (1–10), `--judge <provider>`, `--provider`/`--model` for the reviewer, `--filter <text>`
+(cases whose PR contains it), `--limit <n>`, `--concurrency` (1–8), `--out <file>`.
 
 ## What gets checked
 
@@ -195,6 +213,8 @@ advisories:
   enabled: true               # url: a private OSV mirror
 validators:
   disable: []                 # e.g. [framework.angular]
+ai:
+  toolResults: true           # false: keep compile, lint, audit, and CI results out of the AI prompt
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20

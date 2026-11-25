@@ -47,6 +47,8 @@ export interface ReviewSettings {
   provider?: string | undefined
   model?: string | undefined
   rules?: readonly string[] | undefined
+  /** false keeps tool results (compile, lint, audit, CI) out of the AI prompt, e.g. to measure their effect. */
+  toolResults?: boolean | undefined
 }
 
 export interface ReviewInput {
@@ -76,7 +78,7 @@ export interface ReviewInput {
 
 /** configHash = H(review-affecting settings, defaults omitted) (AD-12). */
 export function computeConfigHash(review: ReviewSettings = {}): Promise<string> {
-  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined })
+  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined })
 }
 
 /** idempotencyKey = H({host, repoId, pr, headSha, configHash, engineMajor, rid}) (AD-11). */
@@ -213,6 +215,13 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       rules: input.review?.rules ?? [],
       repoRules,
       guidance: repoConfig.guidance.map((g) => ({ path: g.path, text: redactText(g.text, scan.values) })),
+      toolResults:
+        input.review?.toolResults === false
+          ? undefined
+          : {
+              findings: executed.findings.map((f) => ({ ...f, title: redactText(f.title, scan.values), location: { ...f.location, ...(f.location.path ? { path: redactText(f.location.path, scan.values) } : {}) } })),
+              layers: [...layers],
+            },
       now: ports.now,
       channel: input.channel,
       limits: input.costLimits,

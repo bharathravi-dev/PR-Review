@@ -64,6 +64,8 @@ export const Settings = z.strictObject({
   /** Auto-Review settings (AD-14); used by the automation repository's copy of this file. */
   autoReview: AutoReviewSettings.optional(),
   /** Local result cache (AD-26). */
+  /** What the AI review is given. toolResults: false leaves compile, lint, audit, and CI results out of the prompt. */
+  ai: z.strictObject({ toolResults: z.boolean().optional() }).optional(),
   cache: z.strictObject({ enabled: z.boolean().optional(), maxMB: z.number().int().positive().optional() }).optional(),
   /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */
   reviewRules: z.array(z.string()).optional(),
