@@ -48,6 +48,7 @@ subscription and full checks (compile, lint, tests), and the extension never hol
 | Permission | Why |
 |---|---|
 | `sidePanel` | The whole interface is the side panel. |
+| `declarativeNetRequestWithHostAccess` | Only with Ollama: Ollama accepts requests from local pages, so the panel's own requests to the Ollama address you chose carry a local Origin. One session rule, limited to requests this extension makes; web pages are not affected. |
 | `identity` | Opens your team's Web App to sign in and allow the extension (`launchWebAuthFlow`); used only when you connect a Web App. |
 | `storage` | Keeps settings (the token and key encrypted) and the last review of recent PRs in this browser. |
 | `https://github.com/*` | Reads the active tab's URL to know which PR is shown, places the Review button in the PR header, and runs GitHub's device sign-in. |
@@ -55,7 +56,7 @@ subscription and full checks (compile, lint, tests), and the extension never hol
 | `https://api.anthropic.com/*`, `https://api.openai.com/*` | Sends the review request to the AI provider you chose, with your own key. |
 | `https://api.osv.dev/*` | Looks up known vulnerabilities in packages the PR adds or upgrades. |
 | Optional `https://*/*` | Requested one host at a time, only when you add a GitHub Enterprise host, an OpenAI-compatible endpoint, or your team's Web App. |
-| Optional `http://127.0.0.1/*`, `http://localhost/*` | Requested only when you pair with `pr-reviewer serve --pair` on this computer. |
+| Optional `http://127.0.0.1/*`, `http://localhost/*` | Requested only when you pair with `pr-reviewer serve --pair`, or choose Ollama, on this computer. |
 
 No `tabs` permission: host access to github.com is enough to read GitHub tabs' URLs. No remote code: everything
 runs from the package (`script-src 'self'`).
@@ -69,6 +70,7 @@ privacy-policy URL. Single purpose: reviewing GitHub pull requests.
 
 - [ ] `pnpm check` passes (includes the bundle checks: Manifest V3, permissions, CSP, no eval or remote code)
 - [ ] Load the build unpacked; review a real PR in Standalone mode; post a review to a test PR
+- [ ] Standalone with Ollama: models are listed, a review runs; if Ollama answers 403, the session rule did not apply (the panel then shows the `OLLAMA_ORIGINS` workaround)
 - [ ] Pair with `pr-reviewer serve --pair`, review and post (the confirm dialog names the computer); `--unpair` turns it off
 - [ ] Connect to a Web App started with `PR_REVIEWER_EXTENSION_IDS=<the store id>`; review and post; revoke at `/auth/extension/tokens`
 - [ ] The Review button appears in the PR header on github.com (light and dark) and follows navigation

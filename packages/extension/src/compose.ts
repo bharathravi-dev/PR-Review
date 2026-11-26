@@ -23,7 +23,7 @@ import {
   type RunEvent,
 } from '@pr-reviewer/core'
 import { apiUrlForHost, GitHubClient, GitHubPrReader, GitHubPrWriter } from '@pr-reviewer/github'
-import { AnthropicProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
+import { AnthropicProvider, DEFAULT_OLLAMA_BASE_URL, listOllamaModels, OllamaProvider, OpenAiCompatibleProvider, type OllamaModel } from '@pr-reviewer/providers-http'
 import { BUILT_IN_VALIDATORS, scanSecrets } from '@pr-reviewer/validators'
 
 /** Engine version recorded in Reports; kept in lockstep with @pr-reviewer/cli (a test checks it). */
@@ -34,10 +34,12 @@ export interface StandaloneSettings {
   /** GitHub host (github.com or an Enterprise host the user added). */
   host?: string | undefined
   provider: {
-    type: 'anthropic' | 'openai-compatible'
+    /** ollama: a local model, no key; nothing leaves this computer for the AI step. */
+    type: 'anthropic' | 'openai-compatible' | 'ollama'
+    /** Empty for Ollama. */
     apiKey: string
     model?: string | undefined
-    /** OpenAI-compatible endpoint (default https://api.openai.com/v1). */
+    /** OpenAI-compatible endpoint (default https://api.openai.com/v1), or Ollama's address (default http://127.0.0.1:11434). */
     baseUrl?: string | undefined
   }
 }
@@ -57,6 +59,10 @@ export function prFromUrl(url: string | undefined, host = 'github.com'): { owner
 }
 
 export function createProvider(p: StandaloneSettings['provider'], fetchImpl: typeof fetch): ReviewProvider {
+  if (p.type === 'ollama') {
+    if (!p.model) throw new Error('Choose an Ollama model.')
+    return new OllamaProvider({ model: p.model, baseUrl: p.baseUrl, fetch: fetchImpl })
+  }
   const apiKey = new Secret(p.apiKey)
   if (p.type === 'anthropic') return new AnthropicProvider({ apiKey, model: p.model, fetch: fetchImpl, browser: true })
   if (!p.model) throw new Error('An OpenAI-compatible provider needs a model name.')
@@ -102,7 +108,7 @@ export async function runStandalone(o: StandaloneRun): Promise<StandaloneResult>
       ref: ref.value,
       engineVersion: ENGINE_VERSION,
       channel: 'EXTENSION_STANDALONE',
-      review: { ...(o.settings.provider.type === 'anthropic' ? {} : { provider: 'openai' }), model: o.settings.provider.model },
+      review: { ...(o.settings.provider.type === 'anthropic' ? {} : { provider: provider.id }), model: o.settings.provider.model },
       reviewerId: viewer.ok ? viewer.value.id : undefined,
       onEvent: o.onEvent,
     },
@@ -181,6 +187,12 @@ export async function testGitHubToken(token: string, fetchImpl: typeof fetch, ho
 /** Checks an AI key with one small, free call (listing models). */
 export async function testAiKey(p: StandaloneSettings['provider'], fetchImpl: typeof fetch): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
   try {
+    if (p.type === 'ollama') {
+      const models = await listOllamaModels(p.baseUrl ?? DEFAULT_OLLAMA_BASE_URL, fetchImpl)
+      if (!p.model) return { ok: false, message: 'Model: choose one of the models installed in Ollama.' }
+      if (!models.some((m) => m.name === p.model)) return { ok: false, message: `Model: Ollama does not have ${p.model}. Install it with: ollama pull ${p.model}` }
+      return { ok: true, message: `Works: Ollama is running with ${p.model}. Reviews stay on this computer.` }
+    }
     if (p.type === 'anthropic') {
       const r = await fetchImpl('https://api.anthropic.com/v1/models?limit=1', { headers: { 'x-api-key': p.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' } })
       if (r.ok) return { ok: true, message: `Works: Anthropic accepted the key${p.model ? ` (model ${p.model})` : ''}.` }
@@ -191,6 +203,7 @@ export async function testAiKey(p: StandaloneSettings['provider'], fetchImpl: ty
     if (r.ok) return { ok: true, message: `Works: ${new URL(base).host} accepted the key.` }
     return { ok: false, message: `AI key: ${new URL(base).host} rejected it (${r.status}). Check the key or create a new one.` }
   } catch (e) {
+    if (p.type === 'ollama') return { ok: false, message: ollamaProblem((e as Error).message) }
     return { ok: false, message: `AI key: could not reach the provider (${(e as Error).message}).` }
   }
 }
@@ -236,4 +249,29 @@ export async function currentHead(settings: StandaloneSettings, pr: string, fetc
   if (!ref.ok) return undefined
   const head = await githubFor(settings, fetchImpl).reader.getHeadSha(ref.value)
   return head.ok ? head.value : undefined
+}
+
+export { DEFAULT_OLLAMA_BASE_URL, listOllamaModels, type OllamaModel }
+
+/** What to do when Ollama can't be used, in the words shown in setup. */
+export function ollamaProblem(message: string): string {
+  if (/403|allowed origins/.test(message)) {
+    return 'Ollama refused the extension (403). Allow it once: quit Ollama, run  launchctl setenv OLLAMA_ORIGINS "chrome-extension://*"  in a terminal, then open Ollama again.'
+  }
+  if (/reach/i.test(message)) return 'Ollama isn’t running. Open the Ollama app (or run: ollama serve), then try again.'
+  return message
+}
+
+/** An Ollama address the extension may use: http on this computer, or https anywhere. */
+export function ollamaOrigin(typed: string | undefined): string | undefined {
+  const text = (typed ?? '').trim() || DEFAULT_OLLAMA_BASE_URL
+  let url: URL
+  try {
+    url = new URL(/^[a-z]+:\/\//i.test(text) ? text : `http://${text}`)
+  } catch {
+    return undefined
+  }
+  const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost'
+  if (!(url.protocol === 'https:' || (url.protocol === 'http:' && loopback)) || url.username || url.password) return undefined
+  return url.origin
 }

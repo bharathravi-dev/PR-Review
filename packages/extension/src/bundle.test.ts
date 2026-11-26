@@ -10,7 +10,7 @@ describe.skipIf(!has)('extension bundle (Story 7.1, NFR14)', () => {
     expect(m.manifest_version).toBe(3)
     expect(m.minimum_chrome_version).toBe('116')
     expect(m.side_panel.default_path).toBe('panel.html')
-    expect(m.permissions.sort()).toEqual(['identity', 'sidePanel', 'storage'])
+    expect(m.permissions.sort()).toEqual(['declarativeNetRequestWithHostAccess', 'identity', 'sidePanel', 'storage'])
     expect(m.permissions).not.toContain('tabs')
     expect(m.content_security_policy.extension_pages).toBe("script-src 'self'; object-src 'self'")
     expect(m.commands['open-panel'].suggested_key.default).toBe('Alt+Shift+R')

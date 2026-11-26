@@ -42,6 +42,7 @@ import {
   createClaudeCodeProvider,
   createCodexProvider,
   createGitHub,
+  createOllamaProvider,
   createOpenAiProvider,
   findClaudeCode,
   findCodex,
@@ -104,6 +105,7 @@ const BUILT_IN: Record<string, ProviderSettings> = {
   openai: { type: 'openai-compatible', credential: 'provider:openai' },
   'claude-code': { type: 'claude-code' },
   codex: { type: 'codex' },
+  ollama: { type: 'ollama' },
 }
 
 /** The configured (or built-in) settings for a provider name. */
@@ -150,6 +152,11 @@ export async function buildProvider(
           fetch: deps.fetch,
         }),
       )
+    }
+    case 'ollama': {
+      // A local model: no key, nothing leaves this machine for the AI step.
+      if (!model) return err('provider_model_missing', `Set the Ollama model (providers.${name}.model, or --model qwen3:8b); \`ollama list\` shows what is installed.`)
+      return ok(createOllamaProvider({ model, baseUrl: entry.baseUrl, contextLength: entry.contextLength, timeoutMs: entry.timeoutMs, fetch: deps.fetch }))
     }
     case 'claude-code': {
       const command = entry.command ?? findClaudeCode(deps.env, deps.homedir, deps.platform)

@@ -52,3 +52,6 @@ declare namespace chrome.permissions {
 declare namespace chrome.identity {
   function launchWebAuthFlow(o: { url: string; interactive: boolean }): Promise<string | undefined>
 }
+declare namespace chrome.declarativeNetRequest {
+  function updateSessionRules(o: { removeRuleIds?: number[]; addRules?: unknown[] }): Promise<void>
+}

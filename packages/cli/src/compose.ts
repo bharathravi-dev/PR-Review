@@ -4,7 +4,7 @@ import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
 import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
-import { AnthropicProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
+import { AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
 import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
 import { BUILT_IN_VALIDATORS, installSteps, scanSecrets } from '@pr-reviewer/validators'
 
@@ -37,6 +37,10 @@ export function createAnthropicProvider(opts: { name?: string | undefined; apiKe
 
 export function createOpenAiProvider(opts: ConstructorParameters<typeof OpenAiCompatibleProvider>[0]): ReviewProvider {
   return new OpenAiCompatibleProvider(opts)
+}
+
+export function createOllamaProvider(opts: ConstructorParameters<typeof OllamaProvider>[0]): ReviewProvider {
+  return new OllamaProvider(opts)
 }
 
 export function createClaudeCodeProvider(opts: ConstructorParameters<typeof ClaudeCodeProvider>[0]): ReviewProvider {

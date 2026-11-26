@@ -8,7 +8,7 @@
 <h2>What is sent where</h2>
 <ul>
 <li><strong>GitHub</strong> (github.com and api.github.com, or an Enterprise host you add): requests to read the pull request you review, and, only when you press Post, to post your review and summary comment.</li>
-<li><strong>Your AI provider</strong> (Anthropic, OpenAI or the compatible endpoint you choose): the pull request's diff and file contents, with detected secrets removed first.</li>
+<li><strong>Your AI provider</strong> (Anthropic, OpenAI, the compatible endpoint you choose, or Ollama, which runs on your own computer): the pull request's diff and file contents, with detected secrets removed first.</li>
 <li><strong>OSV</strong> (api.osv.dev): names and versions of packages the pull request adds or upgrades, to look up known vulnerabilities.</li>
 <li><strong>Your team's Web App or pr-reviewer on this computer</strong>, only if you connect one: the pull request's link, which findings to post and your edits. That pr-reviewer then talks to GitHub and the AI with its own credentials; the extension does not send them the diff itself.</li>
 <li>Nothing is sent anywhere else.</li>

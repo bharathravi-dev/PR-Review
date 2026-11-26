@@ -75,7 +75,9 @@ See [docs/review-page-v2.md](docs/review-page-v2.md).
 `chrome://extensions` (Developer mode → Load unpacked), open a PR on github.com, and click the toolbar icon
 or press Alt+Shift+R. In Standalone mode the review runs inside the side panel with your own GitHub token and
 AI key; compile and lint are reported as not run (there is no Sandbox in the browser). Nothing is posted until you
-preview and press Post. A Review button in the PR header shows each PR's state. Store packaging and the listing:
+preview and press Post. No AI key? Choose **Ollama** in the AI step to review with a local model (the panel lists
+the models you have installed; the review never leaves your computer for the AI step). A Review button in the PR header
+shows each PR's state. Store packaging and the listing:
 [docs/extension-store.md](docs/extension-store.md).
 
 **Connected mode** runs the review on a pr-reviewer you already have, with its settings, your subscription and the full
@@ -267,10 +269,14 @@ providers:
     model: claude-opus-5-5
     pricing: { inputPerMTok: 5, outputPerMTok: 25 }   # optional; enables cost estimates and limits
   openrouter:
-    type: openai-compatible   # OpenAI, OpenRouter, Ollama, Azure OpenAI, or a company gateway
+    type: openai-compatible   # OpenAI, OpenRouter, Azure OpenAI, or a company gateway
     baseUrl: https://openrouter.ai/api/v1
     model: <model id>
     credential: provider:openrouter   # key: PR_REVIEWER_OPENROUTER_API_KEY or the OS keychain
+  ollama:
+    type: ollama              # a local model: no key, nothing leaves your machine for the AI step
+    model: qwen3:8b           # as `ollama list` shows it; or: pr-reviewer review <pr> --provider ollama --model qwen3:8b
+    # baseUrl: http://127.0.0.1:11434   contextLength: 32768 (largest context window asked of Ollama)
 sandbox:
   enabled: true               # false: never run repository tools
   registries: [registry.npmjs.org]

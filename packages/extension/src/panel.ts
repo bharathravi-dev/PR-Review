@@ -15,17 +15,24 @@ import {
   startDeviceFlow,
   testAiKey,
   testGitHubToken,
+  DEFAULT_OLLAMA_BASE_URL,
+  listOllamaModels,
+  ollamaOrigin,
+  ollamaProblem,
   type Edits,
   type StandaloneResult,
   type StandaloneSettings,
 } from './compose.js'
 import { connectionProblem, createClient, LOCAL_PORT, modeLabel, pairWithComputer, randomState, remoteShown, ServiceError, tokenFromRedirect, UnreachableError, webAppAuthUrl, webAppOrigin, type Connection, type RemotePreview, type SessionInfo, type ShownPreview } from './connected.js'
 import { h } from './dom.js'
+import { allowOllama, ollamaPermission } from './ollama-access.js'
 import { browserSecureStore } from './secure-store.js'
 import { MAX_STORED, prKey, type PrState } from './state.js'
 
 const secure = browserSecureStore()
 const SETTINGS = 'standalone-settings'
+/** GitHub sign-in kept as soon as it succeeds, so closing the panel before the AI step doesn't lose it. */
+const GITHUB_SIGNIN = 'github-signin'
 const CONNECTION = 'connection'
 const CONSENT = 'consent-given'
 const REVIEWS = 'stored-reviews'
@@ -182,7 +189,7 @@ function welcome(): HTMLElement {
       h('a', { href: chrome.runtime.getURL('privacy.html'), target: '_blank' }, 'Privacy policy'),
       h('p', { class: 'muted' }, 'Tip: press F6 to move between the page and this panel.'),
     ),
-    choice('standalone', 'Standalone', 'Your own AI API key and GitHub sign-in. Compile and lint do not run.'),
+    choice('standalone', 'Standalone', 'Your GitHub sign-in and an AI key, or a local model in Ollama. Compile and lint do not run.'),
     choice('web', 'My team’s Web App', 'Reviews run on your team’s self-hosted pr-reviewer. You sign in there; your keys stay on that server.', 'full checks'),
     choice('local', 'This computer', 'Pair with pr-reviewer serve on this computer: your CLI’s settings, subscription and checks. No key in the browser.', 'full checks'),
     h('button', { class: 'btn primary full', type: 'button', id: 'continue', onclick: async () => {
@@ -213,6 +220,7 @@ function setupGitHub(): HTMLElement {
     }
     state.draft.githubToken = t
     state.login = r.login
+    await secure.set(GITHUB_SIGNIN, { githubToken: t, ...(state.draft.host ? { host: state.draft.host } : {}) })
     announce(`Signed in to GitHub as @${r.login}`)
     go('setup-ai')
   }
@@ -290,6 +298,7 @@ function deviceBlock(): HTMLElement {
           const who = await testGitHubToken(p.token, net)
           state.draft.githubToken = p.token
           state.login = who.ok ? who.login : undefined
+          await secure.set(GITHUB_SIGNIN, { githubToken: p.token })
           announce(`Signed in to GitHub${who.ok ? ` as @${who.login}` : ''}`)
           return go('setup-ai')
         }
@@ -304,47 +313,99 @@ function deviceBlock(): HTMLElement {
 }
 
 function setupAi(): HTMLElement {
-  const type = h('select', { id: 'ptype' }, h('option', { value: 'anthropic' }, 'Anthropic'), h('option', { value: 'openai-compatible' }, 'OpenAI or compatible')) as HTMLSelectElement
+  const type = h('select', { id: 'ptype' }, h('option', { value: 'anthropic' }, 'Anthropic'), h('option', { value: 'openai-compatible' }, 'OpenAI or compatible'), h('option', { value: 'ollama' }, 'Ollama: a local model, no key')) as HTMLSelectElement
   type.value = state.draft.provider?.type ?? 'anthropic'
   const key = h('input', { id: 'key', type: 'password', autocomplete: 'off', 'aria-describedby': 'ai-msg' }) as HTMLInputElement
-  const model = h('input', { id: 'model', type: 'text', placeholder: 'Optional for Anthropic', value: state.draft.provider?.model ?? '' }) as HTMLInputElement
-  const base = h('input', { id: 'base', type: 'text', placeholder: 'https://api.openai.com/v1', value: state.draft.provider?.baseUrl ?? '' }) as HTMLInputElement
+  const model = h('input', { id: 'model', type: 'text', placeholder: 'Optional for Anthropic', value: state.draft.provider?.type !== 'ollama' ? (state.draft.provider?.model ?? '') : '' }) as HTMLInputElement
+  const base = h('input', { id: 'base', type: 'text', placeholder: 'https://api.openai.com/v1', value: state.draft.provider?.type === 'openai-compatible' ? (state.draft.provider.baseUrl ?? '') : '' }) as HTMLInputElement
+  const keyRow = h('label', { class: 'field', for: 'key' }, 'API key', key)
+  const modelRow = h('label', { class: 'field', for: 'model' }, 'Model', model)
   const baseRow = h('label', { class: 'field', for: 'base' }, 'Endpoint', base)
-  const msg = h('p', { id: 'ai-msg', class: 'muted', role: 'status' }, 'Stored in this browser only, where web pages cannot read it, encrypted at rest. Used only for calls to your provider.')
-  const sync = () => (baseRow.hidden = type.value !== 'openai-compatible')
+  // Ollama: models come from the local Ollama itself; the address is changed only for a non-default setup.
+  const omodel = h('select', { id: 'omodel', 'aria-describedby': 'ai-msg' }, h('option', { value: '' }, 'Finding models…')) as HTMLSelectElement
+  const ourl = h('input', { id: 'ourl', type: 'text', placeholder: DEFAULT_OLLAMA_BASE_URL, value: state.draft.provider?.type === 'ollama' ? (state.draft.provider.baseUrl ?? '') : '' }) as HTMLInputElement
+  const ollamaRows = h(
+    'div',
+    { class: 'stack' },
+    h('label', { class: 'field', for: 'omodel' }, 'Model', omodel),
+    h('button', { class: 'btn small', type: 'button', onclick: () => void findModels(true) }, 'Find models again'),
+    h('details', {}, h('summary', {}, `Ollama address: ${DEFAULT_OLLAMA_BASE_URL} unless changed`), h('label', { class: 'field', for: 'ourl' }, 'Ollama address', ourl)),
+  )
+  const defaultNote = 'Stored in this browser only, where web pages cannot read it, encrypted at rest. Used only for calls to your provider.'
+  const msg = h('p', { id: 'ai-msg', class: 'muted', role: 'status' }, defaultNote)
+  const say = (tone: 'muted' | 'field-error' | 'ok-line', text: string) => ((msg.className = tone), (msg.textContent = text))
+
+  /** Asks Chrome for the Ollama address (on a click), lets requests through, and lists the installed models. */
+  const findModels = async (ask: boolean): Promise<string | undefined> => {
+    const origin = ollamaOrigin(ourl.value)
+    if (!origin) return void say('field-error', 'Ollama address: use http:// on this computer (127.0.0.1 or localhost) or an https:// address.')
+    const pattern = ollamaPermission(origin)
+    const granted = (await chrome.permissions.contains({ origins: [pattern] }).catch(() => false)) || (ask && (await chrome.permissions.request({ origins: [pattern] }).catch(() => false)))
+    if (!granted) return void say('muted', 'Click “Find models again” to let the extension talk to Ollama on this computer.')
+    await allowOllama(origin)
+    say('muted', 'Looking for models in Ollama…')
+    try {
+      const models = await listOllamaModels(origin, net)
+      const want = state.draft.provider?.type === 'ollama' ? state.draft.provider.model : omodel.value
+      omodel.replaceChildren(...(models.length ? models.map((m) => h('option', { value: m.name }, `${m.name}${m.parameterSize ? ` · ${m.parameterSize}` : ''}`)) : [h('option', { value: '' }, 'No models installed')]))
+      if (want && models.some((m) => m.name === want)) omodel.value = want
+      if (!models.length) say('field-error', 'Ollama has no models yet. Install one in a terminal, for example: ollama pull qwen3:8b')
+      else say('muted', `${models.length} model${models.length === 1 ? '' : 's'} in Ollama. Reviews with a local model stay on this computer; a large model is slower but finds more.`)
+      return origin
+    } catch (e) {
+      omodel.replaceChildren(h('option', { value: '' }, 'Ollama not reachable'))
+      say('field-error', ollamaProblem((e as Error).message))
+      return undefined
+    }
+  }
+  const sync = () => {
+    const t = type.value
+    keyRow.hidden = t === 'ollama'
+    modelRow.hidden = t === 'ollama'
+    baseRow.hidden = t !== 'openai-compatible'
+    ollamaRows.hidden = t !== 'ollama'
+    if (t === 'ollama') void findModels(true)
+    else say('muted', defaultNote)
+  }
   type.addEventListener('change', sync)
-  sync()
   const save = async () => {
-    const provider: StandaloneSettings['provider'] = { type: type.value as 'anthropic' | 'openai-compatible', apiKey: key.value.trim(), ...(model.value.trim() ? { model: model.value.trim() } : {}), ...(type.value === 'openai-compatible' && base.value.trim() ? { baseUrl: base.value.trim() } : {}) }
-    if (!provider.apiKey) {
-      msg.className = 'field-error'
-      msg.textContent = 'AI key: paste your key first.'
-      return key.focus()
+    let provider: StandaloneSettings['provider']
+    if (type.value === 'ollama') {
+      const origin = await findModels(true)
+      if (!origin) return omodel.focus()
+      if (!omodel.value) {
+        say('field-error', 'Model: choose one of the models installed in Ollama.')
+        return omodel.focus()
+      }
+      provider = { type: 'ollama', apiKey: '', model: omodel.value, ...(origin !== DEFAULT_OLLAMA_BASE_URL ? { baseUrl: origin } : {}) }
+    } else {
+      provider = { type: type.value as 'anthropic' | 'openai-compatible', apiKey: key.value.trim(), ...(model.value.trim() ? { model: model.value.trim() } : {}), ...(type.value === 'openai-compatible' && base.value.trim() ? { baseUrl: base.value.trim() } : {}) }
+      if (!provider.apiKey) {
+        say('field-error', 'AI key: paste your key first.')
+        return key.focus()
+      }
+      if (provider.type === 'openai-compatible' && !provider.model) {
+        say('field-error', 'Model: an OpenAI-compatible provider needs a model name.')
+        model.setAttribute('aria-invalid', 'true')
+        return model.focus()
+      }
+      if (provider.baseUrl && !/^https:\/\//.test(provider.baseUrl)) {
+        say('field-error', 'Endpoint: only https:// endpoints are allowed.')
+        return base.focus()
+      }
     }
-    if (provider.type === 'openai-compatible' && !provider.model) {
-      msg.className = 'field-error'
-      msg.textContent = 'Model: an OpenAI-compatible provider needs a model name.'
-      model.setAttribute('aria-invalid', 'true')
-      return model.focus()
-    }
-    if (provider.baseUrl && !/^https:\/\//.test(provider.baseUrl)) {
-      msg.className = 'field-error'
-      msg.textContent = 'Endpoint: only https:// endpoints are allowed.'
-      return base.focus()
-    }
-    msg.className = 'muted'
-    msg.textContent = 'Testing…'
+    say('muted', 'Testing…')
     const r = await testAiKey(provider, net)
     if (!r.ok) {
-      msg.className = 'field-error'
-      msg.textContent = r.message
-      key.setAttribute('aria-invalid', 'true')
-      return key.focus()
+      say('field-error', r.message)
+      const field = provider.type === 'ollama' ? omodel : key
+      field.setAttribute('aria-invalid', 'true')
+      return field.focus()
     }
-    msg.className = 'ok-line'
-    msg.textContent = r.message
+    say('ok-line', r.message)
     state.settings = { githubToken: state.draft.githubToken!, ...(state.draft.host ? { host: state.draft.host } : {}), provider }
     await secure.set(SETTINGS, state.settings)
+    await secure.remove(GITHUB_SIGNIN)
     state.draft = {}
     announce('Saved.')
     const pr = state.pendingPr
@@ -352,13 +413,22 @@ function setupAi(): HTMLElement {
     go('home')
     if (pr && pr === state.pr) void review()
   }
-  return h(
+  const view = h(
     'section',
     { class: 'stack' },
     steps(2),
-    state.login ? h('p', { class: 'ok-line' }, `Signed in to GitHub as @${state.login}`) : '',
-    h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Your AI provider'), h('label', { class: 'field', for: 'ptype' }, 'Provider', type), h('label', { class: 'field', for: 'key' }, 'API key', key), h('label', { class: 'field', for: 'model' }, 'Model', model), baseRow, msg, h('button', { class: 'btn primary full', type: 'button', onclick: () => void save() }, state.pendingPr ? `Test, save and review ${state.pendingPr}` : 'Test and save')),
+    state.login
+      ? h('p', { class: 'ok-line' }, `Signed in to GitHub as @${state.login} `, h('button', { class: 'btn small', type: 'button', onclick: async () => {
+          await secure.remove(GITHUB_SIGNIN)
+          state.draft = {}
+          state.login = undefined
+          go('setup-github')
+        } }, 'Use another account'))
+      : '',
+    h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Your AI provider'), h('label', { class: 'field', for: 'ptype' }, 'Provider', type), keyRow, modelRow, baseRow, ollamaRows, msg, h('button', { class: 'btn primary full', type: 'button', onclick: () => void save() }, state.pendingPr ? `Test, save and review ${state.pendingPr}` : 'Test and save')),
   )
+  queueMicrotask(sync)
+  return view
 }
 
 async function connect(conn: Connection): Promise<SessionInfo> {
@@ -518,7 +588,7 @@ function settingsView(): HTMLElement {
             go(state.settings ? 'settings' : 'welcome')
           } }, 'Disconnect'),
         )
-      : h('div', { class: 'card' }, h('h2', {}, 'Mode and connection'), h('p', {}, 'Standalone', state.login ? ` · GitHub @${state.login}` : ''), h('p', { class: 'muted' }, s ? `AI: ${s.provider.type === 'anthropic' ? 'Anthropic' : (s.provider.baseUrl ?? 'OpenAI')}${s.provider.model ? ` · ${s.provider.model}` : ''}` : 'Not set up'), h('button', { class: 'btn', type: 'button', onclick: () => go('welcome') }, 'Connect a Web App or this computer')),
+      : h('div', { class: 'card' }, h('h2', {}, 'Mode and connection'), h('p', {}, 'Standalone', state.login ? ` · GitHub @${state.login}` : ''), h('p', { class: 'muted' }, s ? `AI: ${s.provider.type === 'anthropic' ? 'Anthropic' : s.provider.type === 'ollama' ? `Ollama on ${s.provider.baseUrl ? new URL(s.provider.baseUrl).host : 'this computer'}` : (s.provider.baseUrl ?? 'OpenAI')}${s.provider.model ? ` · ${s.provider.model}` : ''}` : 'Not set up'), h('button', { class: 'btn', type: 'button', onclick: () => go('welcome') }, 'Connect a Web App or this computer')),
     s
       ? h(
       'div',
@@ -528,6 +598,7 @@ function settingsView(): HTMLElement {
         if (!state.settings) return
         state.settings = undefined
         await secure.remove(SETTINGS)
+        await secure.remove(GITHUB_SIGNIN)
         state.login = undefined
         announce('GitHub token and AI key removed.')
         go('setup-github')
@@ -876,6 +947,9 @@ async function boot(): Promise<void> {
   state.stored = (local[REVIEWS] as Record<string, Stored> | undefined) ?? {}
   state.settings = await secure.get<StandaloneSettings>(SETTINGS)
   state.conn = await secure.get<Connection>(CONNECTION)
+  const signin = state.settings ? undefined : await secure.get<{ githubToken: string; host?: string }>(GITHUB_SIGNIN)
+  if (signin) state.draft = { ...signin }
+  if (state.settings?.provider.type === 'ollama') await allowOllama(ollamaOrigin(state.settings.provider.baseUrl) ?? DEFAULT_OLLAMA_BASE_URL)
   if (state.conn) state.choice = state.conn.kind
   const interrupted = (await chrome.storage.session.get(RUNNING))[RUNNING] as string | { pr: string; runId: string; baseUrl: string } | undefined
   const reattach = typeof interrupted === 'object' && interrupted && state.conn?.baseUrl === interrupted.baseUrl ? interrupted : undefined
@@ -884,7 +958,7 @@ async function boot(): Promise<void> {
     await chrome.storage.session.remove(RUNNING)
     await savePrState(typeof interrupted === 'string' ? interrupted : interrupted.pr, undefined)
   }
-  state.surface = !state.consent ? 'welcome' : ready() ? 'home' : 'setup-github'
+  state.surface = !state.consent ? 'welcome' : ready() ? 'home' : signin ? 'setup-ai' : 'setup-github'
   // Opened from the Review button on the page with "start" (Story 7.5).
   const auto = (await chrome.storage.session.get('auto-review'))['auto-review']
   await chrome.storage.session.remove('auto-review')
@@ -896,6 +970,7 @@ async function boot(): Promise<void> {
     if (state.session) state.login = state.session.github.login ?? ''
   }
   await follow(true)
+  if (signin) testGitHubToken(signin.githubToken, net, signin.host).then((r) => ((state.login = r.ok ? r.login : undefined), r.ok ? render() : (secure.remove(GITHUB_SIGNIN), (state.draft = {}), go('setup-github')))).catch(() => undefined)
   if (state.settings && !state.conn) testGitHubToken(state.settings.githubToken, net, state.settings.host).then((r) => ((state.login = r.ok ? r.login : ''), render())).catch(() => undefined)
   if (reattach && state.conn) {
     const run: Run = { pr: reattach.pr, events: [], cancelled: false, runId: reattach.runId, abort: new AbortController() }

@@ -6,7 +6,7 @@ import { err, ok, type Result } from './result.js'
 /** Named Credential reference; values never live in Configuration (AD-10). */
 export const CredentialRef = z.string().regex(/^(github|provider:[a-z0-9][a-z0-9-]*)$/, 'expected "github" or "provider:<id>"')
 
-export const ProviderType = z.enum(['anthropic', 'anthropic-compatible', 'openai-compatible', 'claude-code', 'codex'])
+export const ProviderType = z.enum(['anthropic', 'anthropic-compatible', 'openai-compatible', 'ollama', 'claude-code', 'codex'])
 export type ProviderType = z.infer<typeof ProviderType>
 
 export const ProviderSettings = z.strictObject({
@@ -24,6 +24,8 @@ export const ProviderSettings = z.strictObject({
   /** USD per million tokens, used to estimate cost and enforce ceilings (FR-12). */
   pricing: z.strictObject({ inputPerMTok: z.number().nonnegative(), outputPerMTok: z.number().nonnegative() }).optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /** Ollama: the largest context window to ask for, in tokens (default 32768). */
+  contextLength: z.number().int().min(8192).max(1_048_576).optional(),
 })
 export type ProviderSettings = z.infer<typeof ProviderSettings>
 
