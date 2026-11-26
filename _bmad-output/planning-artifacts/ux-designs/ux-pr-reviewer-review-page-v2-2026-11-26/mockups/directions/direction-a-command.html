@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Direction A · Command (Linear / Raycast)</title>
+<style>
+/* Direction A — "Command". Reference: Linear / Raycast. Dense three-pane workspace, keyboard-first, command bar,
+   crisp neutrals with one violet accent and soft focus glow.
+   Light: bg #fbfbfc, panel #ffffff, sidebar #f4f4f6, border #e6e6ea, text #16161a, muted #6b6b76, accent #5e5ce6,
+          accent-soft #eeeefd, ok #1f8a4c, warn #a15c00, warn-soft #fff4e0, bad #c4332b.
+   Dark:  bg #0e0e11, panel #16161b, sidebar #121216, border #26262d, text #ececf1, muted #8d8d99, accent #8b8af7,
+          accent-soft #23234a, warn #f2b14c, warn-soft #3a2c12.
+   Code lines are reconstructed from the finding text for illustration. Static, no JS. */
+.light { --bg:#fbfbfc; --panel:#ffffff; --side:#f4f4f6; --border:#e6e6ea; --text:#16161a; --muted:#6b6b76; --accent:#5e5ce6; --accent-soft:#eeeefd; --ok:#1f8a4c; --ok-soft:#e5f5ec; --warn:#a15c00; --warn-soft:#fff4e0; --bad:#c4332b; --code:#f7f7f9; --add:#e7f6ec; --del:#fdecea; }
+.dark { --bg:#0e0e11; --panel:#16161b; --side:#121216; --border:#26262d; --text:#ececf1; --muted:#8d8d99; --accent:#8b8af7; --accent-soft:#23234a; --ok:#5fd394; --ok-soft:#14301f; --warn:#f2b14c; --warn-soft:#3a2c12; --bad:#ff8a80; --code:#111116; --add:#12301e; --del:#3a1816; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d7d9df; font: 13px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
+.note { max-width: 1240px; margin: 0 0 14px; font-size: 13px; }
+.note h1 { font-size: 18px; margin: 0 0 4px; }
+.frame { max-width: 1240px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 34px; background: #e9eaee; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.dark .browser { background: #1d1d22; color: #999; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c9cbd1; display: inline-block; }
+.app { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 220px 400px 1fr; height: 760px; }
+.side { background: var(--side); border-right: 1px solid var(--border); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; padding: 4px 8px 12px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.cmd { margin: 0 4px 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 10px; color: var(--muted); display: flex; justify-content: space-between; }
+kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--panel); }
+.nav { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; color: var(--muted); }
+.nav.on { background: var(--accent-soft); color: var(--text); font-weight: 550; }
+.nav .n { font-size: 11px; color: var(--muted); }
+.sec { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 14px 8px 4px; }
+.file { padding: 4px 8px 4px 18px; color: var(--muted); font: 12px ui-monospace, Menlo, monospace; display: flex; justify-content: space-between; }
+.list { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+.verdict { padding: 16px; border-bottom: 1px solid var(--border); }
+.verdict .pr { color: var(--muted); font-size: 12px; }
+.verdict h2 { font-size: 15px; margin: 2px 0 10px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.meter { display: flex; gap: 14px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+.meter b { color: var(--text); font-size: 18px; display: block; font-weight: 650; }
+.toolbar { display: flex; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); align-items: center; }
+.chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; font-size: 12px; color: var(--muted); }
+.chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.row { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); align-items: start; }
+.row.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.box { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--muted); margin-top: 2px; }
+.box.on { background: var(--accent); border-color: var(--accent); }
+.row .t { font-weight: 550; }
+.row .m { color: var(--muted); font: 11.5px ui-monospace, Menlo, monospace; }
+.sev { font-size: 11px; font-weight: 650; padding: 0 6px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); height: 18px; }
+.group { padding: 10px 16px; color: var(--muted); display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); }
+.detail { padding: 20px 24px; overflow: hidden; }
+.detail h3 { font-size: 16px; margin: 6px 0 4px; }
+.where { font: 12px ui-monospace, Menlo, monospace; color: var(--accent); }
+.p { margin: 12px 0; max-width: 62ch; }
+.k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: 16px; }
+.code { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font: 12px/1.6 ui-monospace, Menlo, monospace; background: var(--code); margin-top: 6px; }
+.code .h { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--muted); display: flex; justify-content: space-between; background: var(--panel); }
+.ln { display: grid; grid-template-columns: 42px 16px 1fr; }
+.ln span:first-child { color: var(--muted); text-align: right; padding-right: 8px; }
+.ln.add { background: var(--add); } .ln.del { background: var(--del); }
+.ln.hl { box-shadow: inset 2px 0 0 var(--warn); }
+.actions { display: flex; gap: 8px; margin-top: 18px; }
+.btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 550; display: inline-flex; gap: 8px; align-items: center; }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.postbar { position: relative; margin-top: 22px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; background: var(--panel); }
+.toast { position: absolute; right: 18px; top: 52px; }
+</style>
+</head>
+<body>
+<div class="note">
+  <h1>Direction A · Command</h1>
+  Linear / Raycast register: a dense three-pane workspace you drive from the keyboard. Overview and navigation on the left, the findings list in the middle, the selected finding with its code and suggested fix on the right. One violet accent, everything else quiet. Fast for people who review many PRs.
+</div>
+
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><span class="logo"></span>PR Reviewer</div>
+      <div class="cmd">Search or run a command <kbd>⌘K</kbd></div>
+      <div class="nav">Overview</div>
+      <div class="nav on">Needs attention <span class="n">2</span></div>
+      <div class="nav">Pre-existing <span class="n">20</span></div>
+      <div class="nav">Checks <span class="n">5</span></div>
+      <div class="nav">Walkthrough</div>
+      <div class="sec">Files</div>
+      <div class="file">info-modal.component.ts <span>1</span></div>
+      <div class="file">info-modal.component.html <span>1</span></div>
+      <div class="sec">Shortcuts</div>
+      <div class="file" style="font-family:inherit">Next / previous <span><kbd>j</kbd> <kbd>k</kbd></span></div>
+      <div class="file" style="font-family:inherit">Include in post <span><kbd>x</kbd></span></div>
+      <div class="file" style="font-family:inherit">Preview post <span><kbd>p</kbd></span></div>
+    </aside>
+    <section class="list">
+      <div class="verdict">
+        <div class="pr">kb-igot/sunbird-cb-orgportal #796 · head 6e53c3e</div>
+        <h2>Multiple reports download issue</h2>
+        <span class="pill warn">● Passed with warnings</span>
+        <div class="meter"><div><b>2</b>new findings</div><div><b>20</b>pre-existing</div><div><b>4/5</b>checks passed</div><div><b>10.2k</b>tokens</div></div>
+      </div>
+      <div class="toolbar"><span class="chip on">New 2</span><span class="chip">Pre-existing 20</span><span class="chip">By file</span><span style="flex:1"></span><span class="chip">2 of 2 included</span></div>
+      <div class="row sel"><span class="box on"></span><div><div class="t">Progress text shows the wrong item and an out-of-range count</div><div class="m">info-modal.component.html:71–73 · AI · high</div></div><span class="sev">MINOR</span></div>
+      <div class="row"><span class="box on"></span><div><div class="t">Download link without target may navigate the app away</div><div class="m">info-modal.component.ts:123–128 · AI · medium</div></div><span class="sev">MINOR</span></div>
+      <div class="group"><span>▸ 20 pre-existing · TSLint style (not included)</span><span>Show <kbd>e</kbd></span></div>
+    </section>
+    <section class="detail">
+      <span class="sev">MINOR</span> <span class="chip">correctness</span>
+      <h3>Progress text shows the wrong item and an out-of-range count between downloads</h3>
+      <a class="where">project/ws/app/…/info-modal.component.html:71–73 ↗</a>
+      <p class="p">The progress block is now shown whenever <code>!isComplete</code>. During the 300 ms wait after each download, <code>items[currentIndex]</code> is undefined, so the dialog shows "Downloading report for (N+1/N)".</p>
+      <div class="k">Why it matters</div>
+      <p class="p" style="margin-top:4px">Users see a wrong organisation name and an impossible count such as (4/3) at the end of every batch.</p>
+      <div class="k">Suggested change</div>
+      <div class="code">
+        <div class="h"><span>info-modal.component.html</span><span>Commit suggestion</span></div>
+        <div class="ln hl"><span>71</span><span></span><span>&lt;p *ngIf="!isComplete"&gt;</span></div>
+        <div class="ln del"><span>72</span><span>−</span><span>  Downloading {{ items[currentIndex]?.name }} ({{ currentIndex + 1 }}/{{ items.length }})</span></div>
+        <div class="ln add"><span>72</span><span>+</span><span>  Downloading {{ items[shown]?.name }} ({{ shown + 1 }}/{{ items.length }})</span></div>
+        <div class="ln"><span>73</span><span></span><span>&lt;/p&gt;</span></div>
+      </div>
+      <div class="actions"><button class="btn">Edit wording <kbd>e</kbd></button><button class="btn">Exclude <kbd>x</kbd></button><button class="btn">Copy agent prompt</button></div>
+      <div class="postbar"><span>2 inline comments and the summary · posts as @bharathravi-dev</span><span style="display:flex;gap:8px"><button class="btn">Comment ▾</button><button class="btn primary">Preview post <kbd style="color:#fff;border-color:#fff8">p</kbd></button></span></div>
+    </section>
+  </div>
+</div>
+
+<div class="note"><b>Dark variant</b>, same screen.</div>
+<div class="frame dark">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app" style="height:420px">
+    <aside class="side">
+      <div class="brand"><span class="logo"></span>PR Reviewer</div>
+      <div class="cmd">Search or run a command <kbd>⌘K</kbd></div>
+      <div class="nav on">Needs attention <span class="n">2</span></div>
+      <div class="nav">Pre-existing <span class="n">20</span></div>
+      <div class="nav">Checks <span class="n">5</span></div>
+    </aside>
+    <section class="list">
+      <div class="verdict"><div class="pr">kb-igot/sunbird-cb-orgportal #796</div><h2>Multiple reports download issue</h2><span class="pill warn">● Passed with warnings</span></div>
+      <div class="row sel"><span class="box on"></span><div><div class="t">Progress text shows the wrong item and an out-of-range count</div><div class="m">info-modal.component.html:71–73</div></div><span class="sev">MINOR</span></div>
+      <div class="group"><span>▸ 20 pre-existing · not included</span></div>
+    </section>
+    <section class="detail"><h3>Progress text shows the wrong item…</h3><div class="code"><div class="ln del"><span>72</span><span>−</span><span>Downloading {{ items[currentIndex]?.name }}</span></div><div class="ln add"><span>72</span><span>+</span><span>Downloading {{ items[shown]?.name }}</span></div></div></section>
+  </div>
+</div>
+</body>
+</html>

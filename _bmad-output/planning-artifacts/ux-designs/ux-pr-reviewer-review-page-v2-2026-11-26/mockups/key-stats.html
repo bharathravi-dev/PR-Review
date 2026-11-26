@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2 key screen: Stats</title>
+<style>
+/* Governs: DESIGN.md Components (metric tiles); EXPERIENCE.md IA (Stats). Same data as classic's stats
+   (addressed, dismissed, still open; by severity and by source). Numbers are example values. Spines win. */
+.light { --bg:#f6f7f9; --side:#eef0f3; --surface:#ffffff; --s2:#f1f3f6; --border:#dde1e7; --bs:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --accent-soft:#e9eefb; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --bad:#b3261e; --neutral:#eceef1; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d5d9e0; font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.cap { font-size: 12px; color: #333; margin: 0 0 6px; font-weight: 600; }
+.frame { max-width: 1240px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 32px; background: #e6e9ee; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c6cad2; display: inline-block; }
+.app { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 216px 1fr; min-height: 600px; }
+.side { background: var(--side); border-right: 1px solid var(--border); padding: 12px 10px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; padding: 2px 8px 10px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.nav { padding: 6px 8px; border-radius: 6px; color: var(--muted); }
+.nav.on { background: var(--accent-soft); color: var(--text); font-weight: 600; border-left: 2px solid var(--accent); }
+.main { padding: 24px 28px; display: grid; gap: 16px; align-content: start; max-width: 960px; }
+.head { display: flex; justify-content: space-between; align-items: end; }
+h1 { font-size: 18px; margin: 0; }
+.sub { color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--bs); border-radius: 8px; overflow: hidden; }
+.seg span { padding: 4px 10px; color: var(--muted); }
+.seg span.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.tile b { display: block; font-size: 22px; }
+.tile span { color: var(--muted); font-size: 12px; }
+.bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--neutral); margin-top: 8px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+table { width: 100%; border-collapse: collapse; }
+td, th { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; }
+.legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+.btn.primary kbd { background: transparent; color: var(--on-accent, #fff); border-color: rgba(255,255,255,.6); }
+</style>
+</head>
+<body>
+<p class="cap">Stats: how your posted findings fared (light; example values)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav">Start</div><div class="nav on">Stats</div><div class="nav">Settings</div></aside>
+    <section class="main">
+      <div class="head"><div><h1>How your posted findings fared</h1><div class="sub">Read from GitHub only · all repositories</div></div><span class="seg"><span>7 days</span><span class="on">30 days</span><span>90 days</span></span></div>
+      <div class="tiles">
+        <div class="tile"><b>64</b><span>inline findings posted</span></div>
+        <div class="tile"><b>58%</b><span>addressed (code changed)</span><div class="bar"><span style="width:58%;background:var(--ok)"></span><span style="width:9%;background:var(--warn)"></span></div></div>
+        <div class="tile"><b>9%</b><span>dismissed (👎 or /dismiss)</span></div>
+        <div class="tile"><b>33%</b><span>still open</span></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--ok)"></i>addressed</span><span><i style="background:var(--warn)"></i>dismissed</span><span><i style="background:var(--neutral)"></i>still open</span></div>
+      <div class="panel"><div class="lbl">By severity and source</div>
+        <table><tr><th>Group</th><th class="n">Posted</th><th class="n">Addressed</th><th class="n">Dismissed</th><th class="n">Open</th></tr>
+          <tr><td>Major</td><td class="n">18</td><td class="n">72%</td><td class="n">6%</td><td class="n">22%</td></tr>
+          <tr><td>Minor</td><td class="n">41</td><td class="n">54%</td><td class="n">10%</td><td class="n">36%</td></tr>
+          <tr><td>AI</td><td class="n">39</td><td class="n">61%</td><td class="n">8%</td><td class="n">31%</td></tr>
+          <tr><td>Tools</td><td class="n">25</td><td class="n">52%</td><td class="n">12%</td><td class="n">36%</td></tr></table></div>
+      <div class="panel"><div class="lbl">By PR</div>
+        <table><tr><th>PR</th><th class="n">Posted</th><th class="n">Resolved</th><th class="n">Dismissed</th></tr>
+          <tr><td class="mono">kb-igot/sunbird-cb-orgportal#796</td><td class="n">2</td><td class="n">0</td><td class="n">0</td></tr>
+          <tr><td class="mono">octo/app#42</td><td class="n">3</td><td class="n">2</td><td class="n">1</td></tr></table></div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

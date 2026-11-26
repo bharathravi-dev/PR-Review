@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2 key screens: shortcuts sheet and Settings</title>
+<style>
+/* Governs: DESIGN.md Components (command palette elevation, kbd, buttons, filter chips); EXPERIENCE.md
+   IA (Settings), Interaction Primitives (shortcut map), Accessibility Floor (shortcuts can be turned off or
+   remapped, WCAG 2.1.4), Coexistence with Classic (default view). Spines win. Static, no JS. */
+.light { --bg:#f6f7f9; --side:#eef0f3; --surface:#ffffff; --s2:#f1f3f6; --border:#dde1e7; --bs:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --on-accent:#fff; --accent-soft:#e9eefb; --ok:#1d7a46; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d5d9e0; font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+.cap { font-size: 12px; color: #333; margin: 0 0 6px; font-weight: 600; }
+.frame { max-width: 1240px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 32px; background: #e6e9ee; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c6cad2; display: inline-block; }
+.app { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 216px 1fr; min-height: 560px; position: relative; }
+.side { background: var(--side); border-right: 1px solid var(--border); padding: 12px 10px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; padding: 2px 8px 10px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.nav { padding: 6px 8px; border-radius: 6px; color: var(--muted); }
+.nav.on { background: var(--accent-soft); color: var(--text); font-weight: 600; border-left: 2px solid var(--accent); }
+kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--muted); background: var(--surface); }
+.scrim { position: absolute; inset: 0; background: rgba(15,18,22,.28); display: grid; place-items: start center; padding-top: 50px; }
+.sheet { width: 720px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(16,20,28,.18); padding: 18px 20px; }
+.sheet h2 { font-size: 16px; margin: 0 0 12px; display: flex; justify-content: space-between; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; }
+.sc { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.grp { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 2px; grid-column: span 2; }
+.main { padding: 24px 28px; display: grid; gap: 16px; align-content: start; max-width: 760px; }
+h1 { font-size: 18px; margin: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: grid; gap: 12px; }
+.lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.field { display: grid; grid-template-columns: 200px 1fr; gap: 12px; align-items: center; }
+.field .h { color: var(--muted); font-size: 12px; }
+.input { border: 1px solid var(--bs); border-radius: 8px; padding: 6px 10px; background: var(--bg); }
+.seg { display: inline-flex; border: 1px solid var(--bs); border-radius: 8px; overflow: hidden; width: max-content; }
+.seg span { padding: 4px 12px; color: var(--muted); }
+.seg span.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.switch { width: 34px; height: 20px; border-radius: 999px; background: var(--accent); position: relative; display: inline-block; vertical-align: middle; }
+.switch::after { content: ""; position: absolute; right: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.btn { border: 1px solid var(--bs); background: var(--surface); border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 550; width: max-content; }
+.btn.primary kbd { background: transparent; color: var(--on-accent, #fff); border-color: rgba(255,255,255,.6); }
+</style>
+</head>
+<body>
+<p class="cap">1 · Shortcuts sheet (?), over the workspace (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav on">Needs attention</div></aside>
+    <section></section>
+    <div class="scrim">
+      <div class="sheet" role="dialog" aria-label="Keyboard shortcuts">
+        <h2>Keyboard shortcuts <span><a style="color:var(--accent);font-size:13px;font-weight:500">Change in Settings</a> &nbsp;<kbd>Esc</kbd></span></h2>
+        <div class="cols">
+          <div class="grp">Anywhere</div>
+          <div class="sc"><span>Command palette</span><span><kbd>⌘</kbd> <kbd>K</kbd></span></div>
+          <div class="sc"><span>This sheet</span><kbd>?</kbd></div>
+          <div class="grp">Go to</div>
+          <div class="sc"><span>Overview</span><span><kbd>g</kbd> <kbd>o</kbd></span></div>
+          <div class="sc"><span>Needs attention</span><span><kbd>g</kbd> <kbd>a</kbd></span></div>
+          <div class="sc"><span>Pre-existing</span><span><kbd>g</kbd> <kbd>p</kbd></span></div>
+          <div class="sc"><span>Checks</span><span><kbd>g</kbd> <kbd>c</kbd></span></div>
+          <div class="sc"><span>Walkthrough</span><span><kbd>g</kbd> <kbd>w</kbd></span></div>
+          <div class="sc"><span>Filter the list</span><kbd>/</kbd></div>
+          <div class="grp">Findings</div>
+          <div class="sc"><span>Next / previous</span><span><kbd>j</kbd> <kbd>k</kbd></span></div>
+          <div class="sc"><span>Open</span><kbd>↵</kbd></div>
+          <div class="sc"><span>Include / exclude</span><kbd>x</kbd></div>
+          <div class="sc"><span>Edit wording</span><kbd>e</kbd></div>
+          <div class="sc"><span>Copy agent prompt</span><kbd>c</kbd></div>
+          <div class="sc"><span>Preview post</span><kbd>p</kbd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="cap">2 · Settings (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav">Start</div><div class="nav">Stats</div><div class="nav on">Settings</div></aside>
+    <section class="main">
+      <h1>Settings</h1>
+      <div class="panel"><div class="lbl">Review</div>
+        <div class="field"><div>AI provider<div class="h">From your pr-reviewer config</div></div><span class="input">claude-code ▾</span></div>
+        <div class="field"><div>Model<div class="h">Leave empty for the provider's default</div></div><span class="input">claude-opus-5-5</span></div>
+      </div>
+      <div class="panel"><div class="lbl">Page</div>
+        <div class="field"><div>Theme</div><span class="seg"><span class="on">System</span><span>Light</span><span>Dark</span></span></div>
+        <div class="field"><div>Default view<div class="h">Remembered in this browser</div></div><span class="seg"><span class="on">v2</span><span>Classic</span></span></div>
+      </div>
+      <div class="panel"><div class="lbl">Keyboard</div>
+        <div class="field"><div>Single-key shortcuts<div class="h">Turn off if they clash with your screen reader or other tools</div></div><span><span class="switch"></span>&nbsp; On</span></div>
+        <div class="field"><div>Change keys</div><button class="btn">Edit shortcuts…</button></div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

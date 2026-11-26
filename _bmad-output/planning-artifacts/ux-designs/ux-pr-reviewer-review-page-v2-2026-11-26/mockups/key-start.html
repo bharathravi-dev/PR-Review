@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2 key screen: Start and command palette</title>
+<style>
+/* Governs: DESIGN.md Components (sidebar, command field and palette, kbd); EXPERIENCE.md IA (Start, Command
+   palette), Component Patterns (Command palette), State Patterns (No run yet), Key Flow 1 steps 1-2 and Flow 2
+   step 2. Tokens per DESIGN.md (light first; a dark palette frame below). Spines win. Static, no JS. */
+.light { --bg:#f6f7f9; --side:#eef0f3; --surface:#ffffff; --s2:#f1f3f6; --border:#dde1e7; --bs:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --on-accent:#fff; --accent-soft:#e9eefb; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fdf1d6; --neutral:#eceef1; }
+.dark { --bg:#0f1216; --side:#0c0f13; --surface:#171b21; --s2:#1e232b; --border:#2c333d; --bs:#6e7681; --text:#e3e7ec; --muted:#97a1ad; --accent:#7c9cf5; --on-accent:#0f1216; --accent-soft:#1c2640; --ok:#6fd39a; --ok-bg:#16311f; --warn:#f0c35a; --warn-bg:#352a12; --neutral:#242a33; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d5d9e0; font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.cap { font-size: 12px; color: #333; margin: 0 0 6px; font-weight: 600; }
+.frame { max-width: 1240px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 32px; background: #e6e9ee; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.dark .browser { background: #1b1f25; color: #999; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c6cad2; display: inline-block; }
+.app { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 216px 1fr; height: 600px; position: relative; }
+.side { background: var(--side); border-right: 1px solid var(--border); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; padding: 2px 8px 10px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.cmdmini { margin: 0 2px 10px; border: 1px solid var(--bs); background: var(--surface); border-radius: 8px; padding: 6px 10px; color: var(--muted); display: flex; justify-content: space-between; }
+kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--surface); }
+.nav { padding: 6px 8px; border-radius: 6px; color: var(--muted); }
+.nav.on { background: var(--accent-soft); color: var(--text); font-weight: 600; border-left: 2px solid var(--accent); }
+.who { margin-top: auto; display: grid; gap: 4px; font-size: 12px; color: var(--muted); padding: 8px; border-top: 1px solid var(--border); }
+.dotok::before { content: "● "; color: var(--ok); }
+.main { display: grid; align-content: start; justify-items: center; padding: 80px 28px; gap: 28px; }
+.hello { text-align: center; }
+.hello h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -.01em; }
+.hello p { color: var(--muted); margin: 0; }
+.big { width: min(640px, 100%); border: 1px solid var(--bs); background: var(--surface); border-radius: 12px; padding: 14px 16px; display: flex; gap: 10px; align-items: center; box-shadow: 0 0 0 4px var(--accent-soft); font-size: 15px; }
+.big span.ph { color: var(--muted); flex: 1; }
+.recent { width: min(640px, 100%); }
+.recent h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.r { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; margin-bottom: 8px; align-items: center; }
+.pill { font-size: 11px; font-weight: 650; padding: 1px 8px; border-radius: 999px; }
+.pill.warn { background: var(--warn-bg); color: var(--warn); } .pill.ok { background: var(--ok-bg); color: var(--ok); }
+.when { color: var(--muted); font-size: 12px; }
+.scrim { position: absolute; inset: 0; background: rgba(15,18,22,.28); display: grid; justify-items: center; align-content: start; padding-top: 90px; }
+.pal { width: 640px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(16,20,28,.18); overflow: hidden; }
+.pal .in { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; display: flex; gap: 10px; }
+.grp { padding: 8px 8px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.it { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; margin: 0 6px; border-radius: 8px; }
+.it.on { background: var(--accent-soft); border-left: 2px solid var(--accent); }
+.it small { color: var(--muted); }
+.foot { padding: 8px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; display: flex; gap: 14px; }
+.btn.primary kbd { background: transparent; color: var(--on-accent, #fff); border-color: rgba(255,255,255,.6); }
+</style>
+</head>
+<body>
+<p class="cap">1 · Start, no run yet (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><span class="logo"></span>PR Reviewer</div>
+      <div class="cmdmini">Search or run a command <kbd>⌘K</kbd></div>
+      <div class="nav on">Start</div>
+      <div class="nav">Stats</div>
+      <div class="nav">Settings</div>
+      <div class="who"><span class="dotok">GitHub @bharathravi-dev</span><span class="dotok">AI claude-code</span></div>
+    </aside>
+    <section class="main">
+      <div class="hello"><h1>Review a pull request</h1><p>Paste a PR link, or type owner/repo to see its open PRs.</p></div>
+      <div class="big"><span>⌕</span><span class="ph">https://github.com/owner/repo/pull/123 or owner/repo</span><kbd>⌘K</kbd></div>
+      <div class="recent"><h3>Recent reviews</h3>
+        <div class="r"><span><b>kb-igot/sunbird-cb-orgportal#796</b> · Multiple reports download issue</span><span class="pill warn">Passed with warnings</span><span class="when">2 min ago</span></div>
+        <div class="r"><span><b>octo/app#42</b> · Add retry with backoff</span><span class="pill ok">Passed</span><span class="when">yesterday</span></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<p class="cap">2 · Command palette after typing a repository (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="cmdmini">Search or run a command <kbd>⌘K</kbd></div><div class="nav on">Start</div></aside>
+    <section class="main"></section>
+    <div class="scrim">
+      <div class="pal" role="dialog" aria-label="Command palette">
+        <div class="in"><span>⌕</span><span class="mono">kb-igot/sunbird-cb-orgportal</span></div>
+        <div class="grp">Open PRs in kb-igot/sunbird-cb-orgportal</div>
+        <div class="it on"><span><b>#796</b> Multiple reports download issue <small>· reviewed, 6e53c3e is current</small></span><kbd>↵</kbd></div>
+        <div class="it"><span><b>#801</b> Fix org filter on reports page <small>· not reviewed</small></span></div>
+        <div class="it"><span><b>#799</b> Bump Angular CLI <small>· reviewed an older commit</small></span></div>
+        <div class="grp">Actions</div>
+        <div class="it"><span>Show stats for this repository</span><span><kbd>g</kbd> <kbd>s</kbd></span></div>
+        <div class="it"><span>Switch to classic</span></div>
+        <div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="cap">3 · Command palette with a pasted PR link (dark)</p>
+<div class="frame dark">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app" style="height:380px">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div></aside>
+    <section class="main"></section>
+    <div class="scrim" style="padding-top:40px">
+      <div class="pal"><div class="in"><span>⌕</span><span class="mono">https://github.com/octo/app/pull/57</span></div>
+        <div class="it on"><span>Review <b>octo/app#57</b></span><kbd>↵</kbd></div>
+        <div class="it"><span>Review with another AI provider…</span></div>
+        <div class="foot"><span><kbd>↵</kbd> review</span><span><kbd>Esc</kbd> close</span></div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

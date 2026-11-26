@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2 key screens: post drawer and inline edit</title>
+<style>
+/* Governs: DESIGN.md Components (post drawer, inline editor, finding thread, buttons, toast); EXPERIENCE.md
+   Component Patterns (Inline editor, Post drawer), State Patterns (Posting / posted), Key Flow 1 steps 5-7.
+   Code lines are reconstructed from the finding text for illustration. Spines win. Static, no JS. */
+.light { --bg:#f6f7f9; --side:#eef0f3; --surface:#ffffff; --s2:#f1f3f6; --border:#dde1e7; --bs:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --on-accent:#fff; --accent-soft:#e9eefb; --ok:#1d7a46; --ok-bg:#e3f4ea; --info:#3d5a80; --info-bg:#e6edf6; --add:#e6f6ec; --del:#fdecea; --hunk:#eaf1fd; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d5d9e0; font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+.mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.cap { font-size: 12px; color: #333; margin: 0 0 6px; font-weight: 600; }
+.frame { max-width: 1240px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 32px; background: #e6e9ee; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c6cad2; display: inline-block; }
+.app { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 216px 380px 1fr; height: 640px; position: relative; }
+.side { background: var(--side); border-right: 1px solid var(--border); padding: 12px 10px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; padding: 2px 8px 10px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.nav { padding: 6px 8px; border-radius: 6px; color: var(--muted); display: flex; justify-content: space-between; }
+.nav.on { background: var(--accent-soft); color: var(--text); font-weight: 600; border-left: 2px solid var(--accent); }
+kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--surface); }
+.list { border-right: 1px solid var(--border); background: var(--surface); }
+.row { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.row.sel { background: var(--accent-soft); border-left: 2px solid var(--accent); }
+.box { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--bs); margin-top: 3px; background: var(--accent); border-color: var(--accent); }
+.m { color: var(--muted); font: 11.5px ui-monospace, Menlo, monospace; }
+.sev { font-size: 11px; font-weight: 650; padding: 0 6px; border-radius: 5px; background: var(--info-bg); color: var(--info); height: 18px; }
+.ed { font-size: 11px; color: var(--accent); }
+.detail { padding: 18px 22px; display: grid; gap: 12px; align-content: start; }
+.dtitle { font-size: 16px; font-weight: 650; margin: 0; }
+.dbox { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.fileh { background: var(--s2); border-bottom: 1px solid var(--border); padding: 6px 12px; font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.diff { font: 12px/20px ui-monospace, Menlo, monospace; }
+.dl { display: grid; grid-template-columns: 38px 38px 1fr; }
+.dl span:nth-child(-n+2) { color: var(--muted); text-align: right; padding-right: 8px; }
+.dl.add { background: var(--add); } .dl.del { background: var(--del); }
+.editor { border-top: 1px solid var(--border); padding: 12px 14px; display: grid; gap: 8px; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.src { border: 1px solid var(--bs); border-radius: 8px; padding: 10px; font: 12px/1.6 ui-monospace, Menlo, monospace; min-height: 120px; background: var(--bg); }
+.prev { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 13px; }
+.lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.btn { border: 1px solid var(--bs); background: var(--surface); color: var(--text); border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 550; display: inline-flex; gap: 8px; align-items: center; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 480px; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -12px 0 40px rgba(16,20,28,.16); padding: 18px 20px; display: grid; gap: 12px; align-content: start; }
+.drawer h2 { font-size: 16px; margin: 0; display: flex; justify-content: space-between; }
+.sel { font: inherit; border: 1px solid var(--bs); border-radius: 8px; padding: 6px 10px; background: var(--bg); color: var(--text); }
+.c { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.c .h { padding: 6px 10px; background: var(--s2); font: 12px ui-monospace, Menlo, monospace; display: flex; justify-content: space-between; color: var(--muted); }
+.c .b { padding: 8px 10px; font-size: 12.5px; }
+pre { margin: 0; padding: 10px; background: var(--s2); border: 1px solid var(--border); border-radius: 8px; font: 11.5px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+.result { background: var(--ok-bg); color: var(--ok); border-radius: 8px; padding: 10px 12px; }
+.result a { color: inherit; font-weight: 600; }
+.muted { color: var(--muted); }
+.btn.primary kbd { background: transparent; color: var(--on-accent, #fff); border-color: rgba(255,255,255,.6); }
+</style>
+</head>
+<body>
+<p class="cap">1 · Inline edit of a finding's wording, live preview (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav">Overview</div><div class="nav on">Needs attention <span>2</span></div><div class="nav">Pre-existing <span>20</span></div></aside>
+    <section class="list">
+      <div class="row sel"><span class="box"></span><div><div><b>Progress text shows the wrong item…</b></div><div class="m">info-modal.component.html:71–73</div></div><span class="sev">MINOR</span></div>
+      <div class="row"><span class="box"></span><div><div><b>Download link without target…</b></div><div class="m">info-modal.component.ts:123–128</div></div><span class="sev">MINOR</span></div>
+    </section>
+    <section class="detail">
+      <h3 class="dtitle">Progress text shows the wrong item and an out-of-range count between downloads</h3>
+      <div class="dbox">
+        <div class="fileh">info-modal.component.html</div>
+        <div class="diff"><div class="dl del"><span>71</span><span></span><span>-   &lt;p *ngIf="isDownloading"&gt;</span></div><div class="dl add"><span></span><span>71</span><span>+   &lt;p *ngIf="!isComplete"&gt;</span></div></div>
+        <div class="editor">
+          <div class="split">
+            <div><div class="lbl">Wording (Markdown)</div><div class="src">Small one: during the 300 ms pause between downloads, `items[currentIndex]` is undefined, so the dialog can show the wrong name and a count like **(4/3)**. Could the index move only when the next download starts?</div></div>
+            <div><div class="lbl">Preview</div><div class="prev">Small one: during the 300 ms pause between downloads, <code>items[currentIndex]</code> is undefined, so the dialog can show the wrong name and a count like <b>(4/3)</b>. Could the index move only when the next download starts?</div></div>
+          </div>
+          <div style="display:flex;gap:8px"><button class="btn primary">Save <kbd aria-hidden="true">⌘↵</kbd></button><button class="btn">Cancel <kbd>Esc</kbd></button><span class="muted" style="align-self:center">The suggested change is kept.</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<p class="cap">2 · Post drawer after Preview, then the posted result (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav on">Needs attention <span>2</span></div></aside>
+    <section class="list">
+      <div class="row sel"><span class="box"></span><div><div><b>Progress text shows the wrong item…</b> <span class="ed">edited</span></div><div class="m">info-modal.component.html:71–73</div></div><span class="sev">MINOR</span></div>
+      <div class="row"><span class="box"></span><div><div><b>Download link without target…</b></div><div class="m">info-modal.component.ts:123–128</div></div><span class="sev">MINOR</span></div>
+    </section>
+    <section class="detail"></section>
+    <aside class="drawer" role="dialog" aria-label="Post to GitHub">
+      <h2>Post to GitHub <button class="btn" aria-label="Close">✕ Close</button></h2>
+      <div class="muted">Posts as @bharathravi-dev: one review with inline comments, plus one summary comment that is updated on later runs. Approving is never possible.</div>
+      <label class="muted" style="display:grid;gap:4px;font-size:12px">Review type <span class="sel">Comment ▾</span></label>
+      <div class="lbl">New inline comments (2)</div>
+      <div class="c"><div class="h"><span>info-modal.component.html:71–73</span><span>edited · suggestion</span></div><div class="b">Small one: during the 300 ms pause between downloads…</div></div>
+      <div class="c"><div class="h"><span>info-modal.component.ts:123–128</span><span></span></div><div class="b">Download link without target may navigate the app away…</div></div>
+      <div class="lbl">Summary comment</div>
+      <pre>## PR Reviewer: PASSED_WITH_WARNINGS
+Head 6e53c3e · 2 finding(s) (2 minor) · 2 new inline
+20 pre-existing finding(s) not included.</pre>
+      <button class="btn primary" style="justify-content:center">Post 2 inline comments and the summary</button>
+      <div class="result">Posted 2 inline comments and the summary as @bharathravi-dev. <a href="#">Open the review</a> · <a href="#">Open the summary</a></div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

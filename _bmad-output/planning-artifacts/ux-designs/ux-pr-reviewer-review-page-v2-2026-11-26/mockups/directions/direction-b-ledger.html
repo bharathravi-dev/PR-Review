@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Direction B · Ledger (Stripe / Notion)</title>
+<style>
+/* Direction B — "Ledger". Reference: Stripe / Notion. Airy single column, a verdict hero with summary tiles,
+   soft-shadowed cards, friendly but precise; the post action lives in a sticky bottom bar.
+   Light: bg #f6f8fb, card #ffffff, border #e3e8ef, text #1a2233, muted #5b6678, accent #635bff, accent-soft #efeefe,
+          ok #0f8a5f, ok-soft #e3f6ee, warn #b2580b, warn-soft #fff1e2, bad #d1343e, shadow 0 1px 2px + 0 8px 24px rgba(26,34,51,.06).
+   Dark:  bg #0b1120, card #121a2b, border #22304a, text #e6ebf5, muted #93a0b7, accent #8f88ff, accent-soft #23214a,
+          warn #f5ad5b, warn-soft #3b2812.
+   Code lines are reconstructed from the finding text for illustration. Static, no JS. */
+.light { --bg:#f6f8fb; --card:#ffffff; --border:#e3e8ef; --text:#1a2233; --muted:#5b6678; --accent:#635bff; --accent-soft:#efeefe; --ok:#0f8a5f; --ok-soft:#e3f6ee; --warn:#b2580b; --warn-soft:#fff1e2; --bad:#d1343e; --code:#f8fafc; --add:#e6f6ee; --del:#fdeced; --shadow: 0 1px 2px rgba(26,34,51,.05), 0 8px 24px rgba(26,34,51,.06); }
+.dark { --bg:#0b1120; --card:#121a2b; --border:#22304a; --text:#e6ebf5; --muted:#93a0b7; --accent:#8f88ff; --accent-soft:#23214a; --ok:#4fd1a0; --ok-soft:#10301f; --warn:#f5ad5b; --warn-soft:#3b2812; --bad:#ff7d86; --code:#0e1524; --add:#103020; --del:#3a1820; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d7dbe3; font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
+.note { max-width: 1100px; margin: 0 0 14px; font-size: 13px; }
+.note h1 { font-size: 18px; margin: 0 0 4px; }
+.frame { max-width: 1100px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 34px; background: #e9ecf1; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.dark .browser { background: #1a2030; color: #999; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c9cdd6; display: inline-block; }
+.app { background: var(--bg); color: var(--text); padding: 0 0 80px; position: relative; }
+.top { display: flex; justify-content: space-between; align-items: center; padding: 14px 32px; }
+.brand { display: flex; gap: 8px; align-items: center; font-weight: 650; }
+.logo { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.who { display: flex; gap: 8px; font-size: 13px; color: var(--muted); }
+.tag { background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
+.wrap { max-width: 860px; margin: 0 auto; display: grid; gap: 18px; padding: 0 24px; }
+.hero { background: var(--card); border-radius: 16px; padding: 24px 26px; box-shadow: var(--shadow); border: 1px solid var(--border); position: relative; overflow: hidden; }
+.hero::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: linear-gradient(90deg, var(--warn), var(--accent)); }
+.crumb { color: var(--muted); font-size: 13px; }
+.hero h1 { font-size: 24px; margin: 4px 0 6px; letter-spacing: -.01em; }
+.status { display: inline-flex; gap: 8px; align-items: center; background: var(--warn-soft); color: var(--warn); border-radius: 999px; padding: 3px 12px; font-weight: 600; font-size: 13px; }
+.lede { color: var(--muted); margin: 10px 0 0; max-width: 64ch; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+.tile { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.tile b { display: block; font-size: 22px; letter-spacing: -.01em; }
+.tile span { color: var(--muted); font-size: 12.5px; }
+.bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; margin-top: 8px; background: var(--border); }
+h2 { font-size: 16px; margin: 8px 4px 0; display: flex; justify-content: space-between; }
+h2 small { color: var(--muted); font-weight: 500; font-size: 13px; }
+.card { background: var(--card); border-radius: 14px; border: 1px solid var(--border); box-shadow: var(--shadow); padding: 18px 20px; }
+.fhead { display: flex; gap: 12px; align-items: flex-start; }
+.check { width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 12px; flex: none; margin-top: 2px; }
+.ftitle { font-weight: 650; font-size: 15px; }
+.fmeta { color: var(--muted); font-size: 13px; margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+.fmeta a { color: var(--accent); text-decoration: underline; }
+.sev { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 650; }
+.why { margin: 12px 0 0 32px; padding: 10px 14px; background: var(--accent-soft); border-radius: 10px; }
+.body { margin: 10px 0 0 32px; }
+.code { margin: 12px 0 0 32px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font: 12.5px/1.65 ui-monospace, Menlo, monospace; background: var(--code); }
+.code .h { padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--muted); display: flex; justify-content: space-between; font-family: system-ui, sans-serif; font-size: 12.5px; }
+.ln { display: grid; grid-template-columns: 40px 18px 1fr; padding-right: 10px; }
+.ln span:first-child { color: var(--muted); text-align: right; padding-right: 8px; }
+.ln.add { background: var(--add); } .ln.del { background: var(--del); }
+.links { margin: 12px 0 0 32px; display: flex; gap: 14px; font-size: 13px; }
+.links a { color: var(--accent); }
+.acc { background: var(--card); border: 1px dashed var(--border); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; color: var(--muted); }
+.checks { display: grid; gap: 0; }
+.crow { display: grid; grid-template-columns: 22px 160px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.crow:last-child { border-bottom: 0; }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; }
+.sticky { position: absolute; left: 50%; transform: translateX(-50%); bottom: 18px; width: min(820px, 92%); background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 14px; padding: 10px 12px 10px 18px; display: flex; justify-content: space-between; align-items: center; }
+.btn { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 10px; padding: 7px 14px; font: inherit; font-weight: 600; }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="note">
+  <h1>Direction B · Ledger</h1>
+  Stripe / Notion register: an airy single column that reads top to bottom like a well-made report. A verdict hero with summary tiles first, then the findings that need attention as roomy cards with the code and fix inline, then the noise and the checks. Friendly and polished; posting sits in a bar that follows you.
+</div>
+
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <div class="top"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="who"><span class="tag">● GitHub @bharathravi-dev</span><span class="tag">● AI claude-code</span></div></div>
+    <div class="wrap">
+      <section class="hero">
+        <div class="crumb">kb-igot/sunbird-cb-orgportal · #796 · head 6e53c3e</div>
+        <h1>Multiple reports download issue</h1>
+        <span class="status">● Passed with warnings</span>
+        <p class="lede">The batch download flow now shows progress for every report; two edge cases can show the wrong item or navigate the app away. Nothing blocks merging.</p>
+        <div class="tiles">
+          <div class="tile"><b>2</b><span>new findings · 2 minor</span></div>
+          <div class="tile"><b>20</b><span>pre-existing, not included</span></div>
+          <div class="tile"><b>4 / 5</b><span>checks passed</span><div class="bar"><span style="width:80%;background:var(--ok)"></span><span style="width:20%;background:var(--warn)"></span></div></div>
+          <div class="tile"><b>10.2k</b><span>tokens · claude-opus-5-5</span></div>
+        </div>
+      </section>
+
+      <h2>Needs your attention <small>2 of 2 included</small></h2>
+      <article class="card">
+        <div class="fhead"><span class="check">✓</span><div><div class="ftitle">Progress text shows the wrong item and an out-of-range count between downloads</div>
+          <div class="fmeta"><span class="sev">MINOR</span> correctness · AI · high confidence · <a href="#">info-modal.component.html:71–73</a></div></div></div>
+        <p class="body">During the 300 ms wait after each download, <code>items[currentIndex]</code> is undefined, so the dialog shows "Downloading report for (N+1/N)".</p>
+        <div class="why"><b>Why it matters.</b> Users see a wrong organisation name and an impossible count such as (4/3) at the end of every batch.</div>
+        <div class="code">
+          <div class="h"><span>Suggested change · info-modal.component.html</span><span>Commit suggestion on GitHub</span></div>
+          <div class="ln del"><span>72</span><span>−</span><span>Downloading {{ items[currentIndex]?.name }} ({{ currentIndex + 1 }}/{{ items.length }})</span></div>
+          <div class="ln add"><span>72</span><span>+</span><span>Downloading {{ items[shown]?.name }} ({{ shown + 1 }}/{{ items.length }})</span></div>
+        </div>
+        <div class="links"><a href="#">Edit wording</a><a href="#">Copy prompt for your AI agent</a><a href="#">Exclude</a></div>
+      </article>
+      <article class="card">
+        <div class="fhead"><span class="check">✓</span><div><div class="ftitle">Download link without target may navigate the app away when the download attribute is ignored</div>
+          <div class="fmeta"><span class="sev">MINOR</span> correctness · AI · medium confidence · <a href="#">info-modal.component.ts:123–128</a></div></div></div>
+      </article>
+
+      <div class="acc"><span>▸ 20 pre-existing TSLint style findings in files this PR touches · not included</span><span>Show</span></div>
+
+      <h2>Checks <small>4 passed · 1 warning</small></h2>
+      <section class="card checks">
+        <div class="crow"><span class="dot" style="background:var(--ok)"></span><b>Context</b><span>Read the PR at 6e53c3e.</span></div>
+        <div class="crow"><span class="dot" style="background:var(--ok)"></span><b>Build config</b><span>No build, tool, or CI configuration changed.</span></div>
+        <div class="crow"><span class="dot" style="background:var(--warn)"></span><b>Lint · TSLint</b><span>20 problems in changed files with the repository's tslint.json; the lockfile is out of date.</span></div>
+        <div class="crow"><span class="dot" style="background:var(--ok)"></span><b>Secrets</b><span>None found.</span></div>
+        <div class="crow"><span class="dot" style="background:var(--warn)"></span><b>AI review</b><span>2 findings · 8,508 in / 1,685 out tokens.</span></div>
+      </section>
+    </div>
+    <div class="sticky"><span><b>Ready to post</b> · 2 inline comments and the summary as @bharathravi-dev</span><span style="display:flex;gap:8px"><button class="btn">Comment ▾</button><button class="btn primary">Preview post</button></span></div>
+  </div>
+</div>
+
+<div class="note"><b>Dark variant</b>, top of the same screen.</div>
+<div class="frame dark">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app" style="padding-bottom:24px">
+    <div class="top"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="who"><span class="tag">● GitHub @bharathravi-dev</span></div></div>
+    <div class="wrap">
+      <section class="hero"><div class="crumb">kb-igot/sunbird-cb-orgportal · #796</div><h1>Multiple reports download issue</h1><span class="status">● Passed with warnings</span>
+        <div class="tiles"><div class="tile"><b>2</b><span>new findings</span></div><div class="tile"><b>20</b><span>pre-existing</span></div><div class="tile"><b>4 / 5</b><span>checks passed</span></div><div class="tile"><b>10.2k</b><span>tokens</span></div></div></section>
+    </div>
+  </div>
+</div>
+</body>
+</html>

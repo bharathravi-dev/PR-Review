@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2 key screens: Checks and Walkthrough</title>
+<style>
+/* Governs: DESIGN.md Components (run timeline, metric tiles, sidebar); EXPERIENCE.md IA (Checks, Walkthrough),
+   Component Patterns (Run timeline), State Patterns (AI layer failed). Content from the #796 Report in the
+   user's screenshot. Spines win. Static, no JS. */
+.light { --bg:#f6f7f9; --side:#eef0f3; --surface:#ffffff; --s2:#f1f3f6; --border:#dde1e7; --bs:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --accent-soft:#e9eefb; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fdf1d6; --neutral:#eceef1; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d5d9e0; font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+.mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.cap { font-size: 12px; color: #333; margin: 0 0 6px; font-weight: 600; }
+.frame { max-width: 1240px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(20,20,40,.18); margin-bottom: 28px; }
+.browser { height: 32px; background: #e6e9ee; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #c6cad2; display: inline-block; }
+.app { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 216px 1fr; min-height: 560px; }
+.side { background: var(--side); border-right: 1px solid var(--border); padding: 12px 10px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; padding: 2px 8px 10px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); }
+.nav { padding: 6px 8px; border-radius: 6px; color: var(--muted); display: flex; justify-content: space-between; }
+.nav.on { background: var(--accent-soft); color: var(--text); font-weight: 600; border-left: 2px solid var(--accent); }
+.main { padding: 24px 28px; display: grid; gap: 16px; align-content: start; max-width: 900px; }
+h1 { font-size: 18px; margin: 0; }
+.sub { color: var(--muted); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.step { display: grid; grid-template-columns: 14px 1fr auto; gap: 12px; padding-bottom: 16px; position: relative; }
+.step::before { content: ""; position: absolute; left: 4px; top: 14px; bottom: 0; width: 1px; background: var(--border); }
+.step:last-child::before { display: none; }
+.dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; }
+.step .n { font-weight: 600; }
+.step .v { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; }
+.step .d { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; }
+.detail { margin-top: 6px; background: var(--s2); border-radius: 8px; padding: 8px 10px; }
+.pill { font-size: 11px; font-weight: 650; padding: 1px 8px; border-radius: 999px; margin-left: 6px; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.warn { background: var(--warn-bg); color: var(--warn); } .pill.n { background: var(--neutral); color: var(--muted); }
+table { width: 100%; border-collapse: collapse; }
+td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; }
+.effort { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 6px; }
+.effort i { width: 14px; height: 6px; border-radius: 2px; background: var(--border); display: inline-block; }
+.effort i.on { background: var(--accent); }
+.btn.primary kbd { background: transparent; color: var(--on-accent, #fff); border-color: rgba(255,255,255,.6); }
+</style>
+</head>
+<body>
+<p class="cap">1 · Checks: the full run timeline with each layer's detail (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav">Overview</div><div class="nav">Needs attention <span>2</span></div><div class="nav">Pre-existing <span>20</span></div><div class="nav on">Checks <span>5</span></div><div class="nav">Walkthrough</div></aside>
+    <section class="main">
+      <div><h1>Checks</h1><div class="sub">kb-igot/sunbird-cb-orgportal #796 · 4 passed · 1 warning · nothing skipped</div></div>
+      <div class="panel">
+        <div class="step"><span class="dot" style="background:var(--ok)"></span><div><span class="n">Context</span><span class="pill ok">PASSED</span><div class="v">github.context</div></div><span class="d">1s</span></div>
+        <div class="step"><span class="dot" style="background:var(--ok)"></span><div><span class="n">Build and tool config</span><span class="pill ok">PASSED</span><div class="v">repo.build-config-changes</div><div class="detail">No build, tool, or CI configuration changed.</div></div><span class="d">0s</span></div>
+        <div class="step"><span class="dot" style="background:var(--warn)"></span><div><span class="n">Lint</span><span class="pill warn">WARNING</span><div class="v">lint.tslint · project/ws/app</div><div class="detail">20 problem(s) in changed files, with the repository's own tslint.json, all pre-existing. The lockfile is out of date with package.json, so dependencies were installed without freezing it; results may differ from a fresh install.</div></div><span class="d">38s</span></div>
+        <div class="step"><span class="dot" style="background:var(--ok)"></span><div><span class="n">Secrets</span><span class="pill ok">PASSED</span><div class="v">secrets.builtin</div></div><span class="d">0s</span></div>
+        <div class="step"><span class="dot" style="background:var(--warn)"></span><div><span class="n">AI review</span><span class="pill warn">WARNING</span><div class="v">ai.review · claude-code claude-opus-5-5</div><div class="detail">2 findings · 8,508 in / 1,685 out tokens</div></div><span class="d">52s</span></div>
+      </div>
+      <div class="sub">Projects: <span class="mono">project/ws/app</span> · JavaScript</div>
+    </section>
+  </div>
+</div>
+
+<p class="cap">2 · Walkthrough: summary, effort, changes by file, run details (light)</p>
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <aside class="side"><div class="brand"><span class="logo"></span>PR Reviewer</div><div class="nav">Overview</div><div class="nav">Checks <span>5</span></div><div class="nav on">Walkthrough</div></aside>
+    <section class="main">
+      <div><h1>Walkthrough</h1><div class="sub">What the change does, written by the AI review</div></div>
+      <div class="panel"><div class="lbl">Summary</div>The batch download flow now shows progress for every report. Two edge cases can show the wrong item or navigate the app away. <div style="margin-top:8px" class="sub">Estimated review effort 2 / 5 <span class="effort"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></div></div>
+      <div class="panel"><div class="lbl">Changes by file</div>
+        <table><tr><th>File</th><th>Change</th></tr>
+          <tr><td class="mono">…/info-modal.component.ts</td><td>Queues downloads and advances an index after each finishes.</td></tr>
+          <tr><td class="mono">…/info-modal.component.html</td><td>Shows the progress block until the batch completes.</td></tr></table></div>
+      <div class="panel"><div class="lbl">Run details</div>claude-code · claude-opus-5-5 · 8,508 in / 1,685 out tokens · started 11:02, finished 11:03 · <a style="color:var(--accent)">Download Markdown</a> · <a style="color:var(--accent)">Download JSON</a></div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

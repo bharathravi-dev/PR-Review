@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Direction D · Signal (Vercel / Geist)</title>
+<style>
+/* Direction D — "Signal". Reference: Vercel / Geist. Monochrome, typographic, high contrast; colour only for
+   status. A large verdict line, the run as a deployment-style timeline, findings as minimal rows that expand to
+   code. Grid lines and whitespace instead of cards.
+   Light: bg #ffffff, gray-100 #f2f2f2, gray-200 #ebebeb, border #e5e5e5, text #0a0a0a, muted #666666,
+          ok #0a7d34, warn #a35200, warn-soft #fff4e5, bad #d0021b, focus #0a0a0a.
+   Dark:  bg #0a0a0a, gray-100 #111111, border #262626, text #ededed, muted #a1a1a1, ok #3dd37a, warn #ffb224, warn-soft #2a1d06.
+   Code lines are reconstructed from the finding text for illustration. Static, no JS. */
+.light { --bg:#ffffff; --g1:#fafafa; --g2:#f2f2f2; --border:#e5e5e5; --text:#0a0a0a; --muted:#666666; --ok:#0a7d34; --warn:#a35200; --warn-soft:#fff4e5; --bad:#d0021b; --add:#e9f8ee; --del:#fdecee; --invert-bg:#0a0a0a; --invert-text:#ffffff; }
+.dark { --bg:#0a0a0a; --g1:#0f0f0f; --g2:#161616; --border:#262626; --text:#ededed; --muted:#a1a1a1; --ok:#3dd37a; --warn:#ffb224; --warn-soft:#2a1d06; --bad:#ff5a5f; --add:#0e2a18; --del:#2c1013; --invert-bg:#ededed; --invert-text:#0a0a0a; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: #d9d9d9; font: 14px/1.55 "Geist", system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
+.mono { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+.note { max-width: 1180px; margin: 0 0 14px; font-size: 13px; }
+.note h1 { font-size: 18px; margin: 0 0 4px; }
+.frame { max-width: 1180px; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.16); margin-bottom: 28px; }
+.browser { height: 34px; background: #ececec; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 12px; color: #555; }
+.dark .browser { background: #1a1a1a; color: #999; }
+.browser i { width: 10px; height: 10px; border-radius: 50%; background: #cfcfcf; display: inline-block; }
+.app { background: var(--bg); color: var(--text); }
+.nav { height: 56px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; }
+.brand { display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.tri { width: 18px; height: 18px; border-radius: 5px; background: var(--text); }
+.sep { color: var(--border); font-size: 22px; font-weight: 200; }
+.crumbs { color: var(--muted); }
+.crumbs b { color: var(--text); font-weight: 500; }
+.right { display: flex; gap: 14px; color: var(--muted); font-size: 13px; align-items: center; }
+.k { border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 12px; }
+.hero { padding: 40px 28px 28px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 1.3fr 1fr; gap: 40px; }
+.eyebrow { color: var(--muted); font-size: 13px; }
+.hero h1 { font-size: 40px; line-height: 1.05; letter-spacing: -.035em; margin: 8px 0 14px; font-weight: 600; }
+.status { display: inline-flex; gap: 8px; align-items: center; font-weight: 500; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.facts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; align-self: start; }
+.fact { padding: 14px 16px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.fact:nth-child(2n) { border-right: 0; } .fact:nth-last-child(-n+2) { border-bottom: 0; }
+.fact span { color: var(--muted); font-size: 12px; display: block; }
+.fact b { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+.grid { display: grid; grid-template-columns: 300px 1fr; }
+.timeline { border-right: 1px solid var(--border); padding: 24px 28px; }
+.timeline h3, .main h3 { font-size: 13px; color: var(--muted); font-weight: 500; margin: 0 0 14px; }
+.step { display: grid; grid-template-columns: 14px 1fr auto; gap: 12px; padding: 0 0 18px; position: relative; }
+.step::before { content: ""; position: absolute; left: 4px; top: 14px; bottom: 0; width: 1px; background: var(--border); }
+.step:last-child::before { display: none; }
+.step small { color: var(--muted); display: block; }
+.step .t { color: var(--muted); font-size: 12px; }
+.main { padding: 24px 28px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 16px; font-size: 13px; }
+.seg span { padding: 5px 12px; color: var(--muted); }
+.seg span.on { background: var(--g2); color: var(--text); font-weight: 500; }
+.f { border-top: 1px solid var(--border); padding: 16px 0; display: grid; grid-template-columns: 18px 1fr auto; gap: 12px; }
+.cb { width: 16px; height: 16px; border-radius: 4px; background: var(--invert-bg); color: var(--invert-text); font-size: 11px; display: grid; place-items: center; margin-top: 3px; }
+.f .title { font-weight: 500; font-size: 15px; }
+.f .meta { color: var(--muted); font-size: 13px; }
+.badge { font-size: 12px; border-radius: 999px; padding: 1px 9px; background: var(--warn-soft); color: var(--warn); height: 22px; font-weight: 500; }
+.code { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 12.5px; line-height: 1.7; background: var(--g1); }
+.code .h { display: flex; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.ln { display: grid; grid-template-columns: 40px 16px 1fr; }
+.ln span:first-child { color: var(--muted); text-align: right; padding-right: 8px; }
+.ln.add { background: var(--add); } .ln.del { background: var(--del); }
+.why { color: var(--muted); margin: 10px 0 0; }
+.coll { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 14px 0; color: var(--muted); display: flex; justify-content: space-between; }
+.footer { display: flex; justify-content: space-between; align-items: center; padding: 16px 28px; border-top: 1px solid var(--border); }
+.btn { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 7px 14px; font: inherit; font-weight: 500; }
+.btn.primary { background: var(--invert-bg); color: var(--invert-text); border-color: var(--invert-bg); }
+</style>
+</head>
+<body>
+<div class="note">
+  <h1>Direction D · Signal</h1>
+  Vercel / Geist register: monochrome and typographic, colour only where a status lives. A big verdict line with four facts, the review run shown as a deployment-style timeline, and findings as clean rows that open into code. Calm and confident; the least decoration of the four.
+</div>
+
+<div class="frame light">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <div class="nav"><div class="brand"><span class="tri"></span>PR Reviewer <span class="sep">/</span> <span class="crumbs">kb-igot <span class="sep">/</span> <b>sunbird-cb-orgportal#796</b></span></div><div class="right"><span>@bharathravi-dev</span><span>claude-code</span><span class="k mono">⌘K</span></div></div>
+    <section class="hero">
+      <div>
+        <div class="eyebrow mono">head 6e53c3e · reviewed 2 minutes ago</div>
+        <h1>Multiple reports download issue</h1>
+        <span class="status"><span class="dot" style="background:var(--warn)"></span>Passed with warnings. Two minor issues to look at; nothing blocks merging.</span>
+      </div>
+      <div class="facts">
+        <div class="fact"><span>New findings</span><b>2</b></div>
+        <div class="fact"><span>Pre-existing</span><b>20</b></div>
+        <div class="fact"><span>Checks</span><b>4/5</b></div>
+        <div class="fact"><span>Tokens</span><b class="mono">10.2k</b></div>
+      </div>
+    </section>
+    <div class="grid">
+      <aside class="timeline">
+        <h3>Run</h3>
+        <div class="step"><span class="dot" style="background:var(--ok)"></span><div>Context<small>12 files at 6e53c3e</small></div><span class="t mono">1s</span></div>
+        <div class="step"><span class="dot" style="background:var(--ok)"></span><div>Build config<small>No changes</small></div><span class="t mono">0s</span></div>
+        <div class="step"><span class="dot" style="background:var(--warn)"></span><div>Lint · TSLint<small>20 problems in changed files</small></div><span class="t mono">38s</span></div>
+        <div class="step"><span class="dot" style="background:var(--ok)"></span><div>Secrets<small>None found</small></div><span class="t mono">0s</span></div>
+        <div class="step"><span class="dot" style="background:var(--warn)"></span><div>AI review<small>claude-opus-5-5 · 2 findings</small></div><span class="t mono">52s</span></div>
+      </aside>
+      <section class="main">
+        <div class="seg"><span class="on">New 2</span><span>Pre-existing 20</span><span>By file</span></div>
+        <div class="f">
+          <span class="cb">✓</span>
+          <div>
+            <div class="title">Progress text shows the wrong item and an out-of-range count between downloads</div>
+            <div class="meta mono">info-modal.component.html:71–73 · correctness · AI · high</div>
+            <p class="why">Users see a wrong organisation name and an impossible count such as (4/3) at the end of every batch.</p>
+            <div class="code mono">
+              <div class="h"><span>Suggested change</span><span>Commit suggestion</span></div>
+              <div class="ln del"><span>72</span><span>−</span><span>Downloading {{ items[currentIndex]?.name }} ({{ currentIndex + 1 }}/{{ items.length }})</span></div>
+              <div class="ln add"><span>72</span><span>+</span><span>Downloading {{ items[shown]?.name }} ({{ shown + 1 }}/{{ items.length }})</span></div>
+            </div>
+          </div>
+          <span class="badge">Minor</span>
+        </div>
+        <div class="f">
+          <span class="cb">✓</span>
+          <div><div class="title">Download link without target may navigate the app away</div><div class="meta mono">info-modal.component.ts:123–128 · correctness · AI · medium</div></div>
+          <span class="badge">Minor</span>
+        </div>
+        <div class="coll"><span>20 pre-existing TSLint style findings · not included</span><span>Show →</span></div>
+      </section>
+    </div>
+    <div class="footer"><span style="color:var(--muted)">2 inline comments and the summary will post as @bharathravi-dev</span><span style="display:flex;gap:8px"><button class="btn">Comment ▾</button><button class="btn primary">Preview post</button></span></div>
+  </div>
+</div>
+
+<div class="note"><b>Dark variant</b>, hero of the same screen.</div>
+<div class="frame dark">
+  <div class="browser"><i></i><i></i><i></i>&nbsp; 127.0.0.1 · PR Reviewer</div>
+  <div class="app">
+    <div class="nav"><div class="brand"><span class="tri"></span>PR Reviewer <span class="sep">/</span> <span class="crumbs"><b>sunbird-cb-orgportal#796</b></span></div><div class="right"><span class="k mono">⌘K</span></div></div>
+    <section class="hero"><div><div class="eyebrow mono">head 6e53c3e</div><h1>Multiple reports download issue</h1><span class="status"><span class="dot" style="background:var(--warn)"></span>Passed with warnings.</span></div>
+      <div class="facts"><div class="fact"><span>New findings</span><b>2</b></div><div class="fact"><span>Pre-existing</span><b>20</b></div><div class="fact"><span>Checks</span><b>4/5</b></div><div class="fact"><span>Tokens</span><b class="mono">10.2k</b></div></div></section>
+  </div>
+</div>
+</body>
+</html>
