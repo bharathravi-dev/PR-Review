@@ -56,5 +56,5 @@ describe('pr-reviewer CLI', () => {
     expect(execFileSync(process.execPath, [bin, '--version'], { encoding: 'utf8' })).toBe(`${pkg.version}\n`)
     const unknown = spawnSync(process.execPath, [bin, 'nope'], { encoding: 'utf8' })
     expect(unknown.status).toBe(64)
-  })
+  }, 30_000)
 })

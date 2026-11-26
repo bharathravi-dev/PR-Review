@@ -95,7 +95,14 @@ export class ContainerSandbox implements SandboxPort {
         break
       }
     }
-    if (!found) return err('sandbox_unavailable', 'Docker or Podman is not installed or not running')
+    if (!found) {
+      // Name the fix when a runtime is installed but stopped (Colima, Podman machine, Docker Desktop).
+      const has = async (cmd: string, args: string[]) => (await this.#run(cmd, args, { timeoutMs: 10_000 }).catch(() => ({ code: 1 }))).code === 0
+      if (await has('colima', ['version'])) return err('sandbox_unavailable', 'Docker is installed through Colima, but Colima is not running. Start it with: colima start')
+      if (await has('podman', ['--version'])) return err('sandbox_unavailable', 'Podman is installed, but its machine is not running. Start it with: podman machine start')
+      if (await has('docker', ['--version'])) return err('sandbox_unavailable', 'Docker is installed, but its engine is not running. Start Docker Desktop (or your Docker engine).')
+      return err('sandbox_unavailable', 'Docker or Podman is not installed or not running')
+    }
     this.#cli = found.cli
     // Install egress is limited with an internal network plus the allow-list proxy; check that internal networks work.
     const probeNet = `prr-probe-${randomBytes(4).toString('hex')}`

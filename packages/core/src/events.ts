@@ -1,7 +1,8 @@
 import * as z from 'zod'
 
 /** Progress event types (AD-16). Every progress UI renders from these, never from engine internals. */
-export const RunEventType = z.enum(['STAGE_STARTED', 'STAGE_FINISHED', 'LAYER_STATUS', 'FINDING_COUNT', 'DONE'])
+/** STAGE_PROGRESS (additive): how far a long stage is, e.g. { stage: 'review', part: 3, parts: 8 }; clients may ignore it. */
+export const RunEventType = z.enum(['STAGE_STARTED', 'STAGE_PROGRESS', 'STAGE_FINISHED', 'LAYER_STATUS', 'FINDING_COUNT', 'DONE'])
 export type RunEventType = z.infer<typeof RunEventType>
 
 /** Pipeline stages reported through STAGE_STARTED / STAGE_FINISHED (AD-3). */

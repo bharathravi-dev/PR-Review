@@ -734,12 +734,27 @@ const STAGES: Record<string, string> = { fetchContext: 'Reading the PR', detect:
 function runningView(run: Run): HTMLElement {
   const started = run.events.filter((e) => e.type === 'STAGE_STARTED').map((e) => String(e.payload.stage))
   const finished = new Set(run.events.filter((e) => e.type === 'STAGE_FINISHED').map((e) => String(e.payload.stage)))
+  // A large PR on a local model is reviewed in parts; show which one, since each can take a minute or more.
+  const part = run.events.findLast((e) => e.type === 'STAGE_PROGRESS' && e.payload.stage === 'review')?.payload as { part?: number; parts?: number } | undefined
   const rows = Object.keys(STAGES).map((s) => {
-    const st = finished.has(s) ? ['Done', 'ok'] : started.includes(s) ? ['Running', 'running'] : ['Waiting', 'waiting']
+    const running = part && s === 'review' && !finished.has(s) ? `Part ${part.part} of ${part.parts}` : 'Running'
+    const st = finished.has(s) ? ['Done', 'ok'] : started.includes(s) ? [running, 'running'] : ['Waiting', 'waiting']
     return h('li', { class: `step ${st[1]}` }, h('span', { class: 'node', 'aria-hidden': 'true' }), h('span', {}, STAGES[s], ' ', h('span', { class: 'state' }, st[0])))
   })
-  const skipped = run.events.filter((e) => e.type === 'LAYER_STATUS' && e.payload.status === 'SKIPPED').map((e) => `${words(e.payload.layer)}: SKIPPED (${words(e.payload.reason)})`)
-  return h('section', { class: 'card' }, h('h1', { tabindex: '-1' }, `Reviewing ${run.pr}`), h('ol', { class: 'steps' }, rows), skipped.length ? h('p', { class: 'muted' }, skipped.join(' · ')) : '', run.abort && state.conn ? h('p', { class: 'muted' }, `Running on ${state.conn.kind === 'local' ? `pr-reviewer on ${state.conn.computer ?? 'this computer'}` : new URL(state.conn.baseUrl).host}; closing this panel doesn’t stop it.`) : h('p', { class: 'note warn' }, 'Closing this panel stops the review.'), h('button', { class: 'btn', type: 'button', onclick: () => cancel(run) }, run.abort ? 'Stop following' : 'Cancel'))
+  const noSandbox = run.events.some((e) => e.type === 'LAYER_STATUS' && e.payload.status === 'SKIPPED' && e.payload.reason === 'NO_SANDBOX')
+  const skipped = run.events.filter((e) => e.type === 'LAYER_STATUS' && e.payload.status === 'SKIPPED' && e.payload.reason !== 'NO_SANDBOX').map((e) => `${words(e.payload.layer)}: SKIPPED (${words(e.payload.reason)})`)
+  return h('section', { class: 'card' }, h('h1', { tabindex: '-1' }, `Reviewing ${run.pr}`), h('ol', { class: 'steps' }, rows), part ? h('p', { class: 'muted' }, `This PR is larger than the model's context window, so it is reviewed in ${part.parts} parts and the findings are merged.`) : '', noSandbox ? sandboxNote() : '', skipped.length ? h('p', { class: 'muted' }, skipped.join(' · ')) : '', run.abort && state.conn ? h('p', { class: 'muted' }, `Running on ${state.conn.kind === 'local' ? `pr-reviewer on ${state.conn.computer ?? 'this computer'}` : new URL(state.conn.baseUrl).host}; closing this panel doesn’t stop it.`) : h('p', { class: 'note warn' }, 'Closing this panel stops the review.'), h('button', { class: 'btn', type: 'button', onclick: () => cancel(run) }, run.abort ? 'Stop following' : 'Cancel'))
+}
+
+/** Compile and lint run the repository's own tools in a container; a browser can't, so say where they do run. */
+function sandboxNote(): HTMLElement {
+  return h(
+    'p',
+    { class: 'muted' },
+    'Compile and lint run the repository’s own tools inside Docker, which a browser can’t start. To include them, use ',
+    h('a', { href: '#', onclick: (e: Event) => (e.preventDefault(), (state.choice = 'local'), go('welcome')) }, 'This computer'),
+    ' (pr-reviewer serve --pair) with Docker running.',
+  )
 }
 
 function defaultSelection(findings: readonly Finding[]): Set<string> {
@@ -800,6 +815,7 @@ function reportView(pr: string, r: Report): HTMLElement[] {
       h('span', { class: `badge ${STATUS_TONE[r.overallStatus] ?? ''}` }, STATUS_TEXT[r.overallStatus] ?? r.overallStatus),
       h('p', { class: 'muted' }, r.coverage.headline),
       notRun.length ? h('ul', { class: 'plain muted' }, notRun.map((l) => h('li', {}, `${words(l.validator)}: ${l.status} (${words(l.reason)})`))) : '',
+      notRun.some((l) => l.reason === 'NO_SANDBOX') && !state.conn ? sandboxNote() : '',
       r.gate.failedRules.length ? h('div', { class: 'note bad' }, h('strong', {}, 'Why it failed'), h('ul', {}, r.gate.failedRules.map((x) => h('li', {}, x)))) : '',
       h('details', {}, h('summary', {}, 'Details'), r.walkthrough ? h('p', {}, r.walkthrough.summary) : '', h('ul', { class: 'plain muted' }, r.layers.filter((l) => l.status !== 'NOT_APPLICABLE').map((l) => h('li', {}, `${words(l.layer)}: ${words(l.status)}${l.detail ? ` — ${l.detail}` : ''}`))), r.relatedFiles?.length ? h('p', { class: 'muted' }, `Related code shown to the AI: ${r.relatedFiles.map((x) => x.path).join(', ')}`) : '', r.ai?.attempts?.length ? h('p', { class: 'muted' }, r.ai.attempts.map((a) => `${a.provider} ${a.model} · ${a.usage?.input ?? '?'} in / ${a.usage?.output ?? '?'} out tokens`).join(' · ')) : ''),
     ),

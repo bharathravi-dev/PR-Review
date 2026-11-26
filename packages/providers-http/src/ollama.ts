@@ -29,10 +29,15 @@ export interface OllamaModel {
 /** Rough token count for sizing the context window (about 3 characters per token for code). */
 export const estimateTokens = (text: string) => Math.ceil(text.length / 3)
 
-/** The context window to ask for: what the prompt needs plus room for the answer, within [8k, limit]. */
+/**
+ * The context window to ask for: what the prompt needs plus room for the answer, rounded up to a power of two within
+ * [8k, limit]. Ollama reloads the model whenever num_ctx changes, so a few fixed sizes keep the parts of one review
+ * (and later reviews) on one loaded model instead of reloading it for each call.
+ */
 export function contextFor(promptTokens: number, limit = DEFAULT_OLLAMA_CONTEXT): number {
-  const wanted = Math.ceil((promptTokens + OUTPUT_ROOM) / 1024) * 1024
-  return Math.min(limit, Math.max(MIN_CONTEXT, wanted))
+  let size = MIN_CONTEXT
+  while (size < promptTokens + OUTPUT_ROOM && size < limit) size *= 2
+  return Math.min(limit, size)
 }
 
 /** Lists the models installed in Ollama (for choosing one); errors are thrown as readable messages. */

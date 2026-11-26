@@ -87,7 +87,9 @@ export function liveTimeline(events) {
   const done = events.some((e) => e.type === 'DONE')
   if (current && !done) {
     const p = events.findLast((e) => e.type === 'STAGE_STARTED')?.payload ?? {}
-    rows.push({ name: STAGE_NAMES[current] ?? words(current), word: 'Running', tone: 'running', detail: current === 'review' && p.provider ? `${p.provider}${p.model ? ` · ${p.model}` : ''}` : '' })
+    const part = current === 'review' ? events.findLast((e) => e.type === 'STAGE_PROGRESS' && e.payload?.stage === 'review')?.payload : undefined
+    const who = current === 'review' && p.provider ? `${p.provider}${p.model ? ` · ${p.model}` : ''}` : ''
+    rows.push({ name: STAGE_NAMES[current] ?? words(current), word: part ? `Part ${part.part} of ${part.parts}` : 'Running', tone: 'running', detail: [who, part ? 'a large PR is reviewed in parts' : ''].filter(Boolean).join(' · ') })
   }
   return rows
 }

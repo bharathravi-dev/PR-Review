@@ -42,6 +42,13 @@ describe('ContainerSandbox (Story 4.5)', () => {
     expect(Object.values(NODE_IMAGES).every((i) => /@sha256:[0-9a-f]{64}$/.test(i))).toBe(true)
   })
 
+  it('says how to start a runtime that is installed but stopped', async () => {
+    const colima: CommandRunner = async (cmd, args) => ({ code: cmd === 'colima' || (cmd === 'docker' && args[0] === '--version') ? 0 : 1, stdout: '', stderr: '', timedOut: false })
+    expect(await new ContainerSandbox({ run: colima }).probe()).toMatchObject({ ok: false, error: { message: 'Docker is installed through Colima, but Colima is not running. Start it with: colima start' } })
+    const desktop: CommandRunner = async (cmd, args) => ({ code: cmd === 'docker' && args[0] === '--version' ? 0 : 1, stdout: '', stderr: '', timedOut: false })
+    expect(await new ContainerSandbox({ run: desktop }).probe()).toMatchObject({ ok: false, error: { message: expect.stringContaining('Start Docker Desktop') } })
+  })
+
   it('installs through the registry-only proxy on an internal network and analyses with no network, unprivileged, without host env', async () => {
     const { run, calls } = fakeRuntime()
     const sb = new ContainerSandbox({ run })

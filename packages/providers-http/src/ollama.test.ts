@@ -7,9 +7,11 @@ const request = { system: 'Review.', prompt: 'diff', schema: AI_REVIEW_JSON_SCHE
 describe('Ollama provider', () => {
   it('sizes the context window to the prompt, within 8k and the limit', () => {
     expect(contextFor(100)).toBe(8192)
-    expect(contextFor(10_000)).toBe(14_336)
+    expect(contextFor(10_000)).toBe(16_384)
+    expect(contextFor(26_000)).toBe(32_768)
+    expect(contextFor(28_000)).toBe(32_768)
     expect(contextFor(100_000)).toBe(32_768)
-    expect(contextFor(100_000, 131_072)).toBe(104_448)
+    expect(contextFor(100_000, 131_072)).toBe(131_072)
   })
 
   it('calls the native chat API with the findings schema, thinking off and a sized context, and reads usage', async () => {

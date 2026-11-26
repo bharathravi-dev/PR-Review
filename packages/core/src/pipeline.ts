@@ -267,6 +267,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     const first = candidates.find((c) => c.provider)
     if (first) emit('STAGE_STARTED', { stage: 'review', provider: first.name, ...(first.model ? { model: first.model } : {}) })
     const outcome = await runAiReview(redacted.value, candidates, {
+      onProgress: (part, parts) => emit('STAGE_PROGRESS', { stage: 'review', part, parts }),
       deterministicFindings: scan.findings,
       rules: input.review?.rules ?? [],
       repoRules,

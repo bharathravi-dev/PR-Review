@@ -354,7 +354,7 @@ export function planReviewRequests(ctx: RedactedContext, opts: BuildRequestOptio
 }
 
 /** Runs each part and merges the valid answers; a part that fails is noted, and fails the whole only if all do. */
-async function completeInParts(p: ReviewProvider, requests: readonly ReviewRequest[], notes: string[]): Promise<Result<ReviewResponse>> {
+async function completeInParts(p: ReviewProvider, requests: readonly ReviewRequest[], notes: string[], onProgress?: (part: number, parts: number) => void): Promise<Result<ReviewResponse>> {
   const answers: AiReviewResponse[] = []
   let model: string | undefined
   let provider = p.id
@@ -362,6 +362,7 @@ async function completeInParts(p: ReviewProvider, requests: readonly ReviewReque
   let output = 0
   let firstError: Result<ReviewResponse> | undefined
   for (const [i, r] of requests.entries()) {
+    onProgress?.(i + 1, requests.length)
     const res = await p.complete(r)
     if (!res.ok) {
       firstError ??= res
@@ -425,6 +426,8 @@ export interface AiReviewOptions extends BuildRequestOptions {
   channel?: Channel | undefined
   limits?: CostLimits | undefined
   ledger?: UsageLedger | undefined
+  /** Called before each part when a large PR is reviewed in parts. */
+  onProgress?: ((part: number, parts: number) => void) | undefined
 }
 
 /**
@@ -502,7 +505,7 @@ export async function runAiReview(
     if (plan) notes.push(...plan.notes)
     const asked = plan?.requests[0] ?? request
     const inParts = (plan?.requests.length ?? 1) > 1
-    const res = inParts ? await completeInParts(p, plan!.requests, notes) : await p.complete(asked)
+    const res = inParts ? await completeInParts(p, plan!.requests, notes, opts.onProgress) : await p.complete(asked)
     if (!res.ok) {
       attempts.push({ provider: c.name, model, outcome: 'FAILED', reason: res.error.message, billing })
       if (res.error.retryable) continue
