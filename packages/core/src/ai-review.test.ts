@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, buildVerifyRequest, runAiReview, VERIFY_JSON_SCHEMA, type ReviewProvider, type ReviewRequest } from './ai-review.js'
+import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, buildVerifyRequest, planReviewRequests, runAiReview, VERIFY_JSON_SCHEMA, type ReviewProvider, type ReviewRequest } from './ai-review.js'
 import type { Finding, LayerResult } from './findings.js'
 import { redactContext } from './redact.js'
 import { err, ok } from './result.js'
@@ -329,5 +329,65 @@ describe('review learnings', () => {
     expect(req.system).toContain('<review_learnings> is feedback')
     expect(buildVerifyRequest(req, []).prompt).toContain('- [remember] Our http client already retries with jitter.')
     expect(buildReviewRequest(redacted()).prompt).not.toContain('<review_learnings>')
+  })
+})
+
+describe('small context windows (local models)', () => {
+  /** A PR of `n` files, each with a diff and a full file of about `chars` characters. */
+  function big(n: number, chars: number) {
+    const base = context()
+    const line = 'export const value = compute(input) // a line of ordinary code\n'
+    const text = line.repeat(Math.ceil(chars / line.length))
+    const files = Array.from({ length: n }, (_, i) => ({ path: `src/f${String(i).padStart(2, '0')}.ts`, status: 'modified' as const, additions: 2, deletions: 0, binary: false, patchTruncated: false, patch: `@@ -1,1 +1,2 @@\n x\n+export const bug${i} = 1`, head: { text } }))
+    const r = redactContext({ ...base, body: 'Refactor', files }, { completed: true, values: [] })
+    if (!r.ok) throw new Error('setup')
+    return r.value
+  }
+  const related = [{ path: 'src/caller.ts', relation: 'calls', text: 'x'.repeat(30_000), excerpt: false }]
+
+  it('sends the whole PR when it fits, then drops related code, then splits it into parts that each fit', () => {
+    const small = big(2, 1_000)
+    expect(planReviewRequests(small, {}, 28_672)).toMatchObject({ requests: [expect.anything()], notes: [] })
+    const lean = planReviewRequests(small, { relatedFiles: related }, 8_000)
+    expect(lean.requests).toHaveLength(1)
+    expect(lean.requests[0]!.prompt).not.toContain('related_file')
+    expect(lean.notes[0]).toContain('Related code was left out')
+
+    const large = big(40, 20_000)
+    const plan = planReviewRequests(large, { relatedFiles: related }, 28_672)
+    expect(plan.requests.length).toBeGreaterThan(1)
+    for (const r of plan.requests) expect(Math.ceil((r.system.length + r.prompt.length + JSON.stringify(r.schema).length) / 3)).toBeLessThanOrEqual(28_672)
+    const seen = plan.requests.flatMap((r) => [...r.prompt.matchAll(/<file path="([^"]+)"/g)].map((m) => m[1]))
+    expect(new Set(seen).size).toBe(40)
+    expect(plan.requests[0]!.prompt).toContain(`Part 1 of ${plan.requests.length}`)
+    expect(plan.notes.join(' ')).toContain(`Reviewed in ${plan.requests.length} parts`)
+  })
+
+  it('shows only the diff of a file too large for a part', () => {
+    const plan = planReviewRequests(big(1, 200_000), {}, 28_672)
+    expect(plan.requests).toHaveLength(1)
+    expect(plan.requests[0]!.prompt).not.toContain('<head_content>')
+    expect(plan.requests[0]!.prompt).toContain('export const bug0')
+    expect(plan.notes.join(' ')).toContain('saw only the diff')
+  })
+
+  it('reviews a large PR in parts and merges the findings into one result', async () => {
+    const ctx = big(30, 20_000)
+    const calls: ReviewRequest[] = []
+    const provider: ReviewProvider = {
+      id: 'ollama',
+      maxPromptTokens: 28_672,
+      complete: async (req) => {
+        calls.push(req)
+        const path = /<file path="([^"]+)"/.exec(req.prompt)![1]!
+        return ok({ output: { summary: 'Refactor.', files: [], effort: 2, issues: [], findings: [{ category: 'CORRECTNESS', severity: 'MAJOR', confidence: 'HIGH', title: `Bug in ${path}`, description: 'd', impact: null, recommendation: null, path, startLine: 1, endLine: 1 }] }, provider: 'ollama', model: 'qwen3:8b', usage: { inputTokens: 100, outputTokens: 10 } })
+      },
+    }
+    const out = await runAiReview(ctx, provider, { verify: true })
+    expect(calls.length).toBeGreaterThan(1)
+    expect(out.layer.status).not.toBe('ERROR')
+    expect(out.findings).toHaveLength(calls.length)
+    expect(out.usage).toEqual({ inputTokens: 100 * calls.length, outputTokens: 10 * calls.length })
+    expect(out.notes.join(' ')).toContain('verification pass was skipped')
   })
 })

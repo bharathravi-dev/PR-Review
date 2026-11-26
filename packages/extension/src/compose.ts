@@ -115,7 +115,7 @@ export async function runStandalone(o: StandaloneRun): Promise<StandaloneResult>
     {
       github,
       scanSecrets: (ctx) => scanSecrets(ctx, () => Date.now()),
-      providers: [{ name: provider.id, provider }],
+      providers: [{ name: provider.id, provider, ...(o.settings.provider.model ? { model: o.settings.provider.model } : {}) }],
       validators: BUILT_IN_VALIDATORS,
       advisories: new OsvAdvisories({ fetch: o.fetch }),
       now: o.now ?? (() => Date.now()),

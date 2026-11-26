@@ -58,10 +58,13 @@ export async function listOllamaModels(baseUrl: string = DEFAULT_OLLAMA_BASE_URL
  */
 export class OllamaProvider implements ReviewProvider {
   readonly id = 'ollama'
+  /** Larger PRs are reviewed with less context or in parts by core (planReviewRequests). */
+  readonly maxPromptTokens: number
   readonly #o: OllamaOptions
 
   constructor(opts: OllamaOptions) {
     this.#o = opts
+    this.maxPromptTokens = (opts.contextLength ?? DEFAULT_OLLAMA_CONTEXT) - OUTPUT_ROOM
   }
 
   async complete(request: ReviewRequest): Promise<Result<ReviewResponse>> {

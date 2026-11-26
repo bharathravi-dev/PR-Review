@@ -93,6 +93,11 @@ export interface ReviewProvider {
   readonly billing?: 'METERED' | 'PLAN'
   /** Channels this provider may run in (AD-8, PRD FR-10); undefined means every Channel. */
   readonly channels?: readonly Channel[]
+  /**
+   * The largest prompt this provider can take, in tokens (system + prompt + schema), when it is small enough to
+   * matter (local models). A larger PR is then reviewed with less context or in parts (see planReviewRequests).
+   */
+  readonly maxPromptTokens?: number | undefined
   complete(request: ReviewRequest): Promise<Result<ReviewResponse>>
 }
 
@@ -251,6 +256,119 @@ export function buildReviewRequest(ctx: RedactedContext, opts: BuildRequestOptio
   return { system: SYSTEM, prompt, schema: AI_REVIEW_JSON_SCHEMA, promptVersion: AI_PROMPT_VERSION }
 }
 
+/** Conservative token count for planning against a context limit (code runs about 3 characters per token). */
+const planTokens = (r: ReviewRequest) => Math.ceil((r.system.length + r.prompt.length + JSON.stringify(r.schema).length) / 3)
+/** At most this many parts per review; files beyond them are listed as not reviewed by the AI. */
+export const MAX_REVIEW_PARTS = 16
+const OTHER_FILES_SHOWN = 40
+
+export interface ReviewPlan {
+  requests: ReviewRequest[]
+  notes: string[]
+  /** The reason no request fits at all. */
+  impossible?: string | undefined
+}
+
+/**
+ * Fits a review into a small context window (local models): the whole PR when it fits; then without related code;
+ * then in parts, each with a batch of changed files (full contents when they fit, otherwise only the diff, cut if
+ * still too long) and a note naming the files reviewed in other parts. The findings of all parts are merged.
+ */
+export function planReviewRequests(ctx: RedactedContext, opts: BuildRequestOptions, budget: number): ReviewPlan {
+  const full = buildReviewRequest(ctx, opts)
+  if (planTokens(full) <= budget) return { requests: [full], notes: [] }
+  const lean: BuildRequestOptions = { ...opts, relatedFiles: undefined }
+  const leanFull = buildReviewRequest(ctx, lean)
+  const leftOutRelated = opts.relatedFiles?.length ? ['Related code was left out to fit the AI model’s context window.'] : []
+  if (planTokens(leanFull) <= budget) return { requests: [leanFull], notes: leftOutRelated }
+
+  const withFiles = (files: RedactedContext['files'], note?: string) => buildReviewRequest({ ...ctx, files, truncated: note ? [...ctx.truncated, note] : ctx.truncated } as RedactedContext, lean)
+  // Room for files: the budget less the PR description, checks and rules, and the part note.
+  const room = budget - planTokens(withFiles([], `Part 00 of 00. ${'x'.repeat(OTHER_FILES_SHOWN * 60)}`))
+  if (room < 1500) return { requests: [], notes: [], impossible: `the PR description, checks and rules alone fill the AI model’s ${Math.round(budget / 1000)}k-token context` }
+  const cost = (f: RedactedContext['files'][number]) => planTokens(withFiles([f])) - planTokens(withFiles([]))
+
+  let diffOnly = 0
+  let cut = 0
+  const fitted = ctx.files.map((f) => {
+    if (cost(f) <= room * 0.6) return f
+    diffOnly++
+    const lighter = { ...f, head: f.head?.text !== undefined ? { omitted: 'total_limit' as const } : f.head }
+    if (cost(lighter) <= room) return lighter
+    cut++
+    const keep = Math.max(500, (room - 300) * 3)
+    return { ...lighter, patch: `${(f.patch ?? '').slice(0, keep)}\n… (the rest of this diff was cut to fit the AI model’s context window)` }
+  })
+  const batches: Array<typeof fitted> = []
+  let current: typeof fitted = []
+  let used = 0
+  for (const f of fitted) {
+    const c = cost(f)
+    if (current.length && used + c > room) {
+      batches.push(current)
+      current = []
+      used = 0
+    }
+    current.push(f)
+    used += c
+  }
+  if (current.length) batches.push(current)
+  const reviewed = batches.slice(0, MAX_REVIEW_PARTS)
+  const skipped = batches.slice(MAX_REVIEW_PARTS).flat()
+  const n = reviewed.length
+  const requests = reviewed.map((batch, i) => {
+    const here = new Set(batch.map((f) => f.path))
+    const others = ctx.files.map((f) => f.path).filter((p) => !here.has(p))
+    const list = others.slice(0, OTHER_FILES_SHOWN).join(', ') + (others.length > OTHER_FILES_SHOWN ? ` and ${others.length - OTHER_FILES_SHOWN} more` : '')
+    return withFiles(batch, `Part ${i + 1} of ${n}: this pull request is large, so it is reviewed in parts. Review only the files shown here.${others.length ? ` The other changed files (${list}) are reviewed separately; don't report them as missing.` : ''}`)
+  })
+  const notes = [
+    ...leftOutRelated,
+    `Reviewed in ${n} part${n === 1 ? '' : 's'} to fit the AI model’s ${Math.round(budget / 1000)}k-token context window; each part saw only its own files.`,
+    ...(diffOnly ? [`For ${diffOnly} large file(s) the AI saw only the diff, not the whole file${cut ? `; ${cut} diff(s) were cut` : ''}.`] : []),
+    ...(skipped.length ? [`${skipped.length} file(s) were not reviewed by the AI (more than ${MAX_REVIEW_PARTS} parts): ${skipped.slice(0, 20).map((f) => f.path).join(', ')}${skipped.length > 20 ? ', …' : ''}.`] : []),
+  ]
+  return { requests, notes }
+}
+
+/** Runs each part and merges the valid answers; a part that fails is noted, and fails the whole only if all do. */
+async function completeInParts(p: ReviewProvider, requests: readonly ReviewRequest[], notes: string[]): Promise<Result<ReviewResponse>> {
+  const answers: AiReviewResponse[] = []
+  let model: string | undefined
+  let provider = p.id
+  let input = 0
+  let output = 0
+  let firstError: Result<ReviewResponse> | undefined
+  for (const [i, r] of requests.entries()) {
+    const res = await p.complete(r)
+    if (!res.ok) {
+      firstError ??= res
+      notes.push(`Part ${i + 1} of ${requests.length} was not reviewed by the AI: ${res.error.message}`)
+      continue
+    }
+    const parsed = AiReviewResponse.safeParse(res.value.output)
+    if (!parsed.success) {
+      notes.push(`Part ${i + 1} of ${requests.length}: the AI's answer did not match the findings schema and was left out.`)
+      continue
+    }
+    answers.push(parsed.data)
+    model = res.value.model
+    provider = res.value.provider
+    input += res.value.usage?.inputTokens ?? 0
+    output += res.value.usage?.outputTokens ?? 0
+  }
+  if (!answers.length) return firstError ?? err('ai_invalid_response', 'No part of the review returned valid findings.')
+  const efforts = answers.map((a) => a.effort).filter((e): e is number => typeof e === 'number')
+  const merged: AiReviewResponse = {
+    summary: answers.map((a) => a.summary).find((x) => x) ?? null,
+    files: answers.flatMap((a) => a.files ?? []),
+    effort: efforts.length ? Math.max(...efforts) : null,
+    issues: answers.flatMap((a) => a.issues ?? []),
+    findings: answers.flatMap((a) => a.findings),
+  }
+  return ok({ output: merged, provider, model: model ?? 'default', usage: { inputTokens: input, outputTokens: output } })
+}
+
 function numbered(text: string): string {
   return text
     .split('\n')
@@ -353,7 +471,16 @@ export async function runAiReview(
       }
     }
 
-    const res = await p.complete(request)
+    // A small context window (local models): less context first, then the PR in parts.
+    const plan = p.maxPromptTokens ? planReviewRequests(ctx, opts, p.maxPromptTokens) : undefined
+    if (plan?.impossible) {
+      attempts.push({ provider: c.name, model, outcome: 'FAILED', reason: `This PR doesn't fit: ${plan.impossible}.`, billing })
+      continue
+    }
+    if (plan) notes.push(...plan.notes)
+    const asked = plan?.requests[0] ?? request
+    const inParts = (plan?.requests.length ?? 1) > 1
+    const res = inParts ? await completeInParts(p, plan!.requests, notes) : await p.complete(asked)
     if (!res.ok) {
       attempts.push({ provider: c.name, model, outcome: 'FAILED', reason: res.error.message, billing })
       if (res.error.retryable) continue
@@ -419,12 +546,13 @@ export async function runAiReview(
     // Verification pass (find → verify): the same provider re-reads the change and checks each finding.
     let kept = findings
     let unverified = 0
-    if (opts.verify && findings.length > 0) {
+    if (opts.verify && findings.length > 0 && inParts) notes.push('The verification pass was skipped: the PR was reviewed in parts.')
+    if (opts.verify && findings.length > 0 && !inParts) {
       const estimate = c.pricing ? costOf(c.pricing, estimatedInput + estimateTokens(JSON.stringify(parsed.data.findings)), ESTIMATED_OUTPUT_TOKENS) : 0
       if (billing === 'METERED' && limits.maxCostPerRunUsd !== undefined && c.pricing && spentThisRun + estimate > limits.maxCostPerRunUsd) {
         notes.push(`The verification pass was skipped: it would exceed the per-run cost limit of ${usd(limits.maxCostPerRunUsd)}.`)
       } else {
-        const v = await verifyFindings(p, request, findings)
+        const v = await verifyFindings(p, asked, findings)
         const vu = v.usage
         const vcost = vu && c.pricing ? { costUsd: costOf(c.pricing, vu.inputTokens, vu.outputTokens), costSource: 'PRICING' as const } : vu?.costUsd !== undefined ? { costUsd: vu.costUsd, costSource: 'PROVIDER' as const } : {}
         if (billing === 'METERED' && vcost.costUsd !== undefined) spentThisRun += vcost.costUsd

@@ -277,6 +277,8 @@ providers:
     type: ollama              # a local model: no key, nothing leaves your machine for the AI step
     model: qwen3:8b           # as `ollama list` shows it; or: pr-reviewer review <pr> --provider ollama --model qwen3:8b
     # baseUrl: http://127.0.0.1:11434   contextLength: 32768 (largest context window asked of Ollama)
+    # A PR too big for the context window is reviewed without related code, then in parts (up to 16),
+    # and the findings are merged; the Report says how it was split.
 sandbox:
   enabled: true               # false: never run repository tools
   registries: [registry.npmjs.org]
