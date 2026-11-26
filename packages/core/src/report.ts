@@ -84,6 +84,8 @@ export const Report = z.looseObject({
   learnings: z
     .array(z.object({ kind: z.enum(['REMEMBER', 'DISMISSED']), text: z.string(), by: z.string(), pr: z.number().int(), url: z.string().optional() }))
     .optional(),
+  /** How hard the review looked (adaptive effort) and why. */
+  effort: z.object({ level: z.enum(['light', 'standard', 'deep']), reasons: z.array(z.string()) }).optional(),
   /** An incremental review: the AI re-checked only files changed since `since`; `unchanged` it did not re-check. */
   incremental: z.object({ since: z.string(), files: z.number().int(), unchanged: z.array(z.string()) }).optional(),
   /** Unchanged files shown to the AI for context, and why each was picked. */
@@ -212,6 +214,7 @@ export function renderMarkdown(report: Report): string {
   out.push(`# PR review: ${ref}${report.title ? ` — ${report.title}` : ''}`, '')
   out.push(`**Overall: ${report.overallStatus}**  ·  head \`${report.run.headSha?.slice(0, 7) ?? '?'}\``, '')
   out.push(`> ${report.coverage.headline}`, '')
+  if (report.effort) out.push(`Review depth: **${report.effort.level}** (${report.effort.reasons.join('; ')})${report.incremental ? ` · incremental since \`${report.incremental.since.slice(0, 7)}\`` : ''}`, '')
   if (report.walkthrough) {
     const w = report.walkthrough
     out.push('## Walkthrough', '', w.summary, ...(w.effort ? ['', `Estimated review effort: ${w.effort}/5`] : []), '')

@@ -1,3 +1,4 @@
+import { chooseEffort, effortRule, type EffortSetting } from './effort.js'
 import { quietFindings } from './noise.js'
 import { lastReviewedHead } from './publish.js'
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
@@ -69,6 +70,8 @@ export interface ReviewSettings {
   styleFindings?: boolean | undefined
   /** false makes the AI re-check every file on a later review, not only files changed since the last one. */
   incremental?: boolean | undefined
+  /** adaptive (default) picks light, standard or deep from the change; a level fixes it (roadmap item 5). */
+  effort?: EffortSetting | undefined
 }
 
 export interface ReviewInput {
@@ -230,6 +233,12 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   record(scan.layer)
   emit('STAGE_FINISHED', { stage: 'execute' })
 
+  // Adaptive effort: light skips verification and asks for clear defects only; deep turns verification on and asks for
+  // extra care. Related code stays at every level: small changes break callers too.
+  const setting = input.review?.effort ?? 'adaptive'
+  const effort = setting === 'adaptive' ? chooseEffort(ctx, [...scan.findings, ...executed.findings]) : { level: setting, reasons: ['set in configuration'] }
+  const verify = input.review?.verify ?? (effort.level === 'deep' ? true : undefined)
+
   // Unchanged code next to the change, for the AI. It is scanned like the PR itself, so its secrets never reach the AI.
   let related: RelatedFile[] = []
   if (input.review?.relatedFiles !== false && scan.completed) {
@@ -272,7 +281,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       ? [...ports.providers]
       : [{ name: ports.provider?.id ?? 'anthropic', provider: ports.provider, unavailableReason: ports.providerUnavailableReason ?? 'No AI Provider is configured.', model: input.review?.model }]
     const first = candidates.find((c) => c.provider)
-    if (first) emit('STAGE_STARTED', { stage: 'review', provider: first.name, ...(first.model ? { model: first.model } : {}) })
+    if (first) emit('STAGE_STARTED', { stage: 'review', provider: first.name, ...(first.model ? { model: first.model } : {}), effort: effort.level })
     // Incremental (roadmap item 4): after an earlier review of this PR, the AI re-checks only files changed since then.
     let aiCtx = redacted.value
     if (input.review?.incremental !== false && input.reviewerId !== undefined && ports.github.changedPathsBetween) {
@@ -294,7 +303,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     const outcome = await runAiReview(aiCtx, candidates, {
       onProgress: (part, parts) => emit('STAGE_PROGRESS', { stage: 'review', part, parts }),
       deterministicFindings: scan.findings,
-      rules: input.review?.rules ?? [],
+      rules: [...(input.review?.rules ?? []), ...(effortRule(effort) ? [effortRule(effort)!] : [])],
       repoRules,
       guidance: repoConfig.guidance.map((g) => ({ path: g.path, text: redactText(g.text, scan.values) })),
       relatedFiles: related,
@@ -311,7 +320,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       channel: input.channel,
       limits: input.costLimits,
       ledger: ports.ledger,
-      verify: input.review?.verify === true,
+      verify: effort.level !== 'light' && verify === true,
     })
     record(outcome.layer)
     aiFindings.push(...outcome.findings)
@@ -352,6 +361,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     ...(related.length ? { relatedFiles: related.map((r) => ({ path: r.path, relation: r.relation, excerpt: r.excerpt })) } : {}),
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
     ...(incremental ? { incremental } : {}),
+    effort,
   })
   return { report, context: ctx }
 }
@@ -474,6 +484,7 @@ async function assemble(a: {
   relatedFiles?: Array<{ path: string; relation: string; excerpt: boolean }>
   sandbox?: { planHash: string; imageDigest: string; ran: boolean }
   incremental?: Report['incremental']
+  effort?: Report['effort']
 }): Promise<Report> {
   const { input, ctx } = a
   const gate = evaluateGate(a.layers, a.findings, {
@@ -525,6 +536,7 @@ async function assemble(a: {
     ...(a.learnings?.length ? { learnings: a.learnings } : {}),
     ...(a.relatedFiles?.length ? { relatedFiles: a.relatedFiles } : {}),
     ...(a.incremental ? { incremental: a.incremental } : {}),
+    ...(a.effort ? { effort: a.effort } : {}),
     ...(a.repo?.guidance.length ? { guidanceFiles: a.repo.guidance } : {}),
     ...(a.sandbox ? { sandbox: a.sandbox } : {}),
     audit: {

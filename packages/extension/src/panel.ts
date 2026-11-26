@@ -814,6 +814,7 @@ function reportView(pr: string, r: Report): HTMLElement[] {
       h('h1', { tabindex: '-1' }, `${r.run.repo.fullName}#${r.run.pr}`, r.title ? ` — ${r.title}` : ''),
       h('span', { class: `badge ${STATUS_TONE[r.overallStatus] ?? ''}` }, STATUS_TEXT[r.overallStatus] ?? r.overallStatus),
       h('p', { class: 'muted' }, r.coverage.headline),
+      r.effort ? h('p', { class: 'muted' }, `Review depth: ${r.effort.level} (${r.effort.reasons.join('; ')})${r.incremental ? ` · re-checked only what changed since ${r.incremental.since.slice(0, 7)}` : ''}`) : '',
       notRun.length ? h('ul', { class: 'plain muted' }, notRun.map((l) => h('li', {}, `${words(l.validator)}: ${l.status} (${words(l.reason)})`))) : '',
       notRun.some((l) => l.reason === 'NO_SANDBOX') && !state.conn ? sandboxNote() : '',
       r.gate.failedRules.length ? h('div', { class: 'note bad' }, h('strong', {}, 'Why it failed'), h('ul', {}, r.gate.failedRules.map((x) => h('li', {}, x)))) : '',

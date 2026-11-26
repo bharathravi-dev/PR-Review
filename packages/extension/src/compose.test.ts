@@ -45,8 +45,10 @@ describe('extension Standalone engine (Story 7.1)', () => {
     })
     expect(report.run.channel).toBe('EXTENSION_STANDALONE')
     expect(report.findings.map((f) => f.title)).toContain('Retries without backoff')
-    expect(aiBodies).toHaveLength(1)
-    expect(aiBodies[0]).not.toContain(LEAKED)
+    // The leaked key is a critical finding, so adaptive effort reviews deeply: review plus verification, neither sees it.
+    expect(report.effort?.level).toBe('deep')
+    expect(aiBodies).toHaveLength(2)
+    for (const body of aiBodies) expect(body).not.toContain(LEAKED)
     expect(events[0]).toBe('STAGE_STARTED')
     expect(events.at(-1)).toBe('DONE')
     expect(report.findings.some((f) => f.category === 'SECRET')).toBe(true)

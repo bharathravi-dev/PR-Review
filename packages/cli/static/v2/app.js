@@ -1038,6 +1038,7 @@ function viewChecks() {
     { class: 'pane' },
     h('h1', { tabindex: '-1' }, 'Checks'),
     h('p', { class: 'muted' }, r.coverage.headline),
+    r.effort ? h('p', { class: 'muted' }, `Review depth: ${r.effort.level} (${r.effort.reasons.join('; ')})${r.incremental ? ` · re-checked only what changed since ${r.incremental.since.slice(0, 7)}` : ''}`) : '',
     h('div', { class: 'panel' }, timelineList(timeline(r.layers))),
     r.projects?.length ? h('div', { class: 'panel' }, h('h2', { class: 'overline' }, 'Projects'), h('ul', { class: 'plain' }, r.projects.map((p) => h('li', {}, h('span', { class: 'mono' }, p.path || '.'), ': ', p.support === 'best-effort' ? 'best-effort (unsupported technology)' : [p.language, ...p.frameworks.map((f) => `${f.name} ${f.version ?? f.declared ?? '?'}`), p.typescript?.version ? `TypeScript ${p.typescript.version}` : ''].filter(Boolean).join(', '))))) : '',
     r.limitations.length ? h('div', { class: 'panel' }, h('h2', { class: 'overline' }, 'Limitations'), h('ul', { class: 'plain' }, r.limitations.map((l) => h('li', {}, l)))) : '',

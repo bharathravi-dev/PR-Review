@@ -77,6 +77,7 @@ review options:
   --warnings-ok      Exit 0 instead of 1 for PASSED_WITH_WARNINGS
   --post             Post the review to the PR (shows a preview and asks first)
   --full             Re-check every file with the AI (later reviews re-check only what changed)
+  --effort <level>   adaptive (default), light, standard, or deep
   --yes              Post without asking (required when not in an interactive terminal)
   --event <e>        COMMENT (default) or REQUEST_CHANGES (needs publish.allowRequestChanges)
 
@@ -288,6 +289,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
         profile: { type: 'string' },
         post: { type: 'boolean' },
         full: { type: 'boolean' },
+        effort: { type: 'string' },
         yes: { type: 'boolean' },
         event: { type: 'string' },
       },
@@ -297,6 +299,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   }
   const [input, ...extra] = parsed.positionals
   if (!input || extra.length > 0) return usageError(io, 'review needs exactly one PR reference')
+  if (parsed.values.effort !== undefined && !['adaptive', 'light', 'standard', 'deep'].includes(parsed.values.effort)) return usageError(io, '--effort must be adaptive, light, standard, or deep')
 
   const config = resolveConfig(io, deps, parsed.values.profile, { host: parsed.values.host, apiUrl: parsed.values['api-url'] })
   if (typeof config === 'number') return config
@@ -327,6 +330,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
 
   const { report, context } = await executeReview({
     full: parsed.values.full === true,
+    effort: parsed.values.effort as 'adaptive' | 'light' | 'standard' | 'deep' | undefined,
     config,
     deps,
     secrets,
