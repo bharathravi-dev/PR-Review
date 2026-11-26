@@ -89,6 +89,8 @@ button.chip.on { border-color: var(--accent); color: var(--accent); }
 .finding .meta { font-size: 0.75rem; color: var(--muted); }
 .finding a.path { color: var(--accent); }
 details > summary { cursor: pointer; color: var(--muted); }
+details.alt[open] { display: grid; gap: 10px; }
+details.alt > summary { margin-top: 4px; }
 details.pre { background: var(--surface); border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; }
 details.pre > summary { color: var(--text); font-weight: 600; }
 details.pre .findings { margin-top: 10px; }

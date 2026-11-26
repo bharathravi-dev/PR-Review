@@ -8,8 +8,17 @@ pnpm package:extension      # packages/extension/pr-reviewer-extension-<version>
 ```
 
 The manifest version must equal the engine version (`packages/cli/package.json`); packaging refuses otherwise.
-Device-code sign-in needs a GitHub OAuth app: build with `PR_REVIEWER_GITHUB_CLIENT_ID=<client id>` to enable it;
-without it the extension offers token sign-in only.
+**Sign in with GitHub** (device flow, no token to paste) needs a GitHub OAuth app. Its client ID is public, so it is
+committed in `packages/extension/oauth.json` and every build uses it (`PR_REVIEWER_GITHUB_CLIENT_ID` overrides it for a
+fork). Without one, the panel offers token sign-in only. To create the app (once, by the project owner):
+
+1. github.com → Settings → Developer settings → OAuth Apps → **New OAuth App** (or under the organisation's settings).
+2. Name `PR Reviewer`; Homepage URL: the project's repository; Authorization callback URL: the same URL (device flow
+   does not use it, but GitHub requires one).
+3. Register, then tick **Enable Device Flow** and save. No client secret is needed; don't create one.
+4. Put the **Client ID** in `packages/extension/oauth.json` as `githubClientId`, then `pnpm build`.
+
+Sign-in asks for the `repo` scope (read pull requests, including private ones, and post reviews).
 
 ## Listing text
 

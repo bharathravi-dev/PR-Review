@@ -1,17 +1,23 @@
 // Bundles the side panel and the service worker into packages/extension/build/ (load it unpacked in Chrome).
 import { build } from 'vite'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { deflateSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
+// The GitHub OAuth app used for "Sign in with GitHub" (device flow). A client ID is public, not a secret (GitHub's
+// own CLI ships one), so the project's ID lives in oauth.json; PR_REVIEWER_GITHUB_CLIENT_ID overrides it for forks.
+const oauthFile = new URL('oauth.json', import.meta.url)
+const committedId = existsSync(oauthFile) ? String(JSON.parse(readFileSync(oauthFile, 'utf8')).githubClientId ?? '') : ''
+const githubClientId = process.env.PR_REVIEWER_GITHUB_CLIENT_ID || committedId
+if (!/^(|[A-Za-z0-9._-]{8,64})$/.test(githubClientId)) throw new Error('oauth.json githubClientId does not look like a GitHub client ID')
+if (!githubClientId) console.warn('No GitHub OAuth client ID (oauth.json or PR_REVIEWER_GITHUB_CLIENT_ID): the panel offers token sign-in only.')
 await build({
   root,
   logLevel: 'warn',
   publicDir: 'public',
   esbuild: { charset: 'ascii' },
-  // Device-flow sign-in needs a GitHub OAuth app; without its client ID the panel offers token sign-in only.
-  define: { __GITHUB_CLIENT_ID__: JSON.stringify(process.env.PR_REVIEWER_GITHUB_CLIENT_ID ?? '') },
+  define: { __GITHUB_CLIENT_ID__: JSON.stringify(githubClientId) },
   build: {
     outDir: 'build',
     emptyOutDir: true,

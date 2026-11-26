@@ -246,7 +246,13 @@ function setupGitHub(): HTMLElement {
     'section',
     { class: 'stack' },
     steps(1),
-    h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, state.draft.host ? `Connect ${state.draft.host}` : 'Connect GitHub'), device, h('h2', {}, device ? 'Or use a token' : 'Use a token'), h('p', { class: 'muted', id: 'gh-help' }, 'A fine-grained token with Pull requests: read and Contents: read (add Pull requests: write to post). Classic tokens need repo or public_repo.'), h('label', { class: 'field', for: 'gh' }, 'GitHub token', token), err, h('button', { class: 'btn primary full', type: 'button', onclick: () => void useToken() }, 'Test and continue'), enterprise),
+    (() => {
+      const tokenParts = [h('p', { class: 'muted', id: 'gh-help' }, 'A fine-grained token with Pull requests: read and Contents: read (add Pull requests: write to post). Classic tokens need repo or public_repo.'), h('label', { class: 'field', for: 'gh' }, 'GitHub token', token), err, h('button', { class: `btn${device ? '' : ' primary'} full`, type: 'button', onclick: () => void useToken() }, 'Test and continue')]
+      // With an OAuth app, signing in on GitHub is the way in; a pasted token stays available as the fallback.
+      return device
+        ? h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Connect GitHub'), h('p', { class: 'muted' }, 'Sign in on GitHub and approve PR Reviewer. Nothing to copy except a short code.'), device, h('details', { class: 'alt' }, h('summary', {}, 'Use a token instead'), ...tokenParts), enterprise)
+        : h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, state.draft.host ? `Connect ${state.draft.host}` : 'Connect GitHub'), h('h2', {}, 'Use a token'), ...tokenParts, enterprise, h('p', { class: 'muted' }, 'No token? Choose ', h('a', { href: '#', onclick: (e: Event) => (e.preventDefault(), (state.choice = 'local'), go('welcome')) }, 'This computer'), ' on the first screen to use the GitHub login of pr-reviewer on your computer.'))
+    })(),
   )
 }
 
@@ -256,12 +262,15 @@ function deviceBlock(): HTMLElement {
     try {
       const s = await startDeviceFlow(__GITHUB_CLIENT_ID__, net)
       const expires = new Date(s.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      // The code is copied so it can be pasted on GitHub's page; if the browser refuses, the Copy button remains.
+      const copied = await navigator.clipboard.writeText(s.userCode).then(() => true, () => false)
       box.replaceChildren(
-        h('p', {}, 'Enter this code on the GitHub page that opened, then approve.'),
+        h('p', {}, copied ? 'The code is copied. Paste it on the GitHub page that opened, then approve.' : 'Enter this code on the GitHub page that opened, then approve.'),
         h('div', { class: 'code', 'aria-label': `Code: ${s.userCode.split('').join(' ')}` }, s.userCode),
         h('button', { class: 'btn', type: 'button', onclick: async () => (await navigator.clipboard.writeText(s.userCode).catch(() => undefined), announce('Code copied.')) }, 'Copy code'),
         h('p', { class: 'muted' }, `Waiting for approval · expires at ${expires}`),
       )
+      announce(copied ? `Code ${s.userCode} copied. Paste it on the GitHub page.` : `Your code is ${s.userCode}.`)
       await chrome.tabs.create({ url: s.verificationUri, active: true })
       let interval = s.interval
       let warned = false
