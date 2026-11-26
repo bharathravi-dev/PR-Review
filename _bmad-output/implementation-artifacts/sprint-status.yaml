@@ -114,5 +114,5 @@ development_status:
   9-6-findings-under-their-code: review  # built; checked in headless Chrome against a mock ReviewService, not yet on a real serve or Web App run
   9-7-edit-preview-post-and-fix-with-your-agent: review  # built; checked in headless Chrome against a mock ReviewService, not yet on a real serve or Web App run
   9-8-checks-walkthrough-stats-and-settings-in-v2: review  # built; checked in headless Chrome against a mock ReviewService, not yet on a real serve or Web App run
-  9-9-v2-accessibility-audit-and-parity-sign-off: backlog
+  9-9-v2-accessibility-audit-and-parity-sign-off: in-progress  # automated audit passes (pnpm audit:v2); manual keyboard/screen-reader pass and parity on real serve + Web App need a person; classic stays default until then
   epic-9-retrospective: optional

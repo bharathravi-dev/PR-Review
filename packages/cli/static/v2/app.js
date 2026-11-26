@@ -142,7 +142,7 @@ function renderSidebar() {
   const item = (surface, label, count) =>
     h(
       'button',
-      { type: 'button', id: `nav-${surface}`, class: `nav${state.surface === surface ? ' on' : ''}`, 'aria-current': state.surface === surface ? 'page' : undefined, title: label, onclick: () => go(surface) },
+      { type: 'button', id: `nav-${surface}`, class: `nav${state.surface === surface ? ' on' : ''}`, 'aria-current': state.surface === surface ? 'page' : undefined, 'aria-label': count !== undefined ? `${label}, ${count}` : label, title: label, onclick: () => go(surface) },
       h('span', { class: 'nav-icon', 'aria-hidden': 'true' }, NAV_ICONS[surface]),
       h('span', { class: 'nav-label' }, label),
       count !== undefined ? h('span', { class: 'count' }, String(count)) : '',
@@ -162,10 +162,11 @@ function renderSidebar() {
   const ai = s?.ai
   fill(
     nav,
+    h('a', { class: 'skip', href: '#main', onclick: (e) => (e.preventDefault(), ($('list-h') ?? $('main').querySelector('h1') ?? $('main'))?.focus()) }, state.report ? 'Skip to findings' : 'Skip to content'),
     h('div', { class: 'brand' }, h('span', { class: 'logo', 'aria-hidden': 'true' }), h('span', { class: 'nav-label' }, 'PR Reviewer')),
     h(
       'button',
-      { type: 'button', id: 'cmd-field', class: 'cmd-field', 'aria-keyshortcuts': MAC ? 'Meta+K' : 'Control+K', onclick: () => openPalette() },
+      { type: 'button', id: 'cmd-field', class: 'cmd-field', 'aria-label': 'Search or run a command', 'aria-keyshortcuts': MAC ? 'Meta+K' : 'Control+K', onclick: () => openPalette() },
       h('span', { class: 'nav-label' }, 'Search or run a command'),
       h('span', { class: 'nav-icon', 'aria-hidden': 'true' }, '⌕'),
       kbd(MAC ? '⌘' : 'Ctrl', 'K'),
@@ -195,7 +196,7 @@ function renderSidebar() {
       { class: 'identity' },
       h(
         'summary',
-        { id: 'identity-button' },
+        { id: 'identity-button', 'aria-label': `Account: ${gh?.login ? `GitHub @${gh.login}` : 'GitHub not signed in'}; ${ai ? `AI ${ai.provider} ${ai.ready ? 'ready' : 'not set up'}` : 'AI checking'}` },
         h('span', { class: `dot ${gh?.login ? 'ok' : 'bad'}`, 'aria-hidden': 'true' }),
         h('span', { class: 'nav-label' }, gh?.login ? `GitHub: @${gh.login}` : 'GitHub: not signed in'),
         h('br'),
@@ -1307,8 +1308,7 @@ async function loadSession() {
 function shell() {
   setTheme(store.get(THEME_KEY, 'system'))
   document.body.replaceChildren(
-    h('a', { class: 'skip', href: '#list', onclick: (e) => (e.preventDefault(), ($('list-h') ?? $('main').querySelector('h1'))?.focus()) }, 'Skip to findings'),
-    h('div', { class: 'shell' }, h('nav', { id: 'side', 'aria-label': 'Review navigation' }), h('main', { id: 'main' })),
+    h('div', { class: 'shell' }, h('nav', { id: 'side', 'aria-label': 'Review navigation' }), h('main', { id: 'main', tabindex: '-1' })),
     h('div', { id: 'status', role: 'status', class: 'sr-only' }),
     h('div', { id: 'alert', role: 'alert', class: 'sr-only' }),
     h('section', { id: 'toasts', 'aria-label': 'Notifications', tabindex: '-1' }),

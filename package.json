@@ -10,10 +10,12 @@
     "build": "pnpm -r build",
     "lint": "node scripts/check-boundaries.mjs",
     "test": "vitest run",
-    "check": "pnpm lint && pnpm build && pnpm test"
+    "check": "pnpm lint && pnpm build && pnpm test",
+    "audit:v2": "node scripts/review-page-audit/audit.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "axe-core": "4.10.3",
     "typescript": "7.0.2",
     "vitest": "5.1.1"
   }

@@ -29,3 +29,23 @@ only after it has been used against a real `serve` or Web App.
 | Settings: provider and model (serve); provider, model, endpoint, API key (Web App) | [ ] | [ ] |
 | Past runs of a PR | n/a | [ ] |
 | Version shown | [ ] | [ ] |
+
+## Accessibility
+
+**Automated:** `pnpm audit:v2` runs axe-core (WCAG 2.1 A and AA, plus best practice) in headless Chrome on every v2
+surface (Start, Overview, Needs attention, Pre-existing, Checks, Walkthrough, Stats, Settings, the post drawer), in
+light and dark, at 1440px and 320px, against a mock `ReviewService v1`. It exits non-zero on any violation. Set
+`CHROME_PATH` if Chrome is not in the default place. Last run (2026-11-26): no violations.
+
+**By hand** (a keyboard and a screen reader, e.g. VoiceOver or NVDA), before v2 becomes the default:
+
+- [ ] Everything works with the keyboard alone; Tab order is sidebar → list → detail; F6 cycles regions
+- [ ] Single-key shortcuts never fire while typing in a field, a select, the palette, or with a dialog open
+- [ ] Esc closes the innermost layer first; Esc in the editor never discards unsaved text
+- [ ] j / k move between findings and the screen reader reads the shown finding; Enter moves into the detail
+- [ ] The palette is announced as a combobox with results; the drawer and shortcuts sheet as dialogs
+- [ ] Run progress is announced at layer level, not on every event; the result is announced once
+- [ ] Toasts are announced once and never take focus; their actions are reachable elsewhere
+- [ ] Diff rows read "added" / "removed" with line numbers; code blocks are reachable and scrollable
+- [ ] 320px and 200% zoom: no horizontal page scroll; the detail opens over the list with a working back
+- [ ] Windows High Contrast / forced colours: selection, focus and status stay visible
