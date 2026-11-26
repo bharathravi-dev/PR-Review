@@ -624,11 +624,13 @@ async function boot(): Promise<void> {
     await savePrState(interrupted, undefined)
   }
   state.surface = !state.consent ? 'welcome' : state.settings ? 'home' : 'setup-github'
-  const params = new URLSearchParams(location.search)
-  if (params.get('review') && !state.settings) state.pendingPr = params.get('review')!
+  // Opened from the Review button on the page with "start" (Story 7.5).
+  const auto = (await chrome.storage.session.get('auto-review'))['auto-review']
+  await chrome.storage.session.remove('auto-review')
+  if (typeof auto === 'string' && !state.settings) state.pendingPr = auto
   await follow(true)
   if (state.settings) testGitHubToken(state.settings.githubToken, net, state.settings.host).then((r) => ((state.login = r.ok ? r.login : ''), render())).catch(() => undefined)
-  if (params.get('review') && state.settings && state.pr === params.get('review') && !state.stored[state.pr]) void review()
+  if (typeof auto === 'string' && state.settings && state.pr?.toLowerCase() === auto.toLowerCase() && !state.stored[state.pr]) void review()
   chrome.tabs.onActivated.addListener(() => void follow())
   chrome.tabs.onUpdated.addListener((_id, change) => change.url && void follow())
   addEventListener('online', () => ((state.online = true), render(), announce('Back online.')))

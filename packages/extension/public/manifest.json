@@ -4,14 +4,50 @@
   "version": "0.1.0",
   "description": "Review GitHub pull requests from a side panel with your own AI key. Nothing is posted until you press Post.",
   "minimum_chrome_version": "116",
-  "action": { "default_title": "PR Reviewer" },
-  "side_panel": { "default_path": "panel.html" },
-  "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["sidePanel", "storage"],
-  "host_permissions": ["https://github.com/*", "https://api.github.com/*", "https://api.anthropic.com/*", "https://api.openai.com/*", "https://api.osv.dev/*"],
-  "optional_host_permissions": ["https://*/*"],
-  "commands": {
-    "open-panel": { "suggested_key": { "default": "Alt+Shift+R" }, "description": "Open the PR Reviewer side panel" }
+  "action": {
+    "default_title": "PR Reviewer"
   },
-  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://api.github.com/*",
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://api.osv.dev/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "commands": {
+    "open-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
+      "description": "Open the PR Reviewer side panel"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

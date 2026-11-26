@@ -42,3 +42,6 @@ declare namespace chrome {
   }
 }
 declare const __GITHUB_CLIENT_ID__: string
+declare namespace chrome.storage {
+  const onChanged: { addListener(cb: (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void): void } | undefined
+}
