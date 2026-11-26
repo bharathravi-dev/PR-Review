@@ -14,6 +14,13 @@ describe.skipIf(!has)('extension bundle (Story 7.1, NFR14)', () => {
     expect(m.permissions).not.toContain('tabs')
     expect(m.content_security_policy.extension_pages).toBe("script-src 'self'; object-src 'self'")
     expect(m.commands['open-panel'].suggested_key.default).toBe('Alt+Shift+R')
+    expect(m.optional_host_permissions).toEqual(['https://*/*'])
+    for (const size of ['16', '32', '48', '128']) expect(existsSync(new URL(m.icons[size], build)), `icon ${size}`).toBe(true)
+    expect(m.content_scripts[0]).toMatchObject({ matches: ['https://github.com/*'], js: ['content.js'] })
+    const content = readFileSync(new URL('content.js', build), 'utf8')
+    expect(content).not.toMatch(/^\s*import\s/m)
+    expect(content).toMatch(/^[\x00-\x7f]*$/)
+    expect(existsSync(new URL('privacy.html', build))).toBe(true)
   })
 
   it('contains no eval, no new Function and no remotely loaded code', () => {

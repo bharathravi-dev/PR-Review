@@ -94,7 +94,7 @@ development_status:
   7-3-choose-findings-open-them-in-the-diff-and-post: review  # preview and post through core publish tested with a fake GitHub; preview verified in Chrome; not yet posted to a real PR
   7-4-follow-the-tab-keep-recent-reviews-and-work-offline: review  # implemented; tab following and offline not exercised in an installed extension
   7-5-the-review-button-on-the-pr-page: review  # states, themes and unknown layout verified on stand-in PR headers in Chrome; real GitHub header selectors need checking on github.com
-  7-6-store-ready-standalone-release: backlog
+  7-6-store-ready-standalone-release: review  # icons, minimal permissions, privacy policy, Enterprise hosts (optional permission), reproducible zip, panel axe-clean; store submission and real-PR checks need the account owner
   7-7-connect-to-my-teams-web-app: backlog
   7-8-pair-the-extension-with-pr-reviewer-on-this-computer: backlog
   epic-7-retrospective: optional

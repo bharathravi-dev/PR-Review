@@ -181,12 +181,37 @@ function setupGitHub(): HTMLElement {
     announce(`Signed in to GitHub as @${r.login}`)
     go('setup-ai')
   }
-  const device = __GITHUB_CLIENT_ID__ ? deviceBlock() : ''
+  const device = __GITHUB_CLIENT_ID__ && !state.draft.host ? deviceBlock() : ''
+  const hostInput = h('input', { id: 'ghe', type: 'text', placeholder: 'github.example.com', value: state.draft.host ?? '' }) as HTMLInputElement
+  const hostMsg = h('p', { class: 'muted', id: 'ghe-msg', role: 'status' })
+  const addHost = async () => {
+    const host = hostInput.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()
+    if (!host || host === 'github.com') {
+      delete state.draft.host
+      return go('setup-github', 'gh')
+    }
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/.test(host)) {
+      hostMsg.className = 'field-error'
+      hostMsg.textContent = 'Enterprise host: enter a host name such as github.example.com.'
+      return hostInput.focus()
+    }
+    // Chrome is asked for this host only, at the moment it is added (Story 7.6).
+    const granted = await chrome.permissions.request({ origins: [`https://${host}/*`] }).catch(() => false)
+    if (!granted) {
+      hostMsg.className = 'field-error'
+      hostMsg.textContent = `Chrome did not allow access to ${host}, so PRs there can't be reviewed. Try again to allow it.`
+      return hostInput.focus()
+    }
+    state.draft.host = host
+    announce(`Using ${host}. Paste a token for it.`)
+    go('setup-github', 'gh')
+  }
+  const enterprise = h('details', { class: 'enterprise', open: !!state.draft.host }, h('summary', {}, state.draft.host ? `GitHub Enterprise: ${state.draft.host}` : 'Use GitHub Enterprise'), h('label', { class: 'field', for: 'ghe' }, 'Enterprise host', hostInput), hostMsg, h('button', { class: 'btn', type: 'button', onclick: () => void addHost() }, 'Use this host'))
   return h(
     'section',
     { class: 'stack' },
     steps(1),
-    h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Connect GitHub'), device, h('h2', {}, device ? 'Or use a token' : 'Use a token'), h('p', { class: 'muted', id: 'gh-help' }, 'A fine-grained token with Pull requests: read and Contents: read (add Pull requests: write to post). Classic tokens need repo or public_repo.'), h('label', { class: 'field', for: 'gh' }, 'GitHub token', token), err, h('button', { class: 'btn primary full', type: 'button', onclick: () => void useToken() }, 'Test and continue')),
+    h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, state.draft.host ? `Connect ${state.draft.host}` : 'Connect GitHub'), device, h('h2', {}, device ? 'Or use a token' : 'Use a token'), h('p', { class: 'muted', id: 'gh-help' }, 'A fine-grained token with Pull requests: read and Contents: read (add Pull requests: write to post). Classic tokens need repo or public_repo.'), h('label', { class: 'field', for: 'gh' }, 'GitHub token', token), err, h('button', { class: 'btn primary full', type: 'button', onclick: () => void useToken() }, 'Test and continue'), enterprise),
   )
 }
 

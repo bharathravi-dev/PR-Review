@@ -11,7 +11,8 @@
     "lint": "node scripts/check-boundaries.mjs",
     "test": "vitest run",
     "check": "pnpm lint && pnpm build && pnpm test",
-    "audit:v2": "node scripts/review-page-audit/audit.mjs"
+    "audit:v2": "node scripts/review-page-audit/audit.mjs",
+    "package:extension": "node scripts/package-extension.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

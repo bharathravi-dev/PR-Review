@@ -45,3 +45,7 @@ declare const __GITHUB_CLIENT_ID__: string
 declare namespace chrome.storage {
   const onChanged: { addListener(cb: (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void): void } | undefined
 }
+declare namespace chrome.permissions {
+  function request(p: { origins: string[] }): Promise<boolean>
+  function contains(p: { origins: string[] }): Promise<boolean>
+}
