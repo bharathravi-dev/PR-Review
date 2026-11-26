@@ -4,7 +4,7 @@
 export const MAX_STORED = 50
 
 /** Built at runtime so the content script bundle stays ASCII-only. */
-const ELLIPSIS = String.fromCharCode(0x2026)
+const ELLIPSIS = JSON.parse('"\\u2026"') as string
 
 /** Stored key for a PR: "owner/repo#n", lower-cased. */
 export const prKey = (pr: string) => pr.toLowerCase()
