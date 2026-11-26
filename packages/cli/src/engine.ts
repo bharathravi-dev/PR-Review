@@ -43,6 +43,7 @@ import {
   createClaudeCodeProvider,
   createCodexProvider,
   createGitHub,
+  createAzureDevOps,
   createBitbucket,
   createGitLab,
   createTickets,
@@ -79,6 +80,19 @@ export async function connectGitHub(
   host: string,
   opts: { viewer?: boolean } = {},
 ): Promise<GitHubConnection> {
+  // Azure DevOps (Azure Repos) pull requests use the same ports.
+  if (host.toLowerCase() === 'dev.azure.com') {
+    const token = await deps.credentials.resolve('azure-devops', { host })
+    if (token.ok) secrets.push(token.value)
+    const { reader, writer } = createAzureDevOps({ token: token.ok ? token.value.reveal() : undefined, fetch: deps.fetch, userAgent: USER_AGENT })
+    const conn: GitHubConnection = { reader, writer, ...(token.ok ? { token: token.value.reveal() } : { tokenError: `${token.error.message} (Azure DevOps: set AZURE_DEVOPS_TOKEN, a personal access token)` }) }
+    if (token.ok && opts.viewer !== false) {
+      const viewer = await reader.viewer()
+      if (viewer.ok) conn.viewer = viewer.value
+      else conn.viewerError = viewer.error.message
+    }
+    return conn
+  }
   // Bitbucket Cloud pull requests use the same ports.
   if (host.toLowerCase() === 'bitbucket.org') {
     const token = await deps.credentials.resolve('bitbucket', { host })

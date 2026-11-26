@@ -69,6 +69,13 @@ with `BITBUCKET_TOKEN` (a repository or workspace access token, or `username:app
 inline comments, the summary a PR comment; approval, request-changes, commands, incremental reviews, code search and
 Apply fix work as on GitHub.
 
+## Azure DevOps
+
+Azure Repos pull requests too: `pr-reviewer review https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/42`
+(or `<org>.visualstudio.com`) with `AZURE_DEVOPS_TOKEN` (a personal access token with Code: Read & Write). Azure
+returns no patch, so pr-reviewer computes it; findings become comment threads at their lines, approval is a vote, and
+Apply fix pushes only if the branch is still at the reviewed commit. The Sandbox is not used (Azure archives are zip).
+
 ## Review from a page in your browser
 
 ```sh

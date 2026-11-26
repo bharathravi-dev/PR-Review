@@ -24,6 +24,16 @@ export function parsePrRef(input: string, defaultHost: string): Result<PrRef> {
 
   const url = URL_RE.exec(text)
   if (!url) return err('pr_ref_invalid', `Not a PR URL or owner/repo#number: ${input}`)
+  // Azure DevOps: https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/<n> (and <org>.visualstudio.com)
+  const ado = /^\/([^/]+)\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i.exec(url[2] ?? '')
+  const vs = /^([a-z0-9-]+)\.visualstudio\.com$/i.exec(url[1] ?? '')
+  const adoOld = vs ? /^\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i.exec(url[2] ?? '') : null
+  if ((ado && (url[1] ?? '').toLowerCase() === 'dev.azure.com') || adoOld) {
+    const [orgName, proj, repoName, num] = ado ? [ado[1]!, ado[2]!, ado[3]!, ado[4]!] : [vs![1]!, adoOld![1]!, adoOld![2]!, adoOld![3]!]
+    const n = Number(num)
+    const name = (s: string) => decodeURIComponent(s)
+    return Number.isInteger(n) && n > 0 ? ok({ host: 'dev.azure.com', owner: `${name(orgName)}/${name(proj)}`, repo: name(repoName), number: n }) : err('pr_ref_invalid', `Not a pull request URL: ${input}`)
+  }
   // GitLab: https://<host>/<group>[/<subgroup>…]/<project>/-/merge_requests/<n>
   const mr = /^\/(.+)\/([^/]+)\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/.exec(url[2] ?? '')
   if (mr) {
