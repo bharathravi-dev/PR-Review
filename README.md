@@ -42,7 +42,7 @@ asked to confirm; use `--yes` in scripts.
 | `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
 | `web` | Run the self-hosted Web App (see docs/web-app.md) |
-| `serve` | Open a review page in your browser (`--open`, `--port <n>`, `--ui classic\|v2`); see below |
+| `serve` | Open a review page in your browser (`--open`, `--port <n>`, `--ui classic\|v2`, `--pair`, `--unpair`); see below |
 | `context <pr>` | Show what the review reads from GitHub |
 | `config show` / `config path` | Your resolved settings and where they came from |
 
@@ -77,6 +77,15 @@ or press Alt+Shift+R. In Standalone mode the review runs inside the side panel w
 AI key; compile and lint are reported as not run (there is no Sandbox in the browser). Nothing is posted until you
 preview and press Post. A Review button in the PR header shows each PR's state. Store packaging and the listing:
 [docs/extension-store.md](docs/extension-store.md).
+
+**Connected mode** runs the review on a pr-reviewer you already have, with its settings, your subscription and the full
+checks; the extension never holds your GitHub token or AI key:
+
+- **This computer:** run `pr-reviewer serve --pair`, choose *This computer* in the panel and type the code it prints
+  (it works once, for 10 minutes). `serve` then uses port 4747 by default so the panel finds it again; every post asks
+  for confirmation; `pr-reviewer serve --unpair` removes the pairing.
+- **Your team's Web App:** the operator adds the extension's ID to `PR_REVIEWER_EXTENSION_IDS`; choose *My team's Web
+  App*, enter its address, sign in and allow the extension. Revoke it at `/auth/extension/tokens`.
 
 ## For a team: the Web App
 

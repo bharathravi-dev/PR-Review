@@ -10,10 +10,12 @@
 <li><strong>GitHub</strong> (github.com and api.github.com, or an Enterprise host you add): requests to read the pull request you review, and, only when you press Post, to post your review and summary comment.</li>
 <li><strong>Your AI provider</strong> (Anthropic, OpenAI or the compatible endpoint you choose): the pull request's diff and file contents, with detected secrets removed first.</li>
 <li><strong>OSV</strong> (api.osv.dev): names and versions of packages the pull request adds or upgrades, to look up known vulnerabilities.</li>
+<li><strong>Your team's Web App or pr-reviewer on this computer</strong>, only if you connect one: the pull request's link, which findings to post and your edits. That pr-reviewer then talks to GitHub and the AI with its own credentials; the extension does not send them the diff itself.</li>
 <li>Nothing is sent anywhere else.</li>
 </ul>
 <h2>What is stored in your browser</h2>
 <ul>
+<li>If you connect a Web App or this computer: its address and a token for it, encrypted the same way. Disconnect any time in Settings; revoke the token on the Web App or with <code>pr-reviewer serve --unpair</code>.</li>
 <li>Your GitHub token and AI key, encrypted at rest with a key that cannot be exported, in the extension's own storage, which web pages cannot read. Remove them any time in Settings.</li>
 <li>The last review of up to 50 recent pull requests, including short code excerpts, so the panel can show them again. Clear them any time in Settings.</li>
 </ul>

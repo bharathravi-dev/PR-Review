@@ -95,8 +95,8 @@ development_status:
   7-4-follow-the-tab-keep-recent-reviews-and-work-offline: review  # implemented; tab following and offline not exercised in an installed extension
   7-5-the-review-button-on-the-pr-page: review  # states, themes and unknown layout verified on stand-in PR headers in Chrome; real GitHub header selectors need checking on github.com
   7-6-store-ready-standalone-release: review  # icons, minimal permissions, privacy policy, Enterprise hosts (optional permission), reproducible zip, panel axe-clean; store submission and real-PR checks need the account owner
-  7-7-connect-to-my-teams-web-app: review  # server side: allow-listed extension ids, confirm page, hashed 90-day tokens, revoke page, bearer only from the extension's own origin; panel side ships with 7.8's Connected mode
-  7-8-pair-the-extension-with-pr-reviewer-on-this-computer: backlog
+  7-7-connect-to-my-teams-web-app: review  # allow-listed extension ids, confirm page (sign-in returns to it), hashed 90-day tokens, revoke page, bearer only from the extension's own origin; panel: address, optional host permission, launchWebAuthFlow, schema check, runs/posts via the Web App; needs a real Web App + store id to verify
+  7-8-pair-the-extension-with-pr-reviewer-on-this-computer: review  # serve --pair/--unpair, port 4747, 8-char code (10 min, single use, 5 tries), hashed token per extension origin, CORS for that origin only; panel: code entry, This computer chip, runs keep going and reattach, native confirm before every post; verified in Chrome against the real server (stub chrome API); real unpacked-extension run still to do
   epic-7-retrospective: optional
 
   epic-8: done

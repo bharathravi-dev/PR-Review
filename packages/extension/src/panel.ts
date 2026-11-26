@@ -1,6 +1,7 @@
 // Side panel (Epic 7). Stories 7.1–7.4: Welcome and consent, Standalone setup (token or device sign-in, AI key
 // test, encrypted storage), review in this page, findings to include, links into the diff, preview and post,
-// following the tab, recent reviews, background runs, offline. Contract: ux-designs/ux-pr-reviewer-2026-11-26.
+// following the tab, recent reviews, background runs, offline. Stories 7.7–7.8: Connected mode, where a team's
+// Web App or pr-reviewer on this computer runs the review. Contract: ux-designs/ux-pr-reviewer-2026-11-26.
 // Text from GitHub, the PR or the AI is always set as text, never as HTML.
 import type { Finding, PublishPlan, PublishPreview, PublishRecord, Report, RunEvent } from '@pr-reviewer/core'
 import {
@@ -18,12 +19,14 @@ import {
   type StandaloneResult,
   type StandaloneSettings,
 } from './compose.js'
+import { connectionProblem, createClient, LOCAL_PORT, modeLabel, pairWithComputer, randomState, remoteShown, ServiceError, tokenFromRedirect, UnreachableError, webAppAuthUrl, webAppOrigin, type Connection, type RemotePreview, type SessionInfo, type ShownPreview } from './connected.js'
 import { h } from './dom.js'
 import { browserSecureStore } from './secure-store.js'
 import { MAX_STORED, prKey, type PrState } from './state.js'
 
 const secure = browserSecureStore()
 const SETTINGS = 'standalone-settings'
+const CONNECTION = 'connection'
 const CONSENT = 'consent-given'
 const REVIEWS = 'stored-reviews'
 const PR_STATE = 'pr-state'
@@ -31,11 +34,26 @@ const RUNNING = 'running-review'
 const $ = (id: string) => document.getElementById(id)!
 const net: typeof fetch = (...a) => fetch(...a)
 
-type Surface = 'welcome' | 'setup-github' | 'setup-ai' | 'home' | 'post' | 'settings'
+type Surface = 'welcome' | 'setup-github' | 'setup-ai' | 'setup-web' | 'setup-local' | 'home' | 'post' | 'settings'
+type Choice = 'standalone' | 'web' | 'local'
 interface Run {
   pr: string
   events: RunEvent[]
   cancelled: boolean
+  /** Connected mode: the backend's run, which keeps going if this panel closes. */
+  runId?: string
+  abort?: AbortController
+}
+/** A review that can still be posted from this panel. */
+interface Live {
+  report: Report
+  standalone?: StandaloneResult
+  runId?: string
+}
+interface Shown {
+  view: ShownPreview
+  standalone?: { plan: PublishPlan; preview: PublishPreview; report: Report }
+  digest?: string
 }
 interface Stored {
   report: Report
@@ -45,17 +63,20 @@ const state = {
   surface: 'welcome' as Surface,
   consent: false,
   settings: undefined as StandaloneSettings | undefined,
+  conn: undefined as Connection | undefined,
+  session: undefined as SessionInfo | undefined,
+  choice: 'standalone' as Choice,
   login: undefined as string | undefined,
   draft: {} as Partial<StandaloneSettings>,
   pr: undefined as string | undefined,
   runs: new Map<string, Run>(),
-  results: new Map<string, StandaloneResult>(),
+  results: new Map<string, Live>(),
   stored: {} as Record<string, Stored>,
   head: new Map<string, string | undefined>(),
   selected: new Map<string, Set<string>>(),
   edits: new Map<string, Edits>(),
   filter: new Set<string>(),
-  shown: undefined as { plan: PublishPlan; preview: PublishPreview; report: Report } | undefined,
+  shown: undefined as Shown | undefined,
   postResult: undefined as { tone: string; text: string; links?: HTMLElement } | undefined,
   notice: undefined as string | undefined,
   error: undefined as string | undefined,
@@ -79,12 +100,16 @@ function render(userNav = false, focusId?: string): void {
   const active = document.activeElement?.id
   $('main').replaceChildren(...[view()].flat())
   const chip = $('mode')
-  const text = !state.online ? 'Offline' : !state.settings ? 'Not set up' : state.login === undefined ? 'Standalone' : state.login ? 'Standalone' : 'Standalone · signed out'
+  const text = !state.online ? 'Offline' : state.conn ? modeLabel(state.conn) : !state.settings ? 'Not set up' : state.login === '' ? 'Standalone · signed out' : 'Standalone'
   $('mode-text').textContent = text
-  chip.className = `chip ${!state.online || state.login === '' ? 'bad' : state.settings ? 'ok' : 'neutral'}`
+  chip.className = `chip ${!state.online || state.login === '' ? 'bad' : ready() ? 'ok' : 'neutral'}`
   const target = (focusId && document.getElementById(focusId)) || (userNav ? ($('main').querySelector('h1') as HTMLElement | null) : active ? document.getElementById(active) : null)
   target?.focus()
 }
+
+/** Whether reviews can run: a connection (preferred) or Standalone settings. */
+const ready = () => !!(state.conn || state.settings)
+const reviewer = () => (state.conn ? state.session?.github.login : state.login)
 
 function go(surface: Surface, focusId?: string): void {
   state.surface = surface
@@ -115,18 +140,25 @@ function view(): HTMLElement | HTMLElement[] {
   if (!state.consent || state.surface === 'welcome') return welcome()
   if (state.surface === 'setup-github') return setupGitHub()
   if (state.surface === 'setup-ai') return setupAi()
+  if (state.surface === 'setup-web') return setupWeb()
+  if (state.surface === 'setup-local') return setupLocal()
   if (state.surface === 'settings') return settingsView()
-  if (!state.settings) return welcome()
+  if (!ready()) return welcome()
   if (state.surface === 'post') return postView()
   return homeView()
 }
 
+const CHOICE_TEXT: Record<Choice, string> = { standalone: 'Standalone', web: 'my team’s Web App', local: 'This computer' }
+
 function welcome(): HTMLElement {
-  const choice = (title: string, desc: string, enabled: boolean, tag?: string) =>
+  const choice = (value: Choice, title: string, desc: string, tag?: string) =>
     h(
       'label',
-      { class: `choice${enabled ? '' : ' disabled'}` },
-      h('input', { type: 'radio', name: 'mode', checked: enabled && title === 'Standalone', disabled: !enabled }),
+      { class: 'choice' },
+      h('input', { type: 'radio', name: 'mode', value, checked: state.choice === value, onchange: () => {
+        state.choice = value
+        ;(document.getElementById('continue') as HTMLElement).textContent = `Continue with ${CHOICE_TEXT[value]}`
+      } }),
       h('span', { class: 't' }, title, tag ? h('span', { class: 'muted' }, ` · ${tag}`) : ''),
       h('span', { class: 'd' }, desc),
     )
@@ -143,20 +175,23 @@ function welcome(): HTMLElement {
         { class: 'bullets' },
         h('li', {}, 'GitHub: requests to read the PR and, only when you press Post, to post your review.'),
         h('li', {}, 'Your AI provider: the PR’s diff and files, with detected secrets removed.'),
+        h('li', {}, 'Web App or This computer: only the PR link goes there; that pr-reviewer talks to GitHub and the AI with its own credentials.'),
         h('li', {}, 'Nothing goes anywhere else. No analytics.'),
         h('li', {}, 'Your recent reviews, including short code excerpts, stay in this browser until you clear them.'),
       ),
       h('a', { href: chrome.runtime.getURL('privacy.html'), target: '_blank' }, 'Privacy policy'),
       h('p', { class: 'muted' }, 'Tip: press F6 to move between the page and this panel.'),
     ),
-    choice('Standalone', 'Your own AI API key and GitHub sign-in. Compile and lint do not run.', true),
-    choice('My team’s Web App', 'Reviews run on your team’s self-hosted pr-reviewer. Not available yet.', false, 'full checks'),
-    choice('This computer', 'Pair with pr-reviewer on this computer. Not available yet.', false, 'full checks'),
-    h('button', { class: 'btn primary full', type: 'button', onclick: async () => {
+    choice('standalone', 'Standalone', 'Your own AI API key and GitHub sign-in. Compile and lint do not run.'),
+    choice('web', 'My team’s Web App', 'Reviews run on your team’s self-hosted pr-reviewer. You sign in there; your keys stay on that server.', 'full checks'),
+    choice('local', 'This computer', 'Pair with pr-reviewer serve on this computer: your CLI’s settings, subscription and checks. No key in the browser.', 'full checks'),
+    h('button', { class: 'btn primary full', type: 'button', id: 'continue', onclick: async () => {
       state.consent = true
       await chrome.storage.local.set({ [CONSENT]: true })
+      if (state.choice === 'web') return go('setup-web')
+      if (state.choice === 'local') return go('setup-local')
       go(state.settings ? 'home' : 'setup-github')
-    } }, 'Continue with Standalone'),
+    } }, `Continue with ${CHOICE_TEXT[state.choice]}`),
   )
 }
 
@@ -317,6 +352,122 @@ function setupAi(): HTMLElement {
   )
 }
 
+async function connect(conn: Connection): Promise<SessionInfo> {
+  const session = await createClient(conn, net).session()
+  state.conn = conn
+  state.session = session
+  state.login = session.github.login ?? ''
+  state.error = undefined
+  await secure.set(CONNECTION, conn)
+  return session
+}
+
+function afterConnect(text: string): void {
+  announce(text)
+  const pr = state.pendingPr
+  state.pendingPr = undefined
+  go('home')
+  if (pr && pr === state.pr) void review()
+}
+
+function fieldError(el: HTMLElement, input: HTMLInputElement, text: string): void {
+  el.className = 'field-error'
+  el.textContent = text
+  input.setAttribute('aria-invalid', 'true')
+  input.focus()
+}
+
+function setupWeb(): HTMLElement {
+  const url = h('input', { id: 'web-url', type: 'url', inputmode: 'url', autocomplete: 'url', placeholder: 'https://reviews.example.com', 'aria-describedby': 'web-help web-err' }) as HTMLInputElement
+  const err = h('p', { class: 'muted', id: 'web-err', role: 'status' })
+  const run = async () => {
+    const origin = webAppOrigin(url.value)
+    if (!origin) return fieldError(err, url, 'Web App address: enter an https:// address, such as https://reviews.example.com.')
+    // Chrome asks for this one site now, while the click still counts as the user's.
+    const granted = await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)
+    if (!granted) return fieldError(err, url, `Chrome did not allow access to ${new URL(origin).host}, so the extension can't use that Web App. Try again to allow it.`)
+    err.className = 'muted'
+    err.textContent = 'Checking…'
+    const probe = await net(`${origin}/v1/session`, { headers: { 'accept-schema': '1' } }).then(async (r) => ({ status: r.status, body: (await r.json().catch(() => undefined)) as { error?: { code?: string } } | undefined })).catch(() => undefined)
+    if (!probe) return fieldError(err, url, `Can't reach ${new URL(origin).host}. Check the address or your network.`)
+    if (probe.status !== 401 || !probe.body?.error?.code) return fieldError(err, url, `${new URL(origin).host} doesn't look like a pr-reviewer Web App.`)
+    err.textContent = 'Sign in and allow the extension in the window that opened…'
+    const st = randomState()
+    let redirect: string | undefined
+    try {
+      redirect = await chrome.identity.launchWebAuthFlow({ url: webAppAuthUrl(origin, chrome.runtime.id, st), interactive: true })
+    } catch {
+      return fieldError(err, url, 'The Web App window closed before you allowed the extension. If it said this extension is not allowed, send your admin the ID below.')
+    }
+    const token = tokenFromRedirect(redirect, chrome.runtime.id, st)
+    if (!token) return fieldError(err, url, 'The Web App did not hand back access. Try again.')
+    try {
+      const s = await connect({ kind: 'web', baseUrl: origin, token })
+      afterConnect(`Connected to ${new URL(origin).host} as @${s.user?.login ?? s.github.login ?? '?'}`)
+    } catch (e) {
+      fieldError(err, url, e instanceof ServiceError && e.code === 'schema_unsupported' ? e.message : `Connecting failed: ${(e as Error).message}`)
+    }
+  }
+  return h(
+    'section',
+    { class: 'stack' },
+    h(
+      'div',
+      { class: 'card' },
+      h('h1', { tabindex: '-1' }, 'Connect to your team’s Web App'),
+      h('p', { class: 'muted', id: 'web-help' }, 'Reviews run there with your settings and full checks. You sign in to the Web App with GitHub and allow this extension; it gets a token that you can revoke on the Web App.'),
+      h('label', { class: 'field', for: 'web-url' }, 'Web App address', url),
+      err,
+      h('button', { class: 'btn primary full', type: 'button', onclick: () => void run() }, 'Connect'),
+      h('details', {}, h('summary', {}, 'For your Web App’s admin'), h('p', {}, 'The Web App accepts this extension once its ID is in PR_REVIEWER_EXTENSION_IDS:'), h('p', { class: 'mono' }, chrome.runtime.id), h('button', { class: 'btn small', type: 'button', onclick: async () => (await navigator.clipboard.writeText(chrome.runtime.id).catch(() => undefined), announce('Extension ID copied.')) }, 'Copy ID')),
+    ),
+    h('button', { class: 'btn', type: 'button', onclick: () => go('welcome') }, '← Choose another mode'),
+  )
+}
+
+function setupLocal(): HTMLElement {
+  const code = h('input', { id: 'pair-code', type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '9', placeholder: 'ABCD-EFGH', 'aria-describedby': 'pair-help pair-err' }) as HTMLInputElement
+  const port = h('input', { id: 'pair-port', type: 'number', min: '1', max: '65535', value: String(LOCAL_PORT) }) as HTMLInputElement
+  const err = h('p', { class: 'muted', id: 'pair-err', role: 'status' })
+  const run = async () => {
+    const n = Number(port.value)
+    if (!Number.isInteger(n) || n < 1 || n > 65535) return fieldError(err, port, 'Port: a whole number from 1 to 65535.')
+    const typed = code.value.trim()
+    if (!/^[A-Za-z0-9]{4}-?[A-Za-z0-9]{4}$/.test(typed)) return fieldError(err, code, 'Pairing code: 8 letters and digits, like ABCD-EFGH.')
+    const granted = await chrome.permissions.request({ origins: ['http://127.0.0.1/*'] }).catch(() => false)
+    if (!granted) return fieldError(err, code, 'Chrome did not allow the extension to reach pr-reviewer on this computer. Try again to allow it.')
+    err.className = 'muted'
+    err.textContent = 'Pairing…'
+    try {
+      const paired = await pairWithComputer(n, typed, net)
+      await connect({ kind: 'local', baseUrl: `http://127.0.0.1:${paired.port}`, token: paired.token, computer: paired.computer })
+      afterConnect(`Paired with pr-reviewer on ${paired.computer}`)
+    } catch (e) {
+      if (e instanceof UnreachableError) return fieldError(err, code, `pr-reviewer on this computer isn't running on port ${n}. Start it with: pr-reviewer serve --pair.`)
+      if (e instanceof ServiceError && e.code === 'pair_code_wrong') return fieldError(err, code, "That code didn't match.")
+      if (e instanceof ServiceError && e.code === 'pair_code_expired') return fieldError(err, code, 'That code expired. Run pr-reviewer serve --pair again.')
+      fieldError(err, code, (e as Error).message)
+    }
+  }
+  code.addEventListener('keydown', (e) => (e as KeyboardEvent).key === 'Enter' && void run())
+  return h(
+    'section',
+    { class: 'stack' },
+    h(
+      'div',
+      { class: 'card' },
+      h('h1', { tabindex: '-1' }, 'Pair with this computer'),
+      h('p', { id: 'pair-help' }, 'In a terminal, run ', h('code', { class: 'mono' }, 'pr-reviewer serve --pair'), '. Type the 8-character code it prints (letters and digits, like ABCD-EFGH). It works once, for 10 minutes.'),
+      h('label', { class: 'field', for: 'pair-code' }, 'Pairing code', code),
+      h('details', {}, h('summary', {}, `Port: ${LOCAL_PORT} unless you passed --port`), h('label', { class: 'field', for: 'pair-port' }, 'Port', port)),
+      err,
+      h('button', { class: 'btn primary full', type: 'button', onclick: () => void run() }, 'Pair'),
+      h('p', { class: 'muted' }, 'Reviews then use the CLI’s settings and credentials, including your subscription. The extension never sees them.'),
+    ),
+    h('button', { class: 'btn', type: 'button', onclick: () => go('welcome') }, '← Choose another mode'),
+  )
+}
+
 function settingsView(): HTMLElement {
   const dlg = h('dialog', { id: 'confirm', 'aria-labelledby': 'confirm-h' }) as HTMLDialogElement
   const confirmClear = () => {
@@ -339,8 +490,28 @@ function settingsView(): HTMLElement {
     'section',
     { class: 'stack' },
     h('div', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Settings'), h('button', { class: 'btn', type: 'button', onclick: () => go('home') }, '← Back')),
-    h('div', { class: 'card' }, h('h2', {}, 'Mode and connection'), h('p', {}, 'Standalone', state.login ? ` · GitHub @${state.login}` : ''), h('p', { class: 'muted' }, s ? `AI: ${s.provider.type === 'anthropic' ? 'Anthropic' : (s.provider.baseUrl ?? 'OpenAI')}${s.provider.model ? ` · ${s.provider.model}` : ''}` : 'Not set up')),
-    h(
+    state.conn
+      ? h(
+          'div',
+          { class: 'card' },
+          h('h2', {}, 'Mode and connection'),
+          h('p', {}, modeLabel(state.conn), state.session?.github.login ? ` · GitHub @${state.session.github.login}` : ''),
+          state.conn.kind === 'local' ? h('p', { class: 'muted' }, `pr-reviewer on ${state.conn.computer ?? 'this computer'} · port ${new URL(state.conn.baseUrl).port}. If that isn’t your computer, disconnect and run pr-reviewer serve --unpair.`) : h('p', { class: 'muted' }, `Revoke the extension’s access any time at ${state.conn.baseUrl}/auth/extension/tokens.`),
+          state.session ? h('p', { class: 'muted' }, `AI: ${state.session.ai.provider}${state.session.ai.model ? ` · ${state.session.ai.model}` : ''}${state.session.ai.ready ? '' : ` · not ready: ${state.session.ai.reason ?? ''}`}`) : '',
+          h('button', { class: 'btn', type: 'button', onclick: async () => {
+            state.conn = undefined
+            state.session = undefined
+            state.login = undefined
+            state.results.clear()
+            await secure.remove(CONNECTION)
+            announce(state.settings ? 'Disconnected. Reviews now run in Standalone.' : 'Disconnected.')
+            if (state.settings) void testGitHubToken(state.settings.githubToken, net, state.settings.host).then((r) => ((state.login = r.ok ? r.login : ''), render())).catch(() => undefined)
+            go(state.settings ? 'settings' : 'welcome')
+          } }, 'Disconnect'),
+        )
+      : h('div', { class: 'card' }, h('h2', {}, 'Mode and connection'), h('p', {}, 'Standalone', state.login ? ` · GitHub @${state.login}` : ''), h('p', { class: 'muted' }, s ? `AI: ${s.provider.type === 'anthropic' ? 'Anthropic' : (s.provider.baseUrl ?? 'OpenAI')}${s.provider.model ? ` · ${s.provider.model}` : ''}` : 'Not set up'), h('button', { class: 'btn', type: 'button', onclick: () => go('welcome') }, 'Connect a Web App or this computer')),
+    s
+      ? h(
       'div',
       { class: 'card' },
       h('h2', {}, 'Credentials'),
@@ -356,7 +527,8 @@ function settingsView(): HTMLElement {
         state.draft = state.settings ? { githubToken: state.settings.githubToken } : {}
         go('setup-ai')
       } }, 'Change AI provider or key'),
-    ),
+    )
+      : '',
     h('div', { class: 'card' }, h('h2', {}, 'Stored reviews'), h('p', { class: 'muted' }, `${Object.keys(state.stored).length} of at most ${MAX_STORED} kept in this browser.`), h('button', { class: 'btn', type: 'button', onclick: confirmClear, disabled: !Object.keys(state.stored).length }, 'Clear stored reviews')),
     h('div', { class: 'card' }, h('a', { href: chrome.runtime.getURL('privacy.html'), target: '_blank' }, 'Privacy policy')),
     dlg,
@@ -388,18 +560,48 @@ function homeView(): HTMLElement | HTMLElement[] {
       { class: 'card' },
       h('h1', { tabindex: '-1' }, state.pr),
       state.notice ? h('p', { class: 'note warn' }, state.notice) : '',
-      state.error ? h('div', { class: 'note bad' }, state.error, ' ', h('button', { class: 'btn small', type: 'button', onclick: () => void review() }, 'Retry')) : '',
+      state.error ? h('div', { class: 'note bad' }, state.error, ' ', h('button', { class: 'btn small', type: 'button', onclick: () => void review() }, 'Retry'), state.conn && state.settings ? [' ', h('button', { class: 'btn small', type: 'button', onclick: () => void review(true) }, 'Review with Standalone instead')] : '') : '',
       h('button', { class: 'btn primary full', type: 'button', disabled: !state.online, onclick: () => void review() }, 'Review this PR'),
-      !state.online ? h('p', { class: 'field-error' }, 'You are offline; reviewing needs GitHub and your AI provider.') : '',
+      !state.online ? h('p', { class: 'field-error' }, state.conn ? 'You are offline; reviewing needs your pr-reviewer connection.' : 'You are offline; reviewing needs GitHub and your AI provider.') : '',
       h('p', { class: 'muted' }, 'Nothing is posted until you press Post.'),
     ),
   ].filter(Boolean) as HTMLElement[]
 }
 
-async function review(): Promise<void> {
-  if (!state.settings || !state.pr || state.runs.has(state.pr)) return
+const onRunEvent = (run: Run) => (e: RunEvent) => {
+  if (run.cancelled) return
+  run.events.push(e)
+  if (e.type === 'LAYER_STATUS' && e.payload.status !== 'NOT_APPLICABLE') announce(`${words(e.payload.layer)}: ${words(e.payload.status)}`)
+  if (state.pr === run.pr) render()
+}
+
+async function finished(pr: string, live: Live): Promise<void> {
+  state.results.set(pr, live)
+  state.head.set(pr, live.report.run.headSha)
+  state.selected.set(pr, defaultSelection(live.report.findings))
+  await storeReport(pr, live.report)
+  const fresh = live.report.findings.filter((f) => f.scope !== 'PRE_EXISTING').length
+  announce(`Review finished: ${STATUS_TEXT[live.report.overallStatus] ?? live.report.overallStatus}, ${fresh} new findings.`)
+}
+
+/** Follows a backend run to its end: events, then the report (Connected mode). */
+async function watchRemote(conn: Connection, run: Run, id: string): Promise<void> {
+  const client = createClient(conn, net)
+  await client.events(id, onRunEvent(run), { signal: run.abort!.signal })
+  if (run.cancelled) return
+  for (let i = 0; ; i++) {
+    const r = (await client.report(id)) as Report | { status: 'running' }
+    if (!('status' in r && r.status === 'running')) return finished(run.pr, { report: r as Report, runId: id })
+    if (i > 30) throw new Error('The review did not finish.')
+    await new Promise((res) => setTimeout(res, 1000))
+  }
+}
+
+async function review(standalone = false): Promise<void> {
+  const conn = standalone ? undefined : state.conn
+  if ((!conn && !state.settings) || !state.pr || state.runs.has(state.pr)) return
   const pr = state.pr
-  const run: Run = { pr, events: [], cancelled: false }
+  const run: Run = { pr, events: [], cancelled: false, ...(conn ? { abort: new AbortController() } : {}) }
   state.runs.set(pr, run)
   state.results.delete(pr)
   delete state.stored[pr]
@@ -411,29 +613,22 @@ async function review(): Promise<void> {
   await savePrState(pr, { status: 'running', findings: 0, headSha: '' })
   render(true)
   try {
-    const result = await runStandalone({
-      pr,
-      settings: state.settings,
-      fetch: net,
-      onEvent: (e) => {
-        if (run.cancelled) return
-        run.events.push(e)
-        if (e.type === 'LAYER_STATUS' && e.payload.status !== 'NOT_APPLICABLE') announce(`${words(e.payload.layer)}: ${words(e.payload.status)}`)
-        if (state.pr === pr) render()
-      },
-    })
-    if (run.cancelled) return
-    state.results.set(pr, result)
-    state.head.set(pr, result.report.run.headSha)
-    state.selected.set(pr, defaultSelection(result.report.findings))
-    await storeReport(pr, result.report)
-    const fresh = result.report.findings.filter((f) => f.scope !== 'PRE_EXISTING').length
-    announce(`Review finished: ${STATUS_TEXT[result.report.overallStatus] ?? result.report.overallStatus}, ${fresh} new findings.`)
+    if (conn) {
+      const { id } = await createClient(conn, net).startRun(pr)
+      run.runId = id
+      // Kept so a reopened panel follows the same backend run (it keeps going when the panel closes).
+      await chrome.storage.session.set({ [RUNNING]: { pr, runId: id, baseUrl: conn.baseUrl } })
+      await watchRemote(conn, run, id)
+    } else {
+      const result = await runStandalone({ pr, settings: state.settings!, fetch: net, onEvent: onRunEvent(run) })
+      if (run.cancelled) return
+      await finished(pr, { report: result.report, standalone: result })
+    }
   } catch (e) {
     if (!run.cancelled) {
-      const msg = (e as Error).message
-      state.error = `The review failed: ${msg}`
-      if (/401|unauthori|bad credentials/i.test(msg)) state.login = ''
+      const msg = conn ? connectionProblem(conn, e) : (e as Error).message
+      state.error = conn && (e instanceof UnreachableError || e instanceof ServiceError) ? msg : `The review failed: ${msg}`
+      if (!conn && /401|unauthori|bad credentials/i.test(msg)) state.login = ''
       announce(state.error, true)
       await savePrState(pr, undefined)
     }
@@ -446,8 +641,9 @@ async function review(): Promise<void> {
 
 function cancel(run: Run): void {
   run.cancelled = true
+  run.abort?.abort()
   state.runs.delete(run.pr)
-  state.notice = 'Review cancelled.'
+  state.notice = run.runId ? 'Stopped following this review; it may still finish on the server.' : 'Review cancelled.'
   void chrome.storage.session.remove(RUNNING)
   void savePrState(run.pr, undefined)
   render(true)
@@ -463,7 +659,7 @@ function runningView(run: Run): HTMLElement {
     return h('li', { class: `step ${st[1]}` }, h('span', { class: 'node', 'aria-hidden': 'true' }), h('span', {}, STAGES[s], ' ', h('span', { class: 'state' }, st[0])))
   })
   const skipped = run.events.filter((e) => e.type === 'LAYER_STATUS' && e.payload.status === 'SKIPPED').map((e) => `${words(e.payload.layer)}: SKIPPED (${words(e.payload.reason)})`)
-  return h('section', { class: 'card' }, h('h1', { tabindex: '-1' }, `Reviewing ${run.pr}`), h('ol', { class: 'steps' }, rows), skipped.length ? h('p', { class: 'muted' }, skipped.join(' · ')) : '', h('p', { class: 'note warn' }, 'Closing this panel stops the review.'), h('button', { class: 'btn', type: 'button', onclick: () => cancel(run) }, 'Cancel'))
+  return h('section', { class: 'card' }, h('h1', { tabindex: '-1' }, `Reviewing ${run.pr}`), h('ol', { class: 'steps' }, rows), skipped.length ? h('p', { class: 'muted' }, skipped.join(' · ')) : '', run.abort && state.conn ? h('p', { class: 'muted' }, `Running on ${state.conn.kind === 'local' ? `pr-reviewer on ${state.conn.computer ?? 'this computer'}` : new URL(state.conn.baseUrl).host}; closing this panel doesn’t stop it.`) : h('p', { class: 'note warn' }, 'Closing this panel stops the review.'), h('button', { class: 'btn', type: 'button', onclick: () => cancel(run) }, run.abort ? 'Stop following' : 'Cancel'))
 }
 
 function defaultSelection(findings: readonly Finding[]): Set<string> {
@@ -546,37 +742,64 @@ function reportView(pr: string, r: Report): HTMLElement[] {
 
 function postView(): HTMLElement {
   const pr = state.pr!
-  const result = state.results.get(pr)
-  if (!result || !state.settings) return h('section', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Post to GitHub'), h('p', {}, 'Review again to post.'), h('button', { class: 'btn', type: 'button', onclick: () => go('home') }, '← Report'))
+  const live = state.results.get(pr)
+  const conn = live?.runId ? state.conn : undefined
+  if (!live || (live.standalone ? !state.settings : !conn)) return h('section', { class: 'card' }, h('h1', { tabindex: '-1' }, 'Post to GitHub'), h('p', {}, 'Review again to post.'), h('button', { class: 'btn', type: 'button', onclick: () => go('home') }, '← Report'))
+  const login = live.standalone ? live.standalone.viewer?.login : state.session?.github.login
   const sel = state.selected.get(pr) ?? new Set<string>()
-  const all = result.report.findings.filter((f) => f.fingerprint).map((f) => f.fingerprint!)
+  const all = live.report.findings.filter((f) => f.fingerprint).map((f) => f.fingerprint!)
   const include = all.every((fp) => sel.has(fp)) ? undefined : [...sel]
+  const edits = state.edits.get(pr) ?? {}
   const shown = state.shown
   const strip = (t: string) => t.replace(/\n*<!-- pr-reviewer [^>]* -->\s*$/, '')
   const doPreview = async () => {
     state.postResult = undefined
     try {
-      state.shown = await previewPost(result, state.settings!, net, { event: 'COMMENT', include, edits: state.edits.get(pr) ?? {} })
-      announce(`Preview ready: ${state.shown.preview.inline.length} inline comments and the summary.`)
+      if (conn) {
+        const r = await createClient(conn, net).preview(live.runId!, { include, edits })
+        state.shown = { view: remoteShown(r.preview), digest: r.digest }
+      } else {
+        const p = await previewPost(live.standalone!, state.settings!, net, { event: 'COMMENT', include, edits })
+        state.shown = { standalone: p, view: { inline: p.preview.inline, stillOpen: p.preview.stillOpen.map((x) => ({ title: x.finding.title })), resolved: p.preview.resolved, summaryBody: p.preview.summaryBody } }
+      }
+      announce(`Preview ready: ${state.shown.view.inline.length} inline comments and the summary.`)
     } catch (e) {
-      state.postResult = { tone: 'bad', text: (e as Error).message }
+      state.postResult = { tone: 'bad', text: conn ? connectionProblem(conn, e) : (e as Error).message }
     }
     render(false, 'post-btn')
   }
+  /** This computer posts as the CLI's GitHub identity, so every post is confirmed first (FR37). */
+  const confirmLocal = (n: number) =>
+    new Promise<boolean>((resolve) => {
+      const dlg = document.getElementById('post-confirm') as HTMLDialogElement
+      const done = (ok: boolean) => (dlg.close(), resolve(ok))
+      dlg.replaceChildren(
+        h('h2', { id: 'post-confirm-h' }, `Post ${n} inline comment${n === 1 ? '' : 's'} as @${login ?? '?'} from pr-reviewer on ${conn?.computer ?? 'this computer'}?`),
+        h('p', {}, 'Plus one summary comment. Nothing else is posted.'),
+        h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', id: 'post-confirm-cancel', onclick: () => done(false) }, 'Cancel'), h('button', { class: 'btn primary', type: 'button', onclick: () => done(true) }, 'Post')),
+      )
+      dlg.addEventListener('cancel', () => resolve(false), { once: true })
+      dlg.showModal()
+      ;(document.getElementById('post-confirm-cancel') as HTMLElement).focus()
+    })
   const doPost = async () => {
     if (!state.shown) return
+    if (conn?.kind === 'local' && !(await confirmLocal(state.shown.view.inline.length))) return document.getElementById('post-btn')?.focus()
     const btn = document.getElementById('post-btn') as HTMLButtonElement
     btn.disabled = true
     btn.textContent = 'Posting…'
     let rec: PublishRecord
     try {
-      rec = await postReview(result, state.settings!, net, state.shown)
+      rec = conn ? await createClient(conn, net).publish(live.runId!, { include, edits }, state.shown.digest!) : await postReview(live.standalone!, state.settings!, net, state.shown.standalone!)
     } catch (e) {
-      state.postResult = { tone: 'bad', text: `GitHub refused: ${(e as Error).message}` }
+      if (e instanceof ServiceError && e.code === 'preview_changed' && e.body?.preview) {
+        state.shown = { view: remoteShown(e.body.preview as RemotePreview), digest: String(e.body.digest) }
+        state.postResult = { tone: 'bad', text: 'What would be posted changed since your preview (for example, someone commented on the PR). Check the new preview, then post.' }
+      } else state.postResult = { tone: 'bad', text: conn ? connectionProblem(conn, e) : `GitHub refused: ${(e as Error).message}` }
       return render(false, 'post-result')
     }
     const links = h('span', {}, rec.reviewUrl ? [' ', h('a', { href: rec.reviewUrl, target: '_blank' }, 'Open the review')] : '', rec.summaryUrl ? [' · ', h('a', { href: rec.summaryUrl, target: '_blank' }, 'Open the summary')] : '')
-    if (rec.status === 'PUBLISHED') state.postResult = { tone: 'ok', text: `Posted ${rec.commentCount ?? 0} inline comment(s) and the summary as @${result.viewer?.login ?? ''}.`, links }
+    if (rec.status === 'PUBLISHED') state.postResult = { tone: 'ok', text: `Posted ${rec.commentCount ?? 0} inline comment(s) and the summary as @${login ?? ''}.`, links }
     else if (rec.status === 'SKIPPED_DUPLICATE') state.postResult = { tone: 'ok', text: 'Already posted for this commit; nothing new was posted.', links }
     else state.postResult = { tone: 'bad', text: `Not posted (${words(rec.status)}): ${rec.reason ?? 'unknown reason'}${rec.status === 'CANCELLED' ? ' Review again to post on the new commit.' : ''}` }
     state.shown = rec.status === 'PUBLISHED' ? undefined : state.shown
@@ -591,25 +814,26 @@ function postView(): HTMLElement {
       'div',
       { class: 'card' },
       h('h1', { tabindex: '-1' }, 'Post to GitHub'),
-      h('p', { class: 'muted' }, `Posts as @${result.viewer?.login ?? '?'}: one review with inline comments, plus one summary comment that is updated on later runs. Approving is never possible.`),
+      h('p', { class: 'muted' }, `Posts as @${login ?? '?'}${conn ? ` through ${conn.kind === 'local' ? `pr-reviewer on ${conn.computer ?? 'this computer'}` : new URL(conn.baseUrl).host}` : ''}: one review with inline comments, plus one summary comment that is updated on later runs. Approving is never possible.`),
       h('label', { class: 'field', for: 'event' }, 'Review type', h('select', { id: 'event' }, h('option', { value: 'COMMENT' }, 'Comment'))),
       h('button', { class: 'btn', type: 'button', onclick: () => void doPreview() }, shown ? 'Refresh preview' : 'Preview post'),
-      shown ? h('button', { class: 'btn primary full', type: 'button', id: 'post-btn', onclick: () => void doPost() }, `Post ${shown.preview.inline.length} inline comment(s) and the summary`) : '',
-      h('p', { class: 'muted' }, `${sel.size} of ${result.report.findings.length} findings included`),
+      shown ? h('button', { class: 'btn primary full', type: 'button', id: 'post-btn', onclick: () => void doPost() }, `Post ${shown.view.inline.length} inline comment(s) and the summary`) : '',
+      h('p', { class: 'muted' }, `${sel.size} of ${live.report.findings.length} findings included`),
       state.postResult ? h('div', { class: `result ${state.postResult.tone}`, id: 'post-result', tabindex: '-1' }, state.postResult.text, state.postResult.links ?? '') : '',
     ),
     shown
       ? h(
           'div',
           { class: 'card' },
-          h('h2', {}, `New inline comments (${shown.preview.inline.length})`),
-          shown.preview.inline.length ? h('ul', { class: 'plain' }, shown.preview.inline.map((c) => h('li', {}, h('details', {}, h('summary', { class: 'mono' }, `${c.path}:${c.line}`), h('pre', { class: 'mono' }, strip(c.body)))))) : h('p', { class: 'muted' }, 'None.'),
-          shown.preview.stillOpen.length ? [h('h2', {}, `Still open from earlier reviews (${shown.preview.stillOpen.length})`), h('ul', { class: 'plain' }, shown.preview.stillOpen.map((x) => h('li', {}, x.finding.title)))] : '',
-          shown.preview.resolved.length ? [h('h2', {}, `Resolved since the last review (${shown.preview.resolved.length})`), h('ul', { class: 'plain' }, shown.preview.resolved.map((x) => h('li', {}, x.title)))] : '',
+          h('h2', {}, `New inline comments (${shown.view.inline.length})`),
+          shown.view.inline.length ? h('ul', { class: 'plain' }, shown.view.inline.map((c) => h('li', {}, h('details', {}, h('summary', { class: 'mono' }, `${c.path}:${c.line}`), h('pre', { class: 'mono' }, strip(c.body)))))) : h('p', { class: 'muted' }, 'None.'),
+          shown.view.stillOpen.length ? [h('h2', {}, `Still open from earlier reviews (${shown.view.stillOpen.length})`), h('ul', { class: 'plain' }, shown.view.stillOpen.map((x) => h('li', {}, x.title)))] : '',
+          shown.view.resolved.length ? [h('h2', {}, `Resolved since the last review (${shown.view.resolved.length})`), h('ul', { class: 'plain' }, shown.view.resolved.map((x) => h('li', {}, x.title)))] : '',
           h('h2', {}, 'Summary comment'),
-          h('pre', { class: 'mono summary' }, strip(shown.preview.summaryBody)),
+          h('pre', { class: 'mono summary' }, strip(shown.view.summaryBody)),
         )
       : '',
+    h('dialog', { id: 'post-confirm', 'aria-labelledby': 'post-confirm-h' }),
   )
 }
 
@@ -617,7 +841,7 @@ function postView(): HTMLElement {
 
 async function activePr(): Promise<string | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const pr = prFromUrl(tab?.url, state.settings?.host ?? 'github.com')
+  const pr = prFromUrl(tab?.url, (state.conn ? state.session?.github.host : state.settings?.host) ?? 'github.com')
   return pr ? `${pr.owner}/${pr.repo}#${pr.number}` : undefined
 }
 
@@ -630,7 +854,7 @@ async function follow(initial = false): Promise<void> {
   state.notice = initial ? state.notice : undefined
   state.error = undefined
   if (state.surface === 'post') state.surface = 'home'
-  if (pr && state.settings && state.stored[pr] && !state.results.has(pr) && state.online) {
+  if (pr && !state.conn && state.settings && state.stored[pr] && !state.results.has(pr) && state.online) {
     state.head.set(pr, await currentHead(state.settings, pr, net).catch(() => undefined))
   }
   render(initial)
@@ -642,20 +866,42 @@ async function boot(): Promise<void> {
   state.consent = local[CONSENT] === true
   state.stored = (local[REVIEWS] as Record<string, Stored> | undefined) ?? {}
   state.settings = await secure.get<StandaloneSettings>(SETTINGS)
-  const interrupted = (await chrome.storage.session.get(RUNNING))[RUNNING]
-  if (typeof interrupted === 'string') {
+  state.conn = await secure.get<Connection>(CONNECTION)
+  if (state.conn) state.choice = state.conn.kind
+  const interrupted = (await chrome.storage.session.get(RUNNING))[RUNNING] as string | { pr: string; runId: string; baseUrl: string } | undefined
+  const reattach = typeof interrupted === 'object' && interrupted && state.conn?.baseUrl === interrupted.baseUrl ? interrupted : undefined
+  if (interrupted && !reattach) {
     state.notice = 'The last review was stopped when the panel closed.'
     await chrome.storage.session.remove(RUNNING)
-    await savePrState(interrupted, undefined)
+    await savePrState(typeof interrupted === 'string' ? interrupted : interrupted.pr, undefined)
   }
-  state.surface = !state.consent ? 'welcome' : state.settings ? 'home' : 'setup-github'
+  state.surface = !state.consent ? 'welcome' : ready() ? 'home' : 'setup-github'
   // Opened from the Review button on the page with "start" (Story 7.5).
   const auto = (await chrome.storage.session.get('auto-review'))['auto-review']
   await chrome.storage.session.remove('auto-review')
-  if (typeof auto === 'string' && !state.settings) state.pendingPr = auto
+  if (typeof auto === 'string' && !ready()) state.pendingPr = auto
+  if (state.conn) {
+    // The session says who posts and which GitHub host PR links belong to.
+    const conn = state.conn
+    state.session = await createClient(conn, net).session().catch((e: unknown) => ((state.error = connectionProblem(conn, e)), undefined))
+    if (state.session) state.login = state.session.github.login ?? ''
+  }
   await follow(true)
-  if (state.settings) testGitHubToken(state.settings.githubToken, net, state.settings.host).then((r) => ((state.login = r.ok ? r.login : ''), render())).catch(() => undefined)
-  if (typeof auto === 'string' && state.settings && state.pr?.toLowerCase() === auto.toLowerCase() && !state.stored[state.pr]) void review()
+  if (state.settings && !state.conn) testGitHubToken(state.settings.githubToken, net, state.settings.host).then((r) => ((state.login = r.ok ? r.login : ''), render())).catch(() => undefined)
+  if (reattach && state.conn) {
+    const run: Run = { pr: reattach.pr, events: [], cancelled: false, runId: reattach.runId, abort: new AbortController() }
+    state.runs.set(run.pr, run)
+    render()
+    const conn = state.conn
+    watchRemote(conn, run, reattach.runId)
+      .catch((e: unknown) => ((state.error = connectionProblem(conn, e)), savePrState(run.pr, undefined)))
+      .finally(async () => {
+        state.runs.delete(run.pr)
+        if (!state.runs.size) await chrome.storage.session.remove(RUNNING)
+        render()
+      })
+  }
+  if (typeof auto === 'string' && ready() && state.pr?.toLowerCase() === auto.toLowerCase() && !state.stored[state.pr]) void review()
   chrome.tabs.onActivated.addListener(() => void follow())
   chrome.tabs.onUpdated.addListener((_id, change) => change.url && void follow())
   addEventListener('online', () => ((state.online = true), render(), announce('Back online.')))

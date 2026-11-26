@@ -47,6 +47,7 @@ export interface RunningWeb {
 const OPENAI = 'https://api.openai.com/v1'
 const SESSION_COOKIE = 'prr_session'
 const STATE_COOKIE = 'prr_state'
+const NEXT_COOKIE = 'prr_next'
 
 const SettingsBody = z.object({
   provider: z.object({
@@ -183,10 +184,13 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     res.end(`<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><body style="font:16px system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem"><h1>${esc(title)}</h1><p>${esc(text)}</p><p><a href="/">Back</a></p>`)
   }
 
-  const login = (res: ServerResponse) => {
+  /** Only the extension's confirm page may be returned to after sign-in (no open redirect). */
+  const NEXT = /^\/auth\/extension\?ext=[a-p]{32}&state=[A-Za-z0-9_-]{16,64}$/
+  const login = (res: ServerResponse, url?: URL) => {
     const state = randomBytes(24).toString('base64url')
     const q = new URLSearchParams({ client_id: o.clientId, redirect_uri: new URL('/auth/callback', publicUrl).toString(), scope, state, allow_signup: 'false' })
-    redirect(res, `https://${host}/login/oauth/authorize?${q}`, [cookie(STATE_COOKIE, state, 600, '/auth')])
+    const next = url?.searchParams.get('next') ?? ''
+    redirect(res, `https://${host}/login/oauth/authorize?${q}`, [cookie(STATE_COOKIE, state, 600, '/auth'), ...(NEXT.test(next) ? [cookie(NEXT_COOKIE, next, 600, '/auth')] : [])])
   }
 
   const callback = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
@@ -211,7 +215,8 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     store.saveUser({ id: me.id, login: me.login, ...(me.avatar_url ? { avatarUrl: me.avatar_url } : {}) }, token)
     const sid = store.createSession(me.id)
     log(`Signed in: @${me.login}\n`)
-    redirect(res, '/', [cookie(SESSION_COOKIE, sid, 7 * 24 * 3600), cookie(STATE_COOKIE, '', 0, '/auth')])
+    const next = cookies(req)[NEXT_COOKIE] ?? ''
+    redirect(res, NEXT.test(next) ? next : '/', [cookie(SESSION_COOKIE, sid, 7 * 24 * 3600), cookie(STATE_COOKIE, '', 0, '/auth'), cookie(NEXT_COOKIE, '', 0, '/auth')])
   }
 
   const extensionIds = new Set((o.extensionIds ?? []).filter((x) => /^[a-p]{32}$/.test(x)))
@@ -262,7 +267,10 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     const state = ext.get('state') ?? ''
     if (!extensionIds.has(extId)) return htmlPage(res, 403, 'Not allowed', '<h1>This extension is not allowed</h1><p>Ask the administrator to add its ID to PR_REVIEWER_EXTENSION_IDS.</p>')
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(state)) return htmlPage(res, 400, 'Bad request', '<h1>The sign-in request is incomplete</h1><p>Start again from the extension.</p>')
-    if (!user) return htmlPage(res, 401, 'Sign in', `<h1>Sign in first</h1><p>Sign in to this Web App, then start again from the extension.</p><p><a class="btn primary" href="/auth/login">Sign in with GitHub</a></p>`)
+    if (!user) {
+      const next = `/auth/extension?${new URLSearchParams({ ext: extId, state })}`
+      return htmlPage(res, 401, 'Sign in', `<h1>Sign in to connect the extension</h1><p>Sign in to this Web App with GitHub; you will come back here to allow the extension.</p><p><a class="btn primary" href="/auth/login?next=${esc(encodeURIComponent(next))}">Sign in with GitHub</a></p>`)
+    }
     if (method === 'GET') {
       return htmlPage(res, 200, 'Allow the extension', `<h1>Allow the pr-reviewer extension to use your account?</h1><p>It will start reviews and post them as @${esc(user.login)} with your settings on this Web App. You can revoke this any time at <a href="/auth/extension/tokens">Extension access</a>.</p><form method="post" action="/auth/extension"><input type="hidden" name="ext" value="${esc(extId)}"><input type="hidden" name="state" value="${esc(state)}"><button class="btn primary" type="submit">Allow</button> <a class="btn" href="/">Cancel</a></form>`)
     }
@@ -339,7 +347,7 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
       res.end()
       return
     }
-    if (url.pathname === '/auth/login' && method === 'GET') return login(res)
+    if (url.pathname === '/auth/login' && method === 'GET') return login(res, url)
     if (url.pathname === '/auth/callback' && method === 'GET') return callback(req, res, url)
     if ((url.pathname === '/auth/extension' || url.pathname === '/auth/extension/tokens') && (method === 'GET' || method === 'POST')) return extensionAuth(req, res, url, method)
     if (url.pathname === '/auth/logout' && method === 'POST') {

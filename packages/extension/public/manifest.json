@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PR Reviewer",
   "version": "0.1.0",
-  "description": "Review GitHub pull requests from a side panel with your own AI key. Nothing is posted until you press Post.",
+  "description": "Review GitHub pull requests from a side panel with your own AI key or your pr-reviewer. Nothing is posted until you press Post.",
   "minimum_chrome_version": "116",
   "action": {
     "default_title": "PR Reviewer",
@@ -19,6 +19,7 @@
     "type": "module"
   },
   "permissions": [
+    "identity",
     "sidePanel",
     "storage"
   ],
@@ -30,7 +31,9 @@
     "https://api.osv.dev/*"
   ],
   "optional_host_permissions": [
-    "https://*/*"
+    "https://*/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "commands": {
     "open-panel": {

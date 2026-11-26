@@ -129,6 +129,21 @@ describe('browser extension access (Story 7.7)', () => {
     expect((await call(port, 'POST', '/auth/extension/tokens', { cookie: cookie!, origin }, `id=${id}`)).status).toBe(200)
     expect((await call(port, 'GET', '/v1/session', fromExt)).status).toBe(401)
   })
+
+  it('comes back to the confirm page after signing in, and to nowhere else', async () => {
+    const { port } = await start({ extensionIds: [EXT] })
+    const state = 'state-0123456789abcdef'
+    const signedOut = await call(port, 'GET', `/auth/extension?ext=${EXT}&state=${state}`)
+    const href = /href="(\/auth\/login\?next=[^"]+)"/.exec(signedOut.body)![1]!.replace(/&amp;/g, '&')
+    const login = await call(port, 'GET', href)
+    const ghState = new URL(String(login.headers.location)).searchParams.get('state')!
+    const jar = (login.headers['set-cookie'] as string[]).map((c) => c.split(';')[0]).join('; ')
+    const cb = await call(port, 'GET', `/auth/callback?code=alice&state=${ghState}`, { cookie: jar })
+    expect(cb.headers.location).toBe(`/auth/extension?ext=${EXT}&state=${state}`)
+
+    const evil = await call(port, 'GET', `/auth/login?next=${encodeURIComponent('https://evil.example/')}`)
+    expect((evil.headers['set-cookie'] as string[]).some((c) => c.startsWith('prr_next='))).toBe(false)
+  })
 })
 
 describe('Web App sign-in (Story 6.1)', () => {

@@ -49,3 +49,6 @@ declare namespace chrome.permissions {
   function request(p: { origins: string[] }): Promise<boolean>
   function contains(p: { origins: string[] }): Promise<boolean>
 }
+declare namespace chrome.identity {
+  function launchWebAuthFlow(o: { url: string; interactive: boolean }): Promise<string | undefined>
+}
