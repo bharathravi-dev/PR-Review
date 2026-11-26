@@ -336,6 +336,8 @@ ai:
   relatedFiles: true          # false: show the AI only the changed files, not their imports, callers, tests
   styleFindings: false        # true: keep the AI's style-only remarks (left out by default; repeats are always folded)
   incremental: true           # false: on later reviews re-check every file, not only those changed since the last review
+  codebaseSearch: true        # false: skip searching the whole repository for code that uses what the PR changes
+  crossRepo: false            # true: also search your other repositories, to catch breaking changes to shared code
   effort: adaptive            # light, standard, deep: fix the depth (adaptive: light for docs/small, deep for auth, secrets, CI, migrations)
 publish:
   approve:                    # off by default; approves only when every condition holds, else comments

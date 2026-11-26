@@ -1,5 +1,6 @@
 import { chooseEffort, effortRule, type EffortSetting } from './effort.js'
 import { quietFindings } from './noise.js'
+import { changedSymbols, findUsages } from './usages.js'
 import { ticketKeys, type Ticket } from './tickets.js'
 import { lastReviewedHead } from './publish.js'
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
@@ -73,6 +74,10 @@ export interface ReviewSettings {
   styleFindings?: boolean | undefined
   /** false makes the AI re-check every file on a later review, not only files changed since the last one. */
   incremental?: boolean | undefined
+  /** false skips the repository-wide search for code that uses what the PR changes (roadmap item 17). */
+  codebaseSearch?: boolean | undefined
+  /** true also searches the owner's other repositories for uses of what the PR changes. */
+  crossRepo?: boolean | undefined
   /** adaptive (default) picks light, standard or deep from the change; a level fixes it (roadmap item 5). */
   effort?: EffortSetting | undefined
 }
@@ -250,6 +255,14 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   if (input.review?.relatedFiles !== false && scan.completed) {
     const found = await findRelatedFiles(files, ctx.files.map((f) => ({ path: f.path, status: f.status, patch: f.patch, headText: f.head?.text })))
     limitations.push(...found.notes)
+    // Codebase context (roadmap item 17): code anywhere in the repository (and, with crossRepo, the owner's other
+    // repositories) that uses the symbols this PR changes, from the forge's code search.
+    if (input.review?.codebaseSearch !== false && ports.github.searchCode) {
+      const symbols = [...new Set(ctx.files.flatMap((f) => changedSymbols(f.patch)))].sort((a, b) => b.length - a.length)
+      const usages = await findUsages(ports.github, input.ref, symbols, new Set([...ctx.files.map((f) => f.path), ...found.related.map((r) => r.path)]), { crossRepo: input.review?.crossRepo })
+      found.related.push(...usages.related)
+      limitations.push(...usages.notes)
+    }
     // A private key cut off by an excerpt would not match the scanner, so files that hold one are left out.
     const shown = found.related.filter((r) => !PRIVATE_KEY.test(r.text))
     if (shown.length) {

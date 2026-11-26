@@ -34,8 +34,8 @@ export class GitHubClient {
     this.#userAgent = opts.userAgent ?? 'pr-reviewer'
   }
 
-  async json<T>(pathOrUrl: string): Promise<Result<Response<T>>> {
-    const res = await this.#request(pathOrUrl, 'application/vnd.github+json')
+  async json<T>(pathOrUrl: string, accept = 'application/vnd.github+json'): Promise<Result<Response<T>>> {
+    const res = await this.#request(pathOrUrl, accept)
     if (!res.ok) return res
     return ok({ data: (await res.value.json()) as T, next: nextLink(res.value.headers.get('link')) })
   }

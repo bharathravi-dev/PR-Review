@@ -25,4 +25,4 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 15 | Security deep scan (static rules in the Sandbox) | CodeRabbit and Copilot now market security | done (`security.patterns`: injection, XSS, TLS off, JWT, deserialisation, CORS, weak hashes, insecure random) |
 | 16 | "Apply fix" from the review: commit a suggestion to the PR branch | One-click fixes | done (review page, extension, `@pr-reviewer fix`; GitHub and GitLab) |
 | 18 | BR.dev brand: orange accent, Inter, PR mark and icon, light and dark, contrast-checked (docs/brand.md) | Your own brand on every surface | done |
-| 17 | Whole-codebase and cross-repo context (an index of the repository) | Greptile's main selling point | planned |
+| 17 | Whole-codebase and cross-repo context (an index of the repository) | Greptile's main selling point | done (repository-wide usage search for changed symbols, any language; `ai.crossRepo` for the owner's other repositories) |

@@ -101,6 +101,11 @@ export interface GitHubReader {
    * Optional; incremental reviews need it (roadmap item 4).
    */
   changedPathsBetween?(repo: RepoRef, base: string, head: string): Promise<Result<{ status: string; paths: string[] }>>
+  /**
+   * Code search with matching fragments (optional; codebase context, roadmap item 17): in one repository, or across
+   * an owner's repositories. Default branches only, as the forge indexes them.
+   */
+  searchCode?(q: { repo?: RepoRef; owner?: string; symbol: string; limit: number }): Promise<Result<Array<{ repo: string; path: string; fragments: string[] }>>>
   /** Current head SHA of the PR, re-read immediately before publishing (AD-23). */
   getHeadSha(ref: PrRef): Promise<Result<string>>
   /** Reviews, inline review comments, and issue comments on the PR, for marker-based self-recognition (AD-11). */

@@ -242,6 +242,25 @@ export class GitLabReader implements GitHubReader {
     return r.ok ? ok(r.value.some((m) => m.username.toLowerCase() === login.toLowerCase() && m.access_level >= 30)) : r
   }
 
+  async searchCode(q: { repo?: RepoRef; owner?: string; symbol: string; limit: number }): Promise<Result<Array<{ repo: string; path: string; fragments: string[] }>>> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(q.symbol)) return ok([])
+    const where = q.repo ? `/projects/${pid(q.repo)}` : `/groups/${encodeURIComponent(q.owner ?? '')}`
+    const r = await this.#c.json<Array<{ path: string; data: string; project_id: number }>>(`${where}/search?scope=blobs&search=${encodeURIComponent(q.symbol)}&per_page=${Math.min(q.limit, 30)}`)
+    if (!r.ok) return r
+    const names = new Map<number, string>()
+    const out: Array<{ repo: string; path: string; fragments: string[] }> = []
+    for (const hit of r.value) {
+      let repo = q.repo ? `${q.repo.owner}/${q.repo.repo}` : names.get(hit.project_id)
+      if (!repo) {
+        const p = await this.#c.json<{ path_with_namespace: string }>(`/projects/${hit.project_id}`)
+        repo = p.ok ? p.value.path_with_namespace : String(hit.project_id)
+        names.set(hit.project_id, repo)
+      }
+      out.push({ repo, path: hit.path, fragments: [hit.data] })
+    }
+    return ok(out)
+  }
+
   async changedPathsBetween(repo: RepoRef, base: string, head: string): Promise<Result<{ status: string; paths: string[] }>> {
     const mb = await this.#c.json<{ id: string }>(`/projects/${pid(repo)}/repository/merge_base?refs[]=${encodeURIComponent(base)}&refs[]=${encodeURIComponent(head)}`)
     if (!mb.ok) return mb

@@ -296,6 +296,8 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
         styleFindings: o.config.settings.ai?.styleFindings,
         incremental: o.full ? false : o.config.settings.ai?.incremental,
         effort: o.effort ?? o.config.settings.ai?.effort,
+        codebaseSearch: o.config.settings.ai?.codebaseSearch,
+        crossRepo: o.config.settings.ai?.crossRepo,
       },
       reviewerId: o.github.viewer?.id,
       costLimits: o.config.settings.limits,

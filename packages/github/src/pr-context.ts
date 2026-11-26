@@ -94,6 +94,17 @@ export class GitHubPrReader implements GitHubReader {
     return ok(Array.isArray(res.value.data) ? res.value.data.filter((e) => e.type === 'file').map((e) => e.name) : [])
   }
 
+  async searchCode(q: { repo?: RepoRef; owner?: string; symbol: string; limit: number }): Promise<Result<Array<{ repo: string; path: string; fragments: string[] }>>> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(q.symbol)) return ok([])
+    const scope = q.repo ? `repo:${q.repo.owner}/${q.repo.repo}` : `user:${q.owner}`
+    const res = await this.client.json<{ items?: Array<{ path: string; repository: { full_name: string }; text_matches?: Array<{ fragment?: string }> }> }>(
+      `/search/code?q=${encodeURIComponent(`${q.symbol} ${scope}`)}&per_page=${Math.min(q.limit, 30)}`,
+      'application/vnd.github.text-match+json',
+    )
+    if (!res.ok) return res
+    return ok((res.value.data.items ?? []).map((i) => ({ repo: i.repository.full_name, path: i.path, fragments: (i.text_matches ?? []).map((m) => m.fragment ?? '').filter(Boolean) })))
+  }
+
   async changedPathsBetween(repo: RepoRef, base: string, head: string): Promise<Result<{ status: string; paths: string[] }>> {
     const res = await this.client.json<{ status: string; files?: Array<{ filename: string; previous_filename?: string }> }>(`/repos/${enc(repo.owner)}/${enc(repo.repo)}/compare/${enc(base)}...${enc(head)}?per_page=300`)
     if (!res.ok) return res
