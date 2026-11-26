@@ -3,6 +3,7 @@
   --surface: #ffffff;
   --surface-2: #f1f3f6;
   --border: #dde1e7;
+  --border-strong: #7d8794;
   --text: #1c2128;
   --muted: #5d6673;
   --accent: #2f5bd3;
@@ -28,6 +29,7 @@
     --surface: #171b21;
     --surface-2: #1e232b;
     --border: #2c333d;
+    --border-strong: #6e7681;
     --text: #e3e7ec;
     --muted: #97a1ad;
     --accent: #7c9cf5;
@@ -58,7 +60,7 @@ body {
 .muted { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 code, .mono { font-family: var(--mono); font-size: 0.9em; }
-a { color: var(--accent); }
+a { color: var(--accent); text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 h1, h2, h3 { line-height: 1.25; margin: 0 0 8px; }
 h1 { font-size: 1.3rem; }
@@ -82,17 +84,17 @@ main { padding-top: 20px; padding-bottom: 12px; display: grid; gap: 16px; }
 
 .field-row { display: flex; gap: 8px; }
 input[type="text"], select {
-  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; min-width: 0;
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 9px 12px; min-width: 0;
 }
 input[type="text"] { flex: 1; }
 .btn {
-  font: inherit; font-weight: 550; cursor: pointer; border-radius: 8px; padding: 9px 16px; border: 1px solid var(--border);
+  font: inherit; font-weight: 550; cursor: pointer; border-radius: 8px; padding: 9px 16px; border: 1px solid var(--border-strong);
   background: var(--surface-2); color: var(--text); white-space: nowrap;
 }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .btn.small { padding: 4px 10px; font-size: 0.85rem; }
-.btn.link { background: none; border: none; color: var(--accent); padding: 0; font-weight: 500; }
+.btn.link { background: none; border: none; color: var(--accent); padding: 0; font-weight: 500; text-decoration: underline; min-height: 24px; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 details > summary { cursor: pointer; color: var(--muted); margin-top: 12px; }
 details[open] > summary { margin-bottom: 10px; }
@@ -133,7 +135,10 @@ main > *, #report > * { min-width: 0; }
 .findings-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .findings { display: grid; gap: 10px; }
 .finding { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; }
-.finding.off { opacity: 0.6; }
+/* Excluded findings keep full contrast (Story 9.2): a dashed edge and a "not included" badge instead of fading. */
+.finding.off { border: 1px dashed var(--border-strong); }
+.finding .excluded { display: none; }
+.finding.off .excluded { display: inline-block; }
 .finding input[type="checkbox"] { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
 .finding .title { font-weight: 600; word-break: break-word; }
 .finding .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; color: var(--muted); grid-column: 2; }
@@ -166,7 +171,7 @@ pre.preview { background: var(--surface-2); border: 1px solid var(--border); bor
 button.chip { font: inherit; color: inherit; cursor: pointer; }
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; }
 .field { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
-.field select, .field input, .field textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.field select, .field input, .field textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; }
 textarea { width: 100%; resize: vertical; }
 details.edit { margin-top: 10px; }
 details.edit > summary { margin-top: 0; font-size: 0.85rem; }

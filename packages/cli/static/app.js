@@ -576,7 +576,7 @@ function renderFinding(f) {
       id,
       checked: on,
       disabled: !f.fingerprint,
-      'aria-label': `Include “${f.title}” in the post`,
+      'aria-label': `Include in post: ${f.severity} ${f.title}${f.location.path ? `, ${where}` : ''}`,
       onchange: (ev) => {
         if (ev.target.checked) state.selected.add(f.fingerprint)
         else state.selected.delete(f.fingerprint)
@@ -592,6 +592,7 @@ function renderFinding(f) {
       h('span', {}, `· ${words(f.category)}`),
       h('span', {}, `· ${source}`),
       h('span', {}, `· confidence ${words(f.confidence)}`),
+      h('span', { class: 'badge excluded' }, 'not included'),
       f.scope && f.scope !== 'NEW' ? h('span', { class: 'badge' }, words(f.scope)) : '',
       f.disposition === 'ADVISORY' ? h('span', { class: 'badge info' }, 'advisory') : '',
       f.dismissed ? h('span', { class: 'badge warn', title: `Dismissed by ${f.dismissed.by}` }, `dismissed by ${f.dismissed.by}`) : '',
