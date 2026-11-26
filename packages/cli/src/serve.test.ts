@@ -1,9 +1,13 @@
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { request } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { parseUserConfig, resolveSettings, type ResolvedConfig, type RunEvent, type Secret } from '@pr-reviewer/core'
 import { DefaultCredentialResolver } from '@pr-reviewer/credentials'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CliDeps } from './deps.js'
 import { main } from './main.js'
+import { newPairCode } from './pairing.js'
 import { startServer, type RunningServer } from './serve.js'
 
 const GH = 'https://api.github.com/repos/octo/app'
@@ -315,5 +319,98 @@ describe('pr-reviewer serve', () => {
     let err = ''
     expect(await main(['serve', '--port', 'abc'], { stdout: () => undefined, stderr: (t) => (err += t) }, deps(github().impl))).toBe(64)
     expect(err).toContain('--port must be a whole number')
+  })
+})
+
+describe('pairing the browser extension (Story 7.8)', () => {
+  const EXT = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
+  const OTHER = 'chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba'
+
+  /** Raw request with chosen Origin and Host (fetch would add its own). */
+  function raw(url: string, method: string, path: string, headers: Record<string, string>, body?: unknown): Promise<{ status: number; headers: Record<string, unknown>; body: string }> {
+    const u = new URL(url)
+    const data = body === undefined ? undefined : JSON.stringify(body)
+    return new Promise((resolve, reject) => {
+      const req = request({ host: u.hostname, port: u.port, path, method, headers: { ...(data ? { 'content-type': 'application/json' } : {}), ...headers } }, (res) => {
+        let text = ''
+        res.on('data', (c: Buffer) => (text += c.toString()))
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: text }))
+      })
+      req.on('error', reject)
+      req.end(data)
+    })
+  }
+
+  async function startPairing(dir: string, open = true, now?: () => number) {
+    server = await startServer({ deps: deps(github().impl), config: config(), secrets: [], token: 'test-token-0123456789abcdef', pairing: { dir, open, computer: 'devbox', code: 'ABCD2345', ...(now ? { now } : {}) } })
+    return server
+  }
+
+  it('exchanges the code once for a token that works from that extension only', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-pair-'))
+    const s = await startPairing(dir)
+    expect(s.pairCode).toBe('ABCD2345')
+    const ext = { origin: EXT, 'sec-fetch-site': 'none' }
+    expect((await raw(s.url, 'GET', '/v1/session', ext)).status).toBe(403)
+    const wrong = await raw(s.url, 'POST', '/pair', ext, { code: 'ABCD-0000' })
+    expect(wrong.status).toBe(400)
+    expect(JSON.parse(wrong.body).error.message).toBe("That code didn't match.")
+    const ok = await raw(s.url, 'POST', '/pair', ext, { code: 'abcd-2345' })
+    expect(ok.status).toBe(200)
+    expect(ok.headers['access-control-allow-origin']).toBe(EXT)
+    const paired = JSON.parse(ok.body) as { token: string; computer: string; port: number }
+    expect(paired.computer).toBe('devbox')
+    expect(paired.port).toBe(Number(new URL(s.url).port))
+    expect(readFileSync(join(dir, 'paired-extensions.json'), 'utf8')).not.toContain(paired.token)
+    expect((await raw(s.url, 'POST', '/pair', ext, { code: 'ABCD2345' })).status).toBe(410)
+
+    const withToken = { ...ext, authorization: `Bearer ${paired.token}` }
+    const session = await raw(s.url, 'GET', '/v1/session', withToken)
+    expect(session.status).toBe(200)
+    expect(session.headers['access-control-allow-origin']).toBe(EXT)
+    const pre = await raw(s.url, 'OPTIONS', '/v1/runs', { origin: EXT })
+    expect(pre.status).toBe(204)
+    expect(String(pre.headers['access-control-allow-headers'])).toContain('authorization')
+    expect((await raw(s.url, 'GET', '/v1/session', { ...withToken, origin: OTHER })).status).toBe(403)
+    expect((await raw(s.url, 'GET', '/v1/session', { ...withToken, origin: 'https://evil.example' })).status).toBe(403)
+    expect((await raw(s.url, 'GET', '/v1/session', { ...withToken, host: 'evil.example' })).status).toBe(403)
+    expect((await raw(s.url, 'GET', '/v1/session', { ...ext, authorization: 'Bearer nope' })).status).toBe(401)
+    // The page's launch token is not a pairing token.
+    expect((await raw(s.url, 'GET', '/v1/session', { ...ext, authorization: `Bearer ${s.token}` })).status).toBe(401)
+    // Without pairing open, nothing changes for ordinary requests.
+    expect((await raw(s.url, 'GET', '/v1/session', { authorization: `Bearer ${s.token}` })).status).toBe(200)
+
+    // A later launch without --pair still accepts the pairing, until --unpair.
+    await s.close()
+    const again = await startPairing(dir, false)
+    expect(again.pairCode).toBeUndefined()
+    expect((await raw(again.url, 'POST', '/pair', ext, { code: 'ABCD2345' })).status).toBe(409)
+    expect((await raw(again.url, 'GET', '/v1/session', withToken)).status).toBe(200)
+    let out = ''
+    expect(await main(['serve', '--unpair'], { stdout: (t) => (out += t), stderr: () => undefined }, deps(github().impl, { env: { ...env, PR_REVIEWER_STATE_DIR: dir } }))).toBe(0)
+    expect(out).toContain('Removed 1 paired browser extension.')
+    expect((await raw(again.url, 'GET', '/v1/session', withToken)).status).toBe(403)
+  })
+
+  it('expires the code after ten minutes or five wrong tries', async () => {
+    let t = 1_000_000
+    const s = await startPairing(mkdtempSync(join(tmpdir(), 'prr-pair-')), true, () => t)
+    t += 10 * 60_000
+    expect(JSON.parse((await raw(s.url, 'POST', '/pair', { origin: EXT }, { code: 'ABCD2345' })).body).error.code).toBe('pair_code_expired')
+    await s.close()
+    t = 0
+    const s2 = await startPairing(mkdtempSync(join(tmpdir(), 'prr-pair-')), true, () => t)
+    for (let i = 0; i < 4; i++) expect((await raw(s2.url, 'POST', '/pair', { origin: EXT }, { code: 'WRONG000' })).status).toBe(400)
+    expect((await raw(s2.url, 'POST', '/pair', { origin: EXT }, { code: 'WRONG000' })).status).toBe(410)
+    expect((await raw(s2.url, 'POST', '/pair', { origin: EXT }, { code: 'ABCD2345' })).status).toBe(410)
+  })
+
+  it('prints the pairing code on the stable port', async () => {
+    let out = ''
+    const dir = mkdtempSync(join(tmpdir(), 'prr-pair-'))
+    expect(await main(['serve', '--pair', '--port', '0'], { stdout: (t) => (out += t), stderr: () => undefined }, deps(github().impl, { env: { ...env, PR_REVIEWER_STATE_DIR: dir } }))).toBe(0)
+    expect(out).toMatch(/Pairing code for the browser extension: [A-Z2-9]{4}-[A-Z2-9]{4}\n/)
+    expect(out).toMatch(/keep port \d+/)
+    expect(newPairCode()).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{8}$/)
   })
 })

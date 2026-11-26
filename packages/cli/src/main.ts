@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
@@ -31,6 +31,8 @@ import { mcpCommand } from './mcp.js'
 import { collectStats, formatStats } from './stats.js'
 import { initCommand } from './init.js'
 import { startServer } from './serve.js'
+import { formatPairCode, PAIRED_PORT, readPairings, unpairAll } from './pairing.js'
+import { stateDir } from './state.js'
 import { startWeb, webConfigProblems } from './web.js'
 import { VERSION } from './version.js'
 
@@ -103,8 +105,10 @@ init options:
   --skip-test        Don't make a test call to each AI provider
 
 serve options:
-  --port <n>         Port on 127.0.0.1 (default: any free port)
+  --port <n>         Port on 127.0.0.1 (default: any free port; 4747 once the extension is paired)
   --open             Open the page in your default browser
+  --pair             Print a code that pairs the pr-reviewer browser extension with this computer
+  --unpair           Remove every paired browser extension and exit
 
 context options:
   --json             Print the full context as JSON
@@ -530,11 +534,20 @@ function configCommand(args: string[], io: CliIo, deps: CliDeps): number {
 async function serveCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, open: { type: 'boolean' }, profile: { type: 'string' }, ui: { type: 'string' } } })
+    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, open: { type: 'boolean' }, profile: { type: 'string' }, ui: { type: 'string' }, pair: { type: 'boolean' }, unpair: { type: 'boolean' } } })
   } catch (e) {
     return usageError(io, (e as Error).message)
   }
-  const port = parsed.values.port === undefined ? 0 : Number(parsed.values.port)
+  const dir = stateDir(deps)
+  if (parsed.values.unpair) {
+    if (parsed.values.pair) return usageError(io, '--pair and --unpair cannot be used together')
+    const n = unpairAll(dir)
+    io.stdout(n === 0 ? 'No browser extension was paired.\n' : `Removed ${n} paired browser extension${n === 1 ? '' : 's'}. Pair again with: pr-reviewer serve --pair\n`)
+    return EXIT_CODES.passed
+  }
+  const paired = readPairings(dir).length > 0
+  const pairing = Boolean(parsed.values.pair)
+  const port = parsed.values.port === undefined ? (pairing || paired ? PAIRED_PORT : 0) : Number(parsed.values.port)
   if (!Number.isInteger(port) || port < 0 || port > 65535) return usageError(io, '--port must be a whole number from 0 to 65535')
   const ui = parsed.values.ui
   if (ui !== undefined && ui !== 'classic' && ui !== 'v2') return usageError(io, '--ui must be classic or v2')
@@ -543,7 +556,7 @@ async function serveCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
 
   let server
   try {
-    server = await startServer({ deps, config, secrets, port, ...(ui ? { ui } : {}), log: (t) => io.stderr(t) })
+    server = await startServer({ deps, config, secrets, port, ...(ui ? { ui } : {}), log: (t) => io.stderr(t), pairing: { dir, open: pairing, computer: hostname() } })
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code
     io.stderr(code === 'EADDRINUSE' ? `Port ${port} is in use; pick another with --port, or leave it out to use any free port.\n` : `Could not start the page: ${(e as Error).message}\n`)
@@ -554,6 +567,17 @@ async function serveCommand(args: string[], io: CliIo, deps: CliDeps, secrets: S
       'PR Reviewer page is running on this machine only.',
       `  Open: ${server.pageUrl}`,
       'The link carries a one-time key; anyone with it can use your GitHub and AI access while this runs. Do not share it.',
+      ...(server.pairCode
+        ? [
+            '',
+            `Pairing code for the browser extension: ${formatPairCode(server.pairCode)}`,
+            `  In the extension choose "This computer", keep port ${new URL(server.url).port}, and type the code. It works once, for 10 minutes.`,
+            `  This computer will show as "${hostname()}".`,
+          ]
+        : paired
+          ? ['', 'The paired browser extension can use this page. Remove it with: pr-reviewer serve --unpair']
+          : []),
+      '',
       'Press Ctrl+C to stop.',
       '',
     ].join('\n'),
