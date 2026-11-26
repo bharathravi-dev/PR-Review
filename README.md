@@ -1,15 +1,36 @@
 # pr-reviewer
 
-Review GitHub pull requests before you merge them. `pr-reviewer` reads the PR in context, runs the checks
-that can run deterministically, adds an AI review with the provider you choose, and can post the result
-on the PR as precise inline comments plus one summary, without ever approving or merging.
+AI pull request reviews you control: any model (your Claude or ChatGPT plan, an API key, or a local model in
+Ollama), real compile, lint and security checks next to the AI, and nothing posted without a preview. GitHub,
+GitLab, Bitbucket and Azure DevOps. Self-hosted, open source (MIT), no analytics. Built by
+[BR.dev](https://bharathravi.dev/).
 
-Status: Release 1. Available now: the CLI and a local review page; project and version detection;
-Angular 12+ and React checks; reuse of your CI and SonarQube results; known-vulnerability checks for new
-dependencies; the repository's own `tsc`, ESLint, or TSLint in a container sandbox; secret scanning; AI
-review with your Claude or ChatGPT plan or an API key; posting, re-review without duplicates, Finding
-feedback, and stats; automatic reviews of PRs in your account; and a self-hosted Web App for teams. Coming: a
-browser extension.
+## Why pr-reviewer
+
+| | pr-reviewer | Typical hosted AI reviewer |
+|---|---|---|
+| Model | Your choice: Claude or ChatGPT plan, any API key, or Ollama on your machine | The vendor's model |
+| Price | Free and open source; you pay only your model (or nothing, with Ollama) | Per seat per month |
+| Your code | Stays with you: self-hosted server, CLI, or browser; secrets scanned out before any AI call | Sent to the vendor |
+| Evidence | The repository's own `tsc`, ESLint/TSLint in a sandbox, CI results, security patterns, known vulnerabilities, secret scanning | Mostly the AI's opinion |
+| Posting | Preview equals post; never merges; approval only by an opt-in policy | Varies |
+| Platforms | GitHub, GitLab, Bitbucket, Azure DevOps | Often GitHub-first |
+
+**What it does:**
+
+- **Reviews:** inline findings, a walkthrough, and one summary comment. Incremental re-reviews check only what changed. The depth adapts: light for docs and small changes, deep for auth, secrets, CI and migrations. Repeated findings are folded together, and style noise is left out.
+- **Context:** related code (imports, callers, tests), code anywhere in the repository (and, opt-in, your other repositories) that uses what changed, Jira and Linear tickets, and the repository's own guidance files.
+- **Everywhere you work:**
+  - a CLI;
+  - a local review page;
+  - a team Web App with a Team dashboard;
+  - a browser extension on the PR page (your own key, your team's Web App, or pr-reviewer on your computer);
+  - an MCP server for coding agents;
+  - and `review --local` before you open a PR.
+- **Automation:** a GitHub App and verified webhooks for GitLab, Bitbucket and Azure DevOps review every PR on push. People talk to it in the PR: `@pr-reviewer why`, `fix`, `ignore`, `review`.
+- **Fixing:** `@pr-reviewer fix` replies with a committable suggestion, and "Commit this change" in the review page or extension commits one. `pr-reviewer ship` reviews your PR, has your coding agent fix it, pushes, waits for CI, and repeats until it's ready.
+
+Roadmap and status: [docs/roadmap.md](docs/roadmap.md). Quality measurements: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Quick start
 
@@ -33,10 +54,13 @@ asked to confirm; use `--yes` in scripts.
 | Command | What it does |
 |---|---|
 | `init` | Find your GitHub login and AI, test each with a small call, and write your config |
-| `review <pr>` | Review a PR and print the report (`--out <dir>` for files, `--json`, `--post`) |
+| `review <pr>` | Review a PR (GitHub, GitLab, Bitbucket or Azure DevOps link) and print the report (`--out <dir>`, `--json`, `--post`, `--full`, `--effort`); `review --local` reviews your checkout before a PR |
 | `list <owner/repo>` | Open PRs and whether you reviewed their latest commit; pick one to review |
 | `stats` | How your posted findings fared: addressed, dismissed, still open, by severity and by source |
 | `fix <pr>` | Have your own Claude Code or Codex fix your open findings in your checkout of the PR |
+| `ship <pr>` | Review, fix with your coding agent, push, wait for CI, and repeat until the PR is ready; never merges |
+| `respond <pr>` | Answer `@pr-reviewer` commands left on the PR (review, why, fix, ignore, remember, help) |
+| `app` | Automatic reviews: the GitHub App and webhooks for GitLab, Bitbucket and Azure DevOps (docs/github-app.md) |
 | `learnings <owner/repo>` | What reviews learned from feedback on earlier comments, and how to undo it |
 | `mcp` | Run as an MCP server so your coding agent can review a PR and read its open findings; never posts |
 | `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
