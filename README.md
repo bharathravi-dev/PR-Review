@@ -114,6 +114,15 @@ edit and choose findings, post them, and see what changed since earlier runs of 
 uses their own GitHub sign-in and AI key, stored encrypted on the server. See
 [docs/web-app.md](docs/web-app.md).
 
+## Install
+
+```bash
+npm install -g @pr-reviewer/cli      # once released; until then: node packages/cli/bin/pr-reviewer.js
+docker pull ghcr.io/bharathravi-dev/pr-reviewer   # the Web App and the GitHub App
+```
+
+Releases: [docs/releasing.md](docs/releasing.md).
+
 ## For a team, zero setup per PR: the GitHub App
 
 Install it once and every PR is reviewed when opened or pushed to, and `@pr-reviewer` commands are answered, as the

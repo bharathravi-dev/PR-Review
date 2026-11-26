@@ -12,7 +12,8 @@
     "test": "vitest run",
     "check": "pnpm lint && pnpm build && pnpm test",
     "audit:v2": "node scripts/review-page-audit/audit.mjs",
-    "package:extension": "node scripts/package-extension.mjs"
+    "package:extension": "node scripts/package-extension.mjs",
+    "package:cli": "node scripts/package-cli.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

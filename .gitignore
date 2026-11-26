@@ -13,3 +13,4 @@ bench/data/
 bench/results/
 packages/extension/build/
 packages/extension/pr-reviewer-extension-*.zip
+release/

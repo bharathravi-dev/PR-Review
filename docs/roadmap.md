@@ -19,7 +19,7 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 9 | Opt-in approval, gated (checks ran and passed, no finding at or above a threshold) | Copilot can now approve; ours stays off by default | done (`publish.approve`) |
 | 10 | GitLab merge requests, then Bitbucket and Azure DevOps | CodeRabbit covers all four | GitLab done (gitlab.com and self-hosted); Bitbucket and Azure DevOps planned |
 | 11 | Jira and Linear ticket awareness | Ticket-aware reviews | done |
-| 12 | Publishing: npm package, Web App image on GHCR, extension zip on releases | People must be able to install it | planned |
+| 12 | Publishing: npm package, Web App image on GHCR, extension zip on releases | People must be able to install it | done (tag vX.Y.Z → `.github/workflows/release.yml`; docs/releasing.md) |
 | 13 | Published benchmark numbers (`bench` on a public dataset) | Trust in quality | planned |
 | 14 | Team dashboard: accepted vs dismissed findings, by repo and person | Managers buy on evidence | planned |
 | 15 | Security deep scan (static rules in the Sandbox) | CodeRabbit and Copilot now market security | planned |
