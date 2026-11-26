@@ -49,6 +49,13 @@ asked to confirm; use `--yes` in scripts.
 Exit codes: 0 passed, 1 passed with warnings (0 with `--warnings-ok`), 2 failed, 3 incomplete, 4 error,
 5 cancelled, 6 post failed or blocked, 64 usage error, 78 configuration error.
 
+## GitLab
+
+Merge requests work like PRs: `pr-reviewer review https://gitlab.com/group/project/-/merge_requests/12` (nested
+groups too), with `GITLAB_TOKEN` (a token with the `api` scope). gitlab.com is recognised; list a self-hosted GitLab
+under `gitlab: { hosts: [gitlab.example.com] }` in the config. Inline findings become diff discussions, the summary a
+note; incremental reviews, commands, the merge check (a commit status) and opt-in approval work the same way.
+
 ## Review from a page in your browser
 
 ```sh

@@ -43,6 +43,7 @@ import {
   createClaudeCodeProvider,
   createCodexProvider,
   createGitHub,
+  createGitLab,
   createOllamaProvider,
   createOpenAiProvider,
   findClaudeCode,
@@ -76,6 +77,20 @@ export async function connectGitHub(
   host: string,
   opts: { viewer?: boolean } = {},
 ): Promise<GitHubConnection> {
+  // GitLab merge requests use the same ports (roadmap item 10).
+  if (isGitLabHost(config, host)) {
+    const gl = config.settings.gitlab ?? {}
+    const token = await deps.credentials.resolve(gl.credential ?? 'gitlab', { host })
+    if (token.ok) secrets.push(token.value)
+    const { reader, writer } = createGitLab({ host, apiUrl: gl.apiUrl, token: token.ok ? token.value.reveal() : undefined, fetch: deps.fetch, userAgent: USER_AGENT })
+    const conn: GitHubConnection = { reader, writer, ...(token.ok ? { token: token.value.reveal() } : { tokenError: `${token.error.message} (GitLab: set GITLAB_TOKEN, a token with the api scope)` }) }
+    if (token.ok && opts.viewer !== false) {
+      const viewer = await reader.viewer()
+      if (viewer.ok) conn.viewer = viewer.value
+      else conn.viewerError = viewer.error.message
+    }
+    return conn
+  }
   const gh = config.settings.github ?? {}
   const token = await deps.credentials.resolve(gh.credential ?? 'github', { host })
   if (token.ok) secrets.push(token.value)
@@ -93,6 +108,12 @@ export async function connectGitHub(
     else conn.viewerError = viewer.error.message
   }
   return conn
+}
+
+/** gitlab.com, any host whose name starts with "gitlab.", and hosts listed under gitlab.hosts are GitLab. */
+export function isGitLabHost(config: ResolvedConfig, host: string): boolean {
+  const h = host.toLowerCase()
+  return h === 'gitlab.com' || h.startsWith('gitlab.') || (config.settings.gitlab?.hosts ?? []).some((x) => x.toLowerCase() === h)
 }
 
 /** The AI Provider name a run uses: the flag, else the configured default, else Anthropic. */

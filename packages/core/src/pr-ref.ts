@@ -1,6 +1,6 @@
 import { err, ok, type Result } from './result.js'
 
-/** A pull request on a GitHub host. `host` is the web host, e.g. "github.com". */
+/** A pull request on a GitHub host, or a GitLab merge request (`owner` may then hold nested groups, "group/sub"). */
 export interface PrRef {
   host: string
   owner: string
@@ -24,6 +24,13 @@ export function parsePrRef(input: string, defaultHost: string): Result<PrRef> {
 
   const url = URL_RE.exec(text)
   if (!url) return err('pr_ref_invalid', `Not a PR URL or owner/repo#number: ${input}`)
+  // GitLab: https://<host>/<group>[/<subgroup>…]/<project>/-/merge_requests/<n>
+  const mr = /^\/(.+)\/([^/]+)\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/.exec(url[2] ?? '')
+  if (mr) {
+    if (!mr[1]!.split('/').every((s) => NAME.test(s))) return err('pr_ref_invalid', `Not a merge request URL: ${input}`)
+    const built = build(url[1] ?? '', 'x', mr[2], mr[3])
+    return built.ok ? ok({ ...built.value, owner: mr[1]! }) : built
+  }
   const [owner, repo, kind, num] = (url[2] ?? '').split(/[?#]/, 1)[0]!.split('/').filter(Boolean)
   if (kind !== 'pull' && kind !== 'pulls') return err('pr_ref_invalid', `Not a pull request URL: ${input}`)
   return build(url[1] ?? '', owner, repo, num)

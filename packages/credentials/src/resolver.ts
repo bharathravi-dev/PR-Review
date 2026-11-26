@@ -4,6 +4,7 @@ import { err, ok, Secret, type CredentialResolver, type Result } from '@pr-revie
 /** Environment variables checked, in order, for each Credential reference. */
 export function envNamesFor(ref: string): string[] {
   if (ref === 'github') return ['GITHUB_TOKEN', 'GH_TOKEN']
+  if (ref === 'gitlab') return ['GITLAB_TOKEN', 'GL_TOKEN']
   if (ref === 'provider:anthropic') return ['ANTHROPIC_API_KEY']
   if (ref === 'provider:openai') return ['OPENAI_API_KEY']
   const id = ref.replace(/^provider:/, '')

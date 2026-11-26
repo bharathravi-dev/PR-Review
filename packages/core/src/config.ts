@@ -5,7 +5,7 @@ import { Severity } from './findings.js'
 import { err, ok, type Result } from './result.js'
 
 /** Named Credential reference; values never live in Configuration (AD-10). */
-export const CredentialRef = z.string().regex(/^(github|provider:[a-z0-9][a-z0-9-]*)$/, 'expected "github" or "provider:<id>"')
+export const CredentialRef = z.string().regex(/^(github|gitlab|provider:[a-z0-9][a-z0-9-]*)$/, 'expected "github", "gitlab" or "provider:<id>"')
 
 export const ProviderType = z.enum(['anthropic', 'anthropic-compatible', 'openai-compatible', 'ollama', 'claude-code', 'codex'])
 export type ProviderType = z.infer<typeof ProviderType>
@@ -35,6 +35,14 @@ export const Settings = z.strictObject({
   github: z
     .strictObject({
       host: z.string().optional(),
+      apiUrl: z.string().optional(),
+      credential: CredentialRef.optional(),
+    })
+    .optional(),
+  /** GitLab (roadmap item 10): gitlab.com always; list self-hosted GitLab hosts here. Token: GITLAB_TOKEN. */
+  gitlab: z
+    .strictObject({
+      hosts: z.array(z.string()).optional(),
       apiUrl: z.string().optional(),
       credential: CredentialRef.optional(),
     })

@@ -2,7 +2,7 @@
 import { redactText, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type Validator } from '@pr-reviewer/core'
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
-import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
+import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, gitlabApiUrl } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
 import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
@@ -29,6 +29,12 @@ export function createGitHub(opts: { apiUrl: string; token?: string | undefined;
 } {
   const client = new GitHubClient(opts)
   return { reader: new GitHubPrReader(client), writer: new GitHubPrWriter(client) }
+}
+
+/** GitLab merge requests behind the same ports (roadmap item 10). */
+export function createGitLab(opts: { apiUrl?: string | undefined; host: string; token?: string | undefined; fetch: typeof fetch; userAgent: string }): { reader: GitHubReader; writer: GitHubWriter } {
+  const o = { apiUrl: opts.apiUrl ?? gitlabApiUrl(opts.host), token: opts.token, fetch: opts.fetch, userAgent: opts.userAgent }
+  return { reader: new GitLabReader(o), writer: new GitLabWriter(o) }
 }
 
 export function createAnthropicProvider(opts: { name?: string | undefined; apiKey: Secret; model?: string | undefined; baseUrl?: string | undefined; timeoutMs?: number | undefined; fetch: typeof fetch }): ReviewProvider {
