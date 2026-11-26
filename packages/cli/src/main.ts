@@ -13,22 +13,25 @@ import {
   parsePrRef,
   redactText,
   resolveSettings,
+  type GitHubWriter,
   type OverallStatus,
   type PrContext,
+  type PrRef,
   type PublishPreview,
   type ResolvedConfig,
   type Secret,
 } from '@pr-reviewer/core'
-import { createCredentialResolver } from './compose.js'
+import { createCredentialResolver, runProcess } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
 import type { CliDeps, CliIo } from './deps.js'
-import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish } from './engine.js'
+import { connectGitHub, executeReview, listPullsWithState, performPublish, preparePublish, type GitHubConnection } from './engine.js'
 import { autoCommand } from './auto.js'
 import { benchCommand } from './bench.js'
 import { fixCommand } from './fix.js'
 import { shipCommand } from './ship.js'
 import { respondCommand } from './respond.js'
 import { appSettingsFromEnv, startAppServer } from './app-server.js'
+import { localChanges } from './local-git.js'
 import { learningsCommand } from './learnings.js'
 import { mcpCommand } from './mcp.js'
 import { collectStats, formatStats } from './stats.js'
@@ -81,6 +84,7 @@ review options:
   --warnings-ok      Exit 0 instead of 1 for PASSED_WITH_WARNINGS
   --post             Post the review to the PR (shows a preview and asks first)
   --full             Re-check every file with the AI (later reviews re-check only what changed)
+  --local            Review this checkout's changes before there is a PR (with --base <branch>; default origin's default)
   --effort <level>   adaptive (default), light, standard, or deep
   --yes              Post without asking (required when not in an interactive terminal)
   --event <e>        COMMENT (default) or REQUEST_CHANGES (needs publish.allowRequestChanges)
@@ -296,6 +300,8 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
         post: { type: 'boolean' },
         full: { type: 'boolean' },
         effort: { type: 'string' },
+        local: { type: 'boolean' },
+        base: { type: 'string' },
         yes: { type: 'boolean' },
         event: { type: 'string' },
       },
@@ -304,7 +310,10 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
     return usageError(io, (e as Error).message)
   }
   const [input, ...extra] = parsed.positionals
-  if (!input || extra.length > 0) return usageError(io, 'review needs exactly one PR reference')
+  const local = parsed.values.local === true
+  if (local && (input || parsed.values.post)) return usageError(io, '--local reviews this checkout before there is a PR: give no PR reference, and --post is not possible')
+  if (!local && parsed.values.base) return usageError(io, '--base only applies with --local')
+  if (!local && (!input || extra.length > 0)) return usageError(io, 'review needs exactly one PR reference (or --local for the changes in this checkout)')
   if (parsed.values.effort !== undefined && !['adaptive', 'light', 'standard', 'deep'].includes(parsed.values.effort)) return usageError(io, '--effort must be adaptive, light, standard, or deep')
 
   const config = resolveConfig(io, deps, parsed.values.profile, { host: parsed.values.host, apiUrl: parsed.values['api-url'] })
@@ -323,12 +332,25 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   }
 
   const gh = config.settings.github ?? {}
-  const ref = parsePrRef(input, gh.host ?? 'github.com')
-  if (!ref.ok) return usageError(io, ref.error.message)
-
-  // The Reviewer Identity is part of the idempotency key (AD-11) and lets the review honour Finding feedback.
-  // Posting requires it; plain reviews use it when a token is available.
-  const github = await connectGitHub(config, deps, secrets, ref.value.host)
+  let ref: { ok: true; value: PrRef }
+  let github: GitHubConnection
+  if (local) {
+    const changes = await localChanges({ cwd: deps.cwd ?? process.cwd(), run: deps.run ?? runProcess, env: deps.env, base: parsed.values.base })
+    if (!changes.ok) {
+      io.stderr(`${changes.error.message}\n`)
+      return EXIT_CODES.error
+    }
+    io.stderr(`Reviewing this checkout against ${changes.value.base}${changes.value.dirty ? ', including uncommitted changes' : ''}…\n`)
+    ref = { ok: true, value: changes.value.ref }
+    github = { reader: changes.value.reader, writer: noWriter }
+  } else {
+    const parsedRef = parsePrRef(input!, gh.host ?? 'github.com')
+    if (!parsedRef.ok) return usageError(io, parsedRef.error.message)
+    ref = parsedRef
+    // The Reviewer Identity is part of the idempotency key (AD-11) and lets the review honour Finding feedback.
+    // Posting requires it; plain reviews use it when a token is available.
+    github = await connectGitHub(config, deps, secrets, ref.value.host)
+  }
   if (post && !github.viewer) {
     io.stderr(`Cannot post: ${github.tokenError ?? github.viewerError}\n`)
     return EXIT_CODES.error
@@ -653,6 +675,9 @@ async function webCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
   await web.close()
   return EXIT_CODES.passed
 }
+
+/** A local review never posts; any write is a bug. */
+const noWriter: GitHubWriter = new Proxy({} as GitHubWriter, { get: () => async () => ({ ok: false, error: { code: 'local', message: 'A local review cannot post.', retryable: false } }) })
 
 /** `pr-reviewer app`: the GitHub App's webhook server, configured by environment variables (docs/github-app.md). */
 async function appCommand(args: string[], io: CliIo, deps: CliDeps): Promise<number> {

@@ -163,6 +163,10 @@ repository's own agent settings or hooks. Nothing is committed or pushed; you re
 yourself, and the next review closes what was fixed. `--only 1,3` picks findings, `--print` prints the
 prompt for any other agent.
 
+**Before you open a PR: `pr-reviewer review --local`.** Reviews the changes in your checkout (committed and
+uncommitted tracked files) against where your branch left `main` (or `--base <branch>`), with the same checks, AI
+review and Sandbox as a PR review. Nothing is posted; your checkout is not changed.
+
 **Until it's ready: `pr-reviewer ship <PR>`.** In a clean checkout of your PR's head, ship reviews the PR, asks
 your Claude Code or Codex to fix findings at MAJOR or above, failed checks, and failed CI, commits the fixes, pushes,
 waits for CI, and reviews again, for up to three rounds (`--rounds`, `--min-severity`). It stops when the PR is ready,
