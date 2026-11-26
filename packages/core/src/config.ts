@@ -5,7 +5,7 @@ import { Severity } from './findings.js'
 import { err, ok, type Result } from './result.js'
 
 /** Named Credential reference; values never live in Configuration (AD-10). */
-export const CredentialRef = z.string().regex(/^(github|gitlab|provider:[a-z0-9][a-z0-9-]*)$/, 'expected "github", "gitlab" or "provider:<id>"')
+export const CredentialRef = z.string().regex(/^(github|gitlab|bitbucket|azure-devops|provider:[a-z0-9][a-z0-9-]*)$/, 'expected "github", "gitlab", "bitbucket", "azure-devops" or "provider:<id>"')
 
 export const ProviderType = z.enum(['anthropic', 'anthropic-compatible', 'openai-compatible', 'ollama', 'claude-code', 'codex'])
 export type ProviderType = z.infer<typeof ProviderType>

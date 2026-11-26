@@ -5,6 +5,8 @@ import { err, ok, Secret, type CredentialResolver, type Result } from '@pr-revie
 export function envNamesFor(ref: string): string[] {
   if (ref === 'github') return ['GITHUB_TOKEN', 'GH_TOKEN']
   if (ref === 'gitlab') return ['GITLAB_TOKEN', 'GL_TOKEN']
+  if (ref === 'bitbucket') return ['BITBUCKET_TOKEN']
+  if (ref === 'azure-devops') return ['AZURE_DEVOPS_TOKEN', 'AZURE_DEVOPS_EXT_PAT']
   if (ref === 'provider:anthropic') return ['ANTHROPIC_API_KEY']
   if (ref === 'provider:openai') return ['OPENAI_API_KEY']
   const id = ref.replace(/^provider:/, '')

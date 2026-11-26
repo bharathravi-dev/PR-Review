@@ -2,7 +2,7 @@
 import { redactText, Secret as SecretValue, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type Ticket, type Validator } from '@pr-reviewer/core'
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
-import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, createTicketPort, gitlabApiUrl } from '@pr-reviewer/github'
+import { AutomationClient, BitbucketReader, BitbucketWriter, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, createTicketPort, gitlabApiUrl } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
 import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
@@ -29,6 +29,11 @@ export function createGitHub(opts: { apiUrl: string; token?: string | undefined;
 } {
   const client = new GitHubClient(opts)
   return { reader: new GitHubPrReader(client), writer: new GitHubPrWriter(client) }
+}
+
+/** Bitbucket Cloud pull requests behind the same ports. */
+export function createBitbucket(opts: { token?: string | undefined; fetch: typeof fetch; userAgent: string }): { reader: GitHubReader; writer: GitHubWriter } {
+  return { reader: new BitbucketReader(opts), writer: new BitbucketWriter(opts) }
 }
 
 /** GitLab merge requests behind the same ports (roadmap item 10). */

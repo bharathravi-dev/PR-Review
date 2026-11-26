@@ -62,6 +62,13 @@ groups too), with `GITLAB_TOKEN` (a token with the `api` scope). gitlab.com is r
 under `gitlab: { hosts: [gitlab.example.com] }` in the config. Inline findings become diff discussions, the summary a
 note; incremental reviews, commands, the merge check (a commit status) and opt-in approval work the same way.
 
+## Bitbucket
+
+Bitbucket Cloud pull requests work the same way: `pr-reviewer review https://bitbucket.org/<workspace>/<repo>/pull-requests/7`
+with `BITBUCKET_TOKEN` (a repository or workspace access token, or `username:app-password`). Inline findings become
+inline comments, the summary a PR comment; approval, request-changes, commands, incremental reviews, code search and
+Apply fix work as on GitHub.
+
 ## Review from a page in your browser
 
 ```sh

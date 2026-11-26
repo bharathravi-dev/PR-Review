@@ -43,6 +43,7 @@ import {
   createClaudeCodeProvider,
   createCodexProvider,
   createGitHub,
+  createBitbucket,
   createGitLab,
   createTickets,
   createOllamaProvider,
@@ -78,6 +79,19 @@ export async function connectGitHub(
   host: string,
   opts: { viewer?: boolean } = {},
 ): Promise<GitHubConnection> {
+  // Bitbucket Cloud pull requests use the same ports.
+  if (host.toLowerCase() === 'bitbucket.org') {
+    const token = await deps.credentials.resolve('bitbucket', { host })
+    if (token.ok) secrets.push(token.value)
+    const { reader, writer } = createBitbucket({ token: token.ok ? token.value.reveal() : undefined, fetch: deps.fetch, userAgent: USER_AGENT })
+    const conn: GitHubConnection = { reader, writer, ...(token.ok ? { token: token.value.reveal() } : { tokenError: `${token.error.message} (Bitbucket: set BITBUCKET_TOKEN, an access token, or "username:app-password")` }) }
+    if (token.ok && opts.viewer !== false) {
+      const viewer = await reader.viewer()
+      if (viewer.ok) conn.viewer = viewer.value
+      else conn.viewerError = viewer.error.message
+    }
+    return conn
+  }
   // GitLab merge requests use the same ports (roadmap item 10).
   if (isGitLabHost(config, host)) {
     const gl = config.settings.gitlab ?? {}

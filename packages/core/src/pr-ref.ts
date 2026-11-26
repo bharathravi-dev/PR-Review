@@ -32,6 +32,8 @@ export function parsePrRef(input: string, defaultHost: string): Result<PrRef> {
     return built.ok ? ok({ ...built.value, owner: mr[1]! }) : built
   }
   const [owner, repo, kind, num] = (url[2] ?? '').split(/[?#]/, 1)[0]!.split('/').filter(Boolean)
+  // Bitbucket: https://bitbucket.org/<workspace>/<repo>/pull-requests/<n>
+  if (kind === 'pull-requests') return build(url[1] ?? '', owner, repo, num)
   if (kind !== 'pull' && kind !== 'pulls') return err('pr_ref_invalid', `Not a pull request URL: ${input}`)
   return build(url[1] ?? '', owner, repo, num)
 }
