@@ -246,6 +246,28 @@ importers:
         specifier: 2.1.2
         version: 2.1.2
 
+  packages/extension:
+    dependencies:
+      '@pr-reviewer/advisories':
+        specifier: workspace:*
+        version: link:../advisories
+      '@pr-reviewer/core':
+        specifier: workspace:*
+        version: link:../core
+      '@pr-reviewer/github':
+        specifier: workspace:*
+        version: link:../github
+      '@pr-reviewer/providers-http':
+        specifier: workspace:*
+        version: link:../providers-http
+      '@pr-reviewer/validators':
+        specifier: workspace:*
+        version: link:../validators
+    devDependencies:
+      vite:
+        specifier: 8.3.8
+        version: 8.3.8(@types/node@22.20.5)(yaml@2.9.1)
+
   packages/github:
     dependencies:
       '@pr-reviewer/core':

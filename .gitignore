@@ -11,3 +11,4 @@ dist/
 # Benchmark data downloaded by scripts/bench-import-golden.mjs and bench results
 bench/data/
 bench/results/
+packages/extension/build/

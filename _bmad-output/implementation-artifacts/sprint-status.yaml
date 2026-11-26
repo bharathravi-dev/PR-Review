@@ -88,8 +88,8 @@ development_status:
   6-3-selective-publish-and-history: done
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1-review-a-pr-from-the-side-panel-walking-skeleton: backlog
+  epic-7: in-progress
+  7-1-review-a-pr-from-the-side-panel-walking-skeleton: review  # bundled engine ran a full review in Chrome (stubbed chrome.* + mocked APIs); not yet loaded as an installed extension (branded Chrome blocks --load-extension); F6 into the panel not verified
   7-2-welcome-consent-and-standalone-setup: backlog
   7-3-choose-findings-open-them-in-the-diff-and-post: backlog
   7-4-follow-the-tab-keep-recent-reviews-and-work-offline: backlog

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR Reviewer</title>
+  <link rel="stylesheet" href="./src/panel.css">
+  <script type="module" src="./src/panel.ts"></script>
+</head>
+<body>
+  <header class="head">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>PR Reviewer</div>
+    <span id="mode" class="chip"><span class="dot" aria-hidden="true"></span><span id="mode-text">Checking…</span></span>
+  </header>
+  <main id="main"></main>
+  <div id="status" role="status" class="sr-only"></div>
+  <div id="alert" role="alert" class="sr-only"></div>
+</body>
+</html>

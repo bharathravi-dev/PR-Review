@@ -69,6 +69,13 @@ extension will also use.
 you start with `--ui v2` (Web App: `PR_REVIEWER_DEFAULT_UI=v2`). "Try v2" and "Switch to classic" move between
 them and the browser remembers your choice. v2 becomes the default once it does everything classic does
 ([docs/review-page-v2.md](docs/review-page-v2.md)).
+## From the GitHub PR page: the browser extension (in progress)
+
+`pnpm build` also builds a Chrome extension into `packages/extension/build/`. Load it unpacked from
+`chrome://extensions` (Developer mode → Load unpacked), open a PR on github.com, and click the toolbar icon
+or press Alt+Shift+R. In Standalone mode the review runs inside the side panel with your own GitHub token and
+AI key; compile and lint are reported as not run (there is no Sandbox in the browser). Nothing is posted.
+
 ## For a team: the Web App
 
 ```bash
