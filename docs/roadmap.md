@@ -14,7 +14,7 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 4 | Incremental reviews (only what changed since the last reviewed commit) and the result as a merge check | Copilot and CodeRabbit both do this | done (merge check: `publish.commitStatus`, and ship's `pr-reviewer/ship` status) |
 | 5 | Adaptive effort: quick pass for small, low-risk PRs; full review for risky ones | Faster and cheaper; fixes local-model slowness | done |
 | 6 | Replies in the PR thread: `@pr-reviewer why`, `fix`, `ignore`, `review` | Conversation is expected | done (`pr-reviewer respond`; webhooks arrive with item 7) |
-| 7 | GitHub App: install once, every PR reviewed on push (webhooks, in the Web App) | How every competitor is adopted | planned |
+| 7 | GitHub App: install once, every PR reviewed on push (webhooks, in the Web App) | How every competitor is adopted | done (`pr-reviewer app`, docs/github-app.md) |
 | 8 | Review local changes before a PR (`pr-reviewer review --local`) | Shift left, like IDE review | planned |
 | 9 | Opt-in approval, gated (checks ran and passed, no finding at or above a threshold) | Copilot can now approve; ours stays off by default | planned |
 | 10 | GitLab merge requests, then Bitbucket and Azure DevOps | CodeRabbit covers all four | planned |

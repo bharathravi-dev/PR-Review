@@ -28,6 +28,7 @@ import { benchCommand } from './bench.js'
 import { fixCommand } from './fix.js'
 import { shipCommand } from './ship.js'
 import { respondCommand } from './respond.js'
+import { appSettingsFromEnv, startAppServer } from './app-server.js'
 import { learningsCommand } from './learnings.js'
 import { mcpCommand } from './mcp.js'
 import { collectStats, formatStats } from './stats.js'
@@ -57,6 +58,7 @@ Commands:
   fix <PR>           Have your Claude Code or Codex fix your open findings in this checkout
   ship <PR>          Review, fix with your coding agent, push, wait for CI, and repeat until ready (never merges)
   respond <PR>       Answer @pr-reviewer commands on the PR (review, why, fix, ignore, remember, help)
+  app                Run the GitHub App: review every PR on push and answer @pr-reviewer (env-configured; docs/github-app.md)
   learnings <repo>   What reviews learned from feedback on earlier comments (👎, /dismiss, /remember)
   mcp                Run as an MCP server on stdio for coding agents (review_pr, open_findings; never posts)
   web                Run the self-hosted Web App for a team (configured by environment variables; see the README)
@@ -184,6 +186,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'config') return configCommand(rest, io, deps)
   if (first === 'serve') return serveCommand(rest, io, deps, secrets)
   if (first === 'web') return webCommand(rest, io, deps)
+  if (first === 'app') return appCommand(rest, io, deps)
   if (first === 'learnings') return learningsCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'mcp') return mcpCommand(io, deps, secrets, () => resolveConfig(io, deps, undefined, {}))
   if (first === 'respond') return respondCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
@@ -648,6 +651,42 @@ async function webCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
   io.stdout(`PR Reviewer Web App listening on ${web.url} (public URL ${opts.publicUrl}); ${opts.allowUsers.length} user(s) and ${opts.allowOrgs.length} org(s) allowed.\n`)
   await deps.untilStopped()
   await web.close()
+  return EXIT_CODES.passed
+}
+
+/** `pr-reviewer app`: the GitHub App's webhook server, configured by environment variables (docs/github-app.md). */
+async function appCommand(args: string[], io: CliIo, deps: CliDeps): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, host: { type: 'string' }, profile: { type: 'string' } } })
+  } catch (e) {
+    return usageError(io, (e as Error).message)
+  }
+  const e = deps.env
+  const settings = appSettingsFromEnv(e)
+  if (!settings.ok) {
+    io.stderr(`The GitHub App is not configured:\n${settings.problems.map((p) => `  - ${p}`).join('\n')}\n`)
+    return EXIT_CONFIG
+  }
+  const config = resolveConfig(io, deps, parsed.values.profile, {})
+  if (typeof config === 'number') return config
+  const port = Number(parsed.values.port ?? e.PORT ?? 3000)
+  if (!Number.isInteger(port) || port < 0 || port > 65535) return usageError(io, '--port must be a whole number from 0 to 65535')
+  const server = await startAppServer({
+    appId: settings.appId,
+    privateKey: settings.privateKey,
+    webhookSecret: settings.webhookSecret,
+    host: e.PR_REVIEWER_GITHUB_HOST,
+    port,
+    bind: parsed.values.host ?? '0.0.0.0',
+    reviewDrafts: e.PR_REVIEWER_REVIEW_DRAFTS === 'true',
+    config,
+    deps,
+    log: (t) => io.stderr(t),
+  })
+  io.stdout(`PR Reviewer GitHub App listening on ${server.url}; point the App's webhook at <public URL>/webhooks/github.\n`)
+  await deps.untilStopped()
+  await server.close()
   return EXIT_CODES.passed
 }
 

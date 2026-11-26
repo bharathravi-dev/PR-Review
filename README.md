@@ -101,6 +101,11 @@ edit and choose findings, post them, and see what changed since earlier runs of 
 uses their own GitHub sign-in and AI key, stored encrypted on the server. See
 [docs/web-app.md](docs/web-app.md).
 
+## For a team, zero setup per PR: the GitHub App
+
+Install it once and every PR is reviewed when opened or pushed to, and `@pr-reviewer` commands are answered, as the
+App's bot. Create the App, then `docker compose --profile app up -d`: see [docs/github-app.md](docs/github-app.md).
+
 ## Automatic reviews
 
 ```bash
