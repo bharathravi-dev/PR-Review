@@ -266,6 +266,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
         verify: o.config.settings.ai?.verify,
         learn: o.config.settings.ai?.learn,
         relatedFiles: o.config.settings.ai?.relatedFiles,
+        styleFindings: o.config.settings.ai?.styleFindings,
       },
       reviewerId: o.github.viewer?.id,
       costLimits: o.config.settings.limits,

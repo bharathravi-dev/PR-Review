@@ -51,3 +51,4 @@ export const EXIT_CODES = {
 } as const
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES]
+export * from './noise.js'

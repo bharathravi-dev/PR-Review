@@ -1,3 +1,4 @@
+import { quietFindings } from './noise.js'
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
@@ -63,6 +64,8 @@ export interface ReviewSettings {
   learn?: boolean | undefined
   /** false keeps unchanged related code (imports, callers, tests) out of the AI prompt. */
   relatedFiles?: boolean | undefined
+  /** true keeps the AI's style-only remarks (left out by default, roadmap item 3). */
+  styleFindings?: boolean | undefined
 }
 
 export interface ReviewInput {
@@ -301,7 +304,9 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   emit('STAGE_STARTED', { stage: 'dedupe' })
   const headPaths = new Set(((await files.list('HEAD')) ?? []).map((e) => e.path))
   const normalized = normalize(ctx, [...scan.findings, ...executed.findings, ...aiFindings], headPaths)
-  let deduped = await dedupe(ctx, normalized)
+  const quiet = quietFindings(await dedupe(ctx, normalized), { styleFindings: input.review?.styleFindings })
+  let deduped = quiet.findings
+  limitations.push(...quiet.notes)
 
   // Finding feedback (FR-20b, AD-11): only knowable when the Reviewer Identity is known.
   if (input.reviewerId !== undefined) {

@@ -297,6 +297,7 @@ ai:
   verify: false               # true: a second AI call checks each finding and drops what it can't confirm
   learn: true                 # false: ignore 👎, /dismiss, and /remember feedback from earlier reviews
   relatedFiles: true          # false: show the AI only the changed files, not their imports, callers, tests
+  styleFindings: false        # true: keep the AI's style-only remarks (left out by default; repeats are always folded)
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20
