@@ -30,7 +30,7 @@ import { benchCommand } from './bench.js'
 import { fixCommand } from './fix.js'
 import { shipCommand } from './ship.js'
 import { respondCommand } from './respond.js'
-import { appSettingsFromEnv, startAppServer } from './app-server.js'
+import { forgeSettingsFromEnv, startAppServer } from './app-server.js'
 import { localChanges } from './local-git.js'
 import { learningsCommand } from './learnings.js'
 import { mcpCommand } from './mcp.js'
@@ -689,9 +689,9 @@ async function appCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
     return usageError(io, (e as Error).message)
   }
   const e = deps.env
-  const settings = appSettingsFromEnv(e)
+  const settings = forgeSettingsFromEnv(e)
   if (!settings.ok) {
-    io.stderr(`The GitHub App is not configured:\n${settings.problems.map((p) => `  - ${p}`).join('\n')}\n`)
+    io.stderr(`Automatic reviews are not configured:\n${settings.problems.map((p) => `  - ${p}`).join('\n')}\n`)
     return EXIT_CONFIG
   }
   const config = resolveConfig(io, deps, parsed.values.profile, {})
@@ -699,9 +699,7 @@ async function appCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
   const port = Number(parsed.values.port ?? e.PORT ?? 3000)
   if (!Number.isInteger(port) || port < 0 || port > 65535) return usageError(io, '--port must be a whole number from 0 to 65535')
   const server = await startAppServer({
-    appId: settings.appId,
-    privateKey: settings.privateKey,
-    webhookSecret: settings.webhookSecret,
+    ...settings.value,
     host: e.PR_REVIEWER_GITHUB_HOST,
     port,
     bind: parsed.values.host ?? '0.0.0.0',
@@ -710,7 +708,8 @@ async function appCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
     deps,
     log: (t) => io.stderr(t),
   })
-  io.stdout(`PR Reviewer GitHub App listening on ${server.url}; point the App's webhook at <public URL>/webhooks/github.\n`)
+  const hooks = [settings.value.github ? 'github' : '', settings.value.gitlabSecret ? 'gitlab' : '', settings.value.bitbucketSecret ? 'bitbucket' : '', settings.value.azureSecret ? 'azure-devops' : ''].filter(Boolean)
+  io.stdout(`PR Reviewer automatic reviews listening on ${server.url}; webhooks: ${hooks.map((f) => `/webhooks/${f}`).join(', ')}.\n`)
   await deps.untilStopped()
   await server.close()
   return EXIT_CODES.passed

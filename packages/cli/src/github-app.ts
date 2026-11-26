@@ -61,7 +61,67 @@ export function createAppAuth(o: AppAuthOptions) {
   }
 }
 
-export type AppJob = { kind: 'review' | 'respond'; ref: PrRef; installationId: number; key: string }
+export type Forge = 'github' | 'gitlab' | 'bitbucket' | 'azure-devops'
+/** installationId is the GitHub App installation; other forges use the server's own token for that host. */
+export type AppJob = { kind: 'review' | 'respond'; ref: PrRef; installationId: number; key: string; forge?: Forge }
+
+/** Constant-time comparison of a shared secret (GitLab's X-Gitlab-Token, Azure DevOps basic auth). */
+export function sameSecret(secret: string, given: string | undefined): boolean {
+  if (!secret || given === undefined) return false
+  const a = Buffer.from(secret)
+  const b = Buffer.from(given)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+const job = (forge: Forge, kind: AppJob['kind'], ref: PrRef): AppJob => ({ kind, ref, installationId: 0, forge, key: `${kind}:${ref.host}/${ref.owner}/${ref.repo}#${ref.number}` })
+
+/** GitLab: Merge Request Hook (open, reopen, update with new commits) and Note Hook commands on merge requests. */
+export function routeGitLab(event: string, p: { object_kind?: string; object_attributes?: { action?: string; oldrev?: string; iid?: number; draft?: boolean; work_in_progress?: boolean; noteable_type?: string; note?: string }; project?: { web_url?: string; path_with_namespace?: string }; merge_request?: { iid?: number }; user?: { username?: string } }, opts: { reviewDrafts?: boolean | undefined } = {}): AppJob | undefined {
+  const path = p.project?.path_with_namespace
+  const host = p.project?.web_url ? new URL(p.project.web_url).host : undefined
+  if (!path || !host) return undefined
+  const at = path.lastIndexOf('/')
+  const ref = (n: number | undefined): PrRef | undefined => (n ? { host, owner: path.slice(0, at), repo: path.slice(at + 1), number: n } : undefined)
+  const a = p.object_attributes ?? {}
+  if (event === 'Merge Request Hook') {
+    const fresh = a.action === 'open' || a.action === 'reopen' || (a.action === 'update' && !!a.oldrev)
+    if (!fresh || ((a.draft || a.work_in_progress) && !opts.reviewDrafts)) return undefined
+    const r = ref(a.iid)
+    return r ? job('gitlab', 'review', r) : undefined
+  }
+  if (event === 'Note Hook' && a.noteable_type === 'MergeRequest' && parseCommand(a.note ?? '')) {
+    const r = ref(p.merge_request?.iid)
+    return r ? job('gitlab', 'respond', r) : undefined
+  }
+  return undefined
+}
+
+/** Bitbucket: pullrequest:created / pullrequest:updated, and comment commands. */
+export function routeBitbucket(event: string, p: { pullrequest?: { id?: number; draft?: boolean }; repository?: { full_name?: string }; comment?: { content?: { raw?: string } }; actor?: { type?: string } }, opts: { reviewDrafts?: boolean | undefined } = {}): AppJob | undefined {
+  const [owner, repo] = (p.repository?.full_name ?? '').split('/')
+  const n = p.pullrequest?.id
+  if (!owner || !repo || !n) return undefined
+  const ref = { host: 'bitbucket.org', owner, repo, number: n }
+  if (event === 'pullrequest:created' || event === 'pullrequest:updated') return p.pullrequest?.draft && !opts.reviewDrafts ? undefined : job('bitbucket', 'review', ref)
+  if (event === 'pullrequest:comment_created' && parseCommand(p.comment?.content?.raw ?? '')) return job('bitbucket', 'respond', ref)
+  return undefined
+}
+
+/** Azure DevOps service hooks: pull request created or updated (new commits), and comment commands. */
+export function routeAzure(p: { eventType?: string; resource?: { pullRequestId?: number; isDraft?: boolean; repository?: { name?: string; project?: { name?: string }; remoteUrl?: string; url?: string }; comment?: { content?: string }; pullRequest?: { pullRequestId?: number; repository?: { name?: string; project?: { name?: string }; url?: string } } }; message?: { text?: string } }, opts: { reviewDrafts?: boolean | undefined } = {}): AppJob | undefined {
+  const r = p.resource ?? {}
+  const pr = r.pullRequest ?? r
+  const repo = pr.repository
+  const orgName = /dev\.azure\.com\/([^/]+)\//.exec(repo?.url ?? '')?.[1] ?? /https:\/\/([^.]+)\.visualstudio\.com/.exec(repo?.url ?? '')?.[1]
+  const n = pr.pullRequestId
+  if (!repo?.name || !repo.project?.name || !orgName || !n) return undefined
+  const ref = { host: 'dev.azure.com', owner: `${decodeURIComponent(orgName)}/${repo.project.name}`, repo: repo.name, number: n }
+  if (p.eventType === 'git.pullrequest.created' || (p.eventType === 'git.pullrequest.updated' && /pushed|updated the source branch/i.test(p.message?.text ?? 'pushed'))) {
+    return r.isDraft && !opts.reviewDrafts ? undefined : job('azure-devops', 'review', ref)
+  }
+  if (p.eventType === 'ms.vss-code.git-pullrequest-comment-event' && parseCommand(r.comment?.content ?? '')) return job('azure-devops', 'respond', ref)
+  return undefined
+}
 
 const REVIEW_ACTIONS = new Set(['opened', 'reopened', 'synchronize', 'ready_for_review'])
 

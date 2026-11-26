@@ -1,4 +1,4 @@
-# The GitHub App
+# Automatic reviews: the GitHub App and webhooks
 
 Install pr-reviewer once on an organisation or account, and every pull request is reviewed when it is opened, marked
 ready, or pushed to; people with push access can talk to it with `@pr-reviewer` commands. Reviews post as the App's
@@ -47,3 +47,18 @@ docker compose --profile app up -d          # or: node packages/cli/bin/pr-revie
   live for at most an hour and are never logged; the App reads only what its permissions allow.
 - **Compile and lint:** the App runs the deterministic checks and the AI review; the Sandbox (Docker) is not used by
   the App server.
+
+## GitLab, Bitbucket and Azure DevOps
+
+The same server reviews merge requests and pull requests on the other forges when they send webhooks. It posts with
+the server's own token for that host (`GITLAB_TOKEN`, `BITBUCKET_TOKEN`, `AZURE_DEVOPS_TOKEN`), so use a bot account.
+Each endpoint is on only when its secret is set, and every delivery must prove it with that secret.
+
+| Forge | Webhook URL | Secret (16+ characters) | Events |
+|---|---|---|---|
+| GitLab (project or group → Webhooks) | `/webhooks/gitlab` | `PR_REVIEWER_GITLAB_WEBHOOK_SECRET`, sent as the webhook's Secret token | Merge request events, Comments |
+| Bitbucket Cloud (repository settings → Webhooks) | `/webhooks/bitbucket` | `PR_REVIEWER_BITBUCKET_WEBHOOK_SECRET`, set as the webhook Secret (HMAC) | Pull request: Created, Updated, Comment created |
+| Azure DevOps (Project settings → Service hooks → Web Hooks) | `/webhooks/azure-devops` | `PR_REVIEWER_AZURE_WEBHOOK_SECRET`, as the basic-authentication password | Pull request created, Pull request updated, Pull request commented on |
+
+GitHub is optional: a server with only, say, `PR_REVIEWER_GITLAB_WEBHOOK_SECRET` and `GITLAB_TOKEN` reviews GitLab
+merge requests on open, reopen and every new push, and answers `@pr-reviewer` commands in their threads.
