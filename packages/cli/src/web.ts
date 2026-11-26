@@ -8,6 +8,7 @@ import { err, ok, resolveSettings, Secret, type CredentialResolver, type Secret 
 import * as z from 'zod'
 import { apiUrlForHost } from './compose.js'
 import type { CliDeps } from './deps.js'
+import { teamSummary } from './team.js'
 import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, readBody, readJson, SECURITY_HEADERS, sendJson, type Principal, type Run, type UiVersion } from './review-service.js'
 import { USER_AGENT } from './version.js'
 import { WebStore, type UserSettings, type WebUser } from './web-store.js'
@@ -21,6 +22,8 @@ export interface WebOptions {
   secret: string
   dataDir: string
   allowUsers: readonly string[]
+  /** Logins who may see the team dashboard (PR_REVIEWER_ADMINS); without any, nobody can. */
+  admins?: readonly string[] | undefined
   allowOrgs: readonly string[]
   githubHost?: string | undefined
   /** OAuth scope: "repo" (default; private repositories) or "public_repo". */
@@ -89,6 +92,7 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
   const publicUrl = new URL(o.publicUrl)
   const secure = publicUrl.protocol === 'https:'
   const allowUsers = new Set(o.allowUsers.map((u) => u.toLowerCase()))
+  const admins = new Set((o.admins ?? []).map((u) => u.toLowerCase()))
   const allowOrgs = o.allowOrgs.map((x) => x.toLowerCase())
   const scope = [o.scope ?? 'repo', ...(allowOrgs.length ? ['read:org'] : [])].join(' ')
   const endpoints = new Set([OPENAI, ...(o.allowedEndpoints ?? [])].map((e) => e.replace(/\/+$/, '')))
@@ -167,7 +171,7 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
       untilStopped: () => new Promise(() => undefined),
       runGh: async () => ({ code: 1, stdout: '', stderr: 'not available in the Web App' }),
     }
-    return { id: String(user.id), config: resolved.value, deps, secrets, session: { mode: 'web', user: { login: user.login, ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}) } } }
+    return { id: String(user.id), config: resolved.value, deps, secrets, session: { mode: 'web', user: { login: user.login, ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}), ...(admins.has(user.login.toLowerCase()) ? { admin: true } : {}) } } }
   }
 
   const cookie = (name: string, value: string, maxAge: number, path = '/') =>
@@ -365,6 +369,18 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     if (url.pathname === '/v1/settings' && method === 'GET') return sendJson(res, 200, settingsView(user), [])
     if (url.pathname === '/v1/settings' && method === 'PUT') return sendJson(res, 200, await saveSettings(req, user), [])
     if (url.pathname === '/v1/history' && method === 'GET') return sendJson(res, 200, history(user, url), [])
+    if (url.pathname === '/v1/team' && method === 'GET') {
+      // Per-person numbers: only for the admins the operator named (roadmap item 14).
+      if (!admins.has(user.login.toLowerCase())) throw new HttpError(403, 'not_admin', 'The team dashboard is for the admins listed in PR_REVIEWER_ADMINS.')
+      const days = Number(url.searchParams.get('days') ?? 30)
+      if (!Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, 'invalid_days', 'days must be a whole number from 1 to 365.')
+      const since = new Date(Date.now() - days * 86_400_000).toISOString()
+      const runs = store.userIds().flatMap((id) => {
+        const login = store.user(id)?.login ?? String(id)
+        return store.runsSince(id, since).map((r) => ({ login, pr: r.pr, startedAt: r.startedAt, overallStatus: r.overallStatus, published: r.published, report: r.report }))
+      })
+      return sendJson(res, 200, { schemaVersion: 1, ...teamSummary(runs, days) }, [])
+    }
     const p = principal(user)
     if (!(await service.handle(req, res, url, p))) throw new HttpError(404, 'not_found', 'Not found.')
   }

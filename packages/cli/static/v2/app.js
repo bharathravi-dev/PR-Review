@@ -190,6 +190,7 @@ function renderSidebar() {
     runNav.length ? h('hr') : '',
     item('start', 'Start'),
     item('stats', 'Stats'),
+    s?.user?.admin ? item('team', 'Team') : '',
     item('settings', 'Settings'),
     h(
       'details',
@@ -216,12 +217,12 @@ function renderSidebar() {
   )
 }
 
-const NAV_ICONS = { start: '⌕', overview: '◎', attention: '!', pre: '≡', checks: '✓', walkthrough: '¶', stats: '▤', settings: '⚙' }
+const NAV_ICONS = { start: '⌕', overview: '◎', attention: '!', pre: '≡', checks: '✓', walkthrough: '¶', stats: '▤', team: '◫', settings: '⚙' }
 
 function renderMain() {
   const main = $('main')
   main.className = ''
-  const views = { start: viewStart, overview: viewOverview, attention: () => viewFindings('attention'), pre: () => viewFindings('pre'), checks: viewChecks, walkthrough: viewWalkthrough, stats: viewStats, settings: viewSettings, locked: viewLocked, signin: viewSignIn }
+  const views = { start: viewStart, overview: viewOverview, attention: () => viewFindings('attention'), pre: () => viewFindings('pre'), checks: viewChecks, walkthrough: viewWalkthrough, stats: viewStats, team: viewTeam, settings: viewSettings, locked: viewLocked, signin: viewSignIn }
   const view = (views[state.surface] ?? viewStart)()
   fill(main, view)
 }
@@ -1109,6 +1110,40 @@ async function loadStats(days) {
   }
   statsCache = { days, html }
   if (state.surface === 'stats') render()
+}
+
+// ── Team (Web App admins) ──────────────────────────────────────────────────
+
+let teamCache = null
+function viewTeam() {
+  const pane = h('section', { class: 'pane' }, h('h1', { tabindex: '-1' }, 'Team'), h('p', { class: 'muted' }, 'Reviews run on this Web App, across everyone. New findings only.'))
+  const days = teamCache?.days ?? 30
+  const seg = h('div', { class: 'segmented', role: 'group', 'aria-label': 'Period' }, [7, 30, 90].map((d) => h('button', { type: 'button', 'aria-pressed': d === days ? 'true' : 'false', class: d === days ? 'on' : '', onclick: () => loadTeam(d) }, `${d === days ? '✓ ' : ''}${d} days`)))
+  pane.append(seg, h('div', {}, teamCache?.html ?? h('p', { class: 'muted' }, 'Loading…')))
+  if (!teamCache) setTimeout(() => loadTeam(30), 0)
+  return pane
+}
+
+async function loadTeam(days) {
+  teamCache = { days, html: h('p', { class: 'muted' }, 'Adding up the team’s reviews…') }
+  if (state.surface === 'team') render()
+  const r = await api(`/v1/team?days=${days}`).catch((e) => ({ ok: false, data: { error: { message: e.message } } }))
+  let html
+  if (!r.ok) html = h('p', { class: 'field-error' }, errorText(r))
+  else if (!r.data.reviews) html = h('p', { class: 'muted' }, `No reviews in the last ${days} days.`)
+  else {
+    const t = r.data
+    const pct = (n, of) => (of ? `${Math.round((100 * n) / of)}%` : '–')
+    const table = (heads, rows) => h('table', {}, h('thead', {}, h('tr', {}, heads.map((x, i) => h('th', i ? { class: 'num' } : {}, x)))), h('tbody', {}, rows.map((cells) => h('tr', {}, cells.map((c, i) => h('td', i ? { class: 'num' } : { class: 'mono' }, String(c)))))))
+    html = [
+      h('div', { class: 'tiles' }, h('div', { class: 'tile' }, h('b', {}, String(t.reviews)), h('span', {}, `reviews of ${t.prs} PR(s)`)), h('div', { class: 'tile' }, h('b', {}, String(t.findings)), h('span', {}, `new findings · ${t.reviews ? (t.findings / t.reviews).toFixed(1) : 0} per review`)), h('div', { class: 'tile' }, h('b', {}, pct(t.posted, t.reviews)), h('span', {}, 'of reviews posted')), h('div', { class: 'tile' }, h('b', {}, pct(t.dismissed, t.findings)), h('span', {}, 'of findings dismissed'))),
+      h('div', { class: 'panel' }, h('h2', { class: 'overline' }, 'By repository'), table(['Repository', 'Reviews', 'PRs', 'Findings', 'Blocker or critical', 'Posted'], t.repos.map((x) => [x.repo, x.reviews, x.prs, x.findings, x.blockers, x.posted]))),
+      h('div', { class: 'panel' }, h('h2', { class: 'overline' }, 'By person'), table(['Person', 'Reviews', 'PRs', 'Findings', 'Posted'], t.people.map((x) => [`@${x.login}`, x.reviews, x.prs, x.findings, x.posted]))),
+      h('div', { class: 'panel' }, h('h2', { class: 'overline' }, 'What was found'), table(['Severity', 'Findings'], Object.entries(t.bySeverity).map(([k, v]) => [words(k), v])), table(['Category', 'Findings'], Object.entries(t.byCategory).sort((a, b) => b[1] - a[1]).map(([k, v]) => [words(k), v]))),
+    ]
+  }
+  teamCache = { days, html }
+  if (state.surface === 'team') render()
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────

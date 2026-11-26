@@ -188,6 +188,25 @@ export class WebStore {
     return report.success ? { ...raw, report: report.data } : undefined
   }
 
+  /** Every signed-in user's id (the team dashboard). */
+  userIds(): number[] {
+    try {
+      return readdirSync(join(this.#root, 'users')).filter((n) => /^\d+$/.test(n)).map(Number)
+    } catch {
+      return []
+    }
+  }
+
+  /** Full runs (with reports) started since `sinceIso`, newest first, at most `limit` per user. */
+  runsSince(userId: number, sinceIso: string, limit = 500): StoredRun[] {
+    return this.runs(userId, limit)
+      .filter((r) => r.startedAt >= sinceIso)
+      .flatMap((r) => {
+        const full = this.run(userId, r.id)
+        return full ? [full] : []
+      })
+  }
+
   /** Runs, newest first (ids are UUIDv7, so they sort by time). */
   runs(userId: number, limit = 50): Array<Omit<StoredRun, 'report'>> {
     let names: string[]

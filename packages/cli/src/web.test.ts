@@ -74,12 +74,12 @@ afterEach(async () => {
   web = undefined
 })
 
-async function start(over: { allowUsers?: string[]; allowOrgs?: string[]; extensionIds?: string[] } = {}) {
+async function start(over: { allowUsers?: string[]; allowOrgs?: string[]; extensionIds?: string[]; admins?: string[] } = {}) {
   const gh = fakeGitHub()
   const port = await freePort()
   const dataDir = mkdtempSync(join(tmpdir(), 'prr-web-'))
   const origin = `http://localhost:${port}`
-  web = await startWeb({ publicUrl: origin, clientId: 'cid', clientSecret: 'csecret', secret: 'x'.repeat(40), dataDir, allowUsers: over.allowUsers ?? ['alice'], allowOrgs: over.allowOrgs ?? ['acme'], fetch: gh.impl, port, host: '127.0.0.1', extensionIds: over.extensionIds })
+  web = await startWeb({ publicUrl: origin, clientId: 'cid', clientSecret: 'csecret', secret: 'x'.repeat(40), dataDir, allowUsers: over.allowUsers ?? ['alice'], allowOrgs: over.allowOrgs ?? ['acme'], fetch: gh.impl, port, host: '127.0.0.1', extensionIds: over.extensionIds, admins: over.admins })
   /** Signs a user in through the real OAuth flow and returns their session cookie. */
   const signIn = async (code: string): Promise<{ cookie?: string; res: Res }> => {
     const login = await call(port, 'GET', '/auth/login')
@@ -91,6 +91,24 @@ async function start(over: { allowUsers?: string[]; allowOrgs?: string[]; extens
   }
   return { gh, port, origin, dataDir, signIn }
 }
+
+describe('team dashboard (roadmap item 14)', () => {
+  it('answers admins only, and marks them in the session', async () => {
+    const { port, signIn } = await start({ admins: ['ALICE'] })
+    const { cookie } = await signIn('alice')
+    const team = await call(port, 'GET', '/v1/team?days=7', { cookie: cookie! })
+    expect(team.status).toBe(200)
+    expect(JSON.parse(team.body)).toMatchObject({ schemaVersion: 1, days: 7, reviews: 0, repos: [], people: [] })
+    expect(JSON.parse((await call(port, 'GET', '/v1/session', { cookie: cookie! })).body).user.admin).toBe(true)
+    expect((await call(port, 'GET', '/v1/team?days=0', { cookie: cookie! })).status).toBe(400)
+  })
+
+  it('refuses everyone when no admins are named', async () => {
+    const { port, signIn } = await start()
+    const { cookie } = await signIn('alice')
+    expect((await call(port, 'GET', '/v1/team', { cookie: cookie! })).status).toBe(403)
+  })
+})
 
 describe('browser extension access (Story 7.7)', () => {
   const EXT = 'abcdefghijklmnopabcdefghijklmnop'

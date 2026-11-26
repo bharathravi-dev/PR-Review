@@ -659,6 +659,7 @@ async function webCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
     sandbox: e.PR_REVIEWER_SANDBOX === 'on',
     ui: e.PR_REVIEWER_DEFAULT_UI === 'classic' ? ('classic' as const) : ('v2' as const),
     extensionIds: list(e.PR_REVIEWER_EXTENSION_IDS),
+    admins: list(e.PR_REVIEWER_ADMINS),
     fetch: deps.fetch,
     port: Number(parsed.values.port ?? e.PORT ?? 8080),
     host: parsed.values.host ?? '0.0.0.0',

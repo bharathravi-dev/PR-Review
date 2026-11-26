@@ -33,6 +33,7 @@ PR_REVIEWER_ALLOW_ORGS=my-org
 # PR_REVIEWER_ALLOWED_ENDPOINTS=https://llm.internal.example/v1   # extra OpenAI-compatible endpoints users may pick
 # PR_REVIEWER_DEFAULT_UI=classic                    # which review page / opens: v2 (default) or classic
 # PR_REVIEWER_EXTENSION_IDS=<32-letter id>           # browser extensions allowed to connect (comma-separated)
+# PR_REVIEWER_ADMINS=alice,bob                       # who sees the Team dashboard (reviews, findings by repo and person)
 ```
 
 Generate a secret with `openssl rand -base64 48`.
