@@ -57,8 +57,8 @@ interface Res { status: number; headers: Record<string, string | string[] | unde
 /** Raw HTTP so the Host, Origin, and Cookie headers are exactly what a browser would send. */
 function call(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: unknown): Promise<Res> {
   return new Promise((resolve, reject) => {
-    const data = body === undefined ? undefined : JSON.stringify(body)
-    const req = request({ host: '127.0.0.1', port, method, path, headers: { host: `localhost:${port}`, ...(data ? { 'content-type': 'application/json' } : {}), ...headers } }, (res) => {
+    const data = body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body)
+    const req = request({ host: '127.0.0.1', port, method, path, headers: { host: `localhost:${port}`, ...(data ? { 'content-type': typeof body === 'string' ? 'application/x-www-form-urlencoded' : 'application/json' } : {}), ...headers } }, (res) => {
       let text = ''
       res.setEncoding('utf8').on('data', (d: string) => (text += d))
       res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: text }))
@@ -74,12 +74,12 @@ afterEach(async () => {
   web = undefined
 })
 
-async function start(over: { allowUsers?: string[]; allowOrgs?: string[] } = {}) {
+async function start(over: { allowUsers?: string[]; allowOrgs?: string[]; extensionIds?: string[] } = {}) {
   const gh = fakeGitHub()
   const port = await freePort()
   const dataDir = mkdtempSync(join(tmpdir(), 'prr-web-'))
   const origin = `http://localhost:${port}`
-  web = await startWeb({ publicUrl: origin, clientId: 'cid', clientSecret: 'csecret', secret: 'x'.repeat(40), dataDir, allowUsers: over.allowUsers ?? ['alice'], allowOrgs: over.allowOrgs ?? ['acme'], fetch: gh.impl, port, host: '127.0.0.1' })
+  web = await startWeb({ publicUrl: origin, clientId: 'cid', clientSecret: 'csecret', secret: 'x'.repeat(40), dataDir, allowUsers: over.allowUsers ?? ['alice'], allowOrgs: over.allowOrgs ?? ['acme'], fetch: gh.impl, port, host: '127.0.0.1', extensionIds: over.extensionIds })
   /** Signs a user in through the real OAuth flow and returns their session cookie. */
   const signIn = async (code: string): Promise<{ cookie?: string; res: Res }> => {
     const login = await call(port, 'GET', '/auth/login')
@@ -91,6 +91,45 @@ async function start(over: { allowUsers?: string[]; allowOrgs?: string[] } = {})
   }
   return { gh, port, origin, dataDir, signIn }
 }
+
+describe('browser extension access (Story 7.7)', () => {
+  const EXT = 'abcdefghijklmnopabcdefghijklmnop'
+  const OTHER = 'ponmlkjihgfedcbaponmlkjihgfedcba'
+  it('lets a signed-in user allow an allowed extension, which then calls /v1 with its token from its own origin only', async () => {
+    const { port, origin, signIn } = await start({ extensionIds: [EXT] })
+    const state = 'state-0123456789abcdef'
+    expect((await call(port, 'GET', `/auth/extension?ext=${EXT}&state=${state}`)).status).toBe(401)
+    const { cookie } = await signIn('alice')
+    expect((await call(port, 'GET', `/auth/extension?ext=${OTHER}&state=${state}`, { cookie: cookie! })).status).toBe(403)
+    const ask = await call(port, 'GET', `/auth/extension?ext=${EXT}&state=${state}`, { cookie: cookie! })
+    expect(ask.status).toBe(200)
+    expect(ask.body).toContain('Allow the pr-reviewer extension to use your account?')
+    expect((await call(port, 'POST', '/auth/extension', { cookie: cookie! }, `ext=${EXT}&state=${state}`)).status).toBe(403)
+    const allowed = await call(port, 'POST', '/auth/extension', { cookie: cookie!, origin }, `ext=${EXT}&state=${state}`)
+    expect(allowed.status).toBe(302)
+    const back = new URL(String(allowed.headers.location))
+    expect(back.origin).toBe(`https://${EXT}.chromiumapp.org`)
+    const params = new URLSearchParams(back.hash.slice(1))
+    expect(params.get('state')).toBe(state)
+    const token = params.get('token')!
+
+    const fromExt = { authorization: `Bearer ${token}`, origin: `chrome-extension://${EXT}`, 'sec-fetch-site': 'cross-site' }
+    const session = await call(port, 'GET', '/v1/session', fromExt)
+    expect(session.status).toBe(200)
+    expect(JSON.parse(session.body).user.login).toBe('alice')
+    expect((await call(port, 'PUT', '/v1/settings', fromExt, { provider: { type: 'anthropic' } })).status).toBe(200)
+    expect((await call(port, 'GET', '/v1/session', { ...fromExt, origin: `chrome-extension://${OTHER}` })).status).toBe(403)
+    expect((await call(port, 'GET', '/v1/session', { authorization: `Bearer ${token}` })).status).toBe(401)
+    expect((await call(port, 'GET', '/v1/session', { ...fromExt, authorization: 'Bearer wrong-token-wrong-token-wrong-token-wrong0' })).status).toBe(401)
+    // The page's own CSRF rules are unchanged.
+    expect((await call(port, 'PUT', '/v1/settings', { cookie: cookie!, 'sec-fetch-site': 'cross-site', origin }, { provider: { type: 'anthropic' } })).status).toBe(403)
+
+    const list = await call(port, 'GET', '/auth/extension/tokens', { cookie: cookie! })
+    const id = /name="id" value="([0-9a-f]{16})"/.exec(list.body)![1]!
+    expect((await call(port, 'POST', '/auth/extension/tokens', { cookie: cookie!, origin }, `id=${id}`)).status).toBe(200)
+    expect((await call(port, 'GET', '/v1/session', fromExt)).status).toBe(401)
+  })
+})
 
 describe('Web App sign-in (Story 6.1)', () => {
   it('refuses to start without an allow-list, OAuth app, or secret', () => {

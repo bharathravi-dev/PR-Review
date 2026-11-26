@@ -27,6 +27,7 @@ export interface StoredRun {
 }
 
 const SESSION_TTL_MS = 7 * 24 * 3600_000
+const EXTENSION_TOKEN_TTL_MS = 90 * 24 * 3600_000
 
 function writeJson(path: string, value: unknown): void {
   mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 })
@@ -127,6 +128,47 @@ export class WebStore {
       return undefined
     }
     return s.userId
+  }
+
+  /** Issues a bearer token for the browser extension (Story 7.7); only its hash is stored. */
+  createExtensionToken(userId: number, extensionId: string): string {
+    const token = randomBytes(32).toString('base64url')
+    writeJson(join(this.#root, 'extension-tokens', `${sha256(token)}.json`), { userId, extensionId, createdAt: Date.now(), expiresAt: Date.now() + EXTENSION_TOKEN_TTL_MS })
+    return token
+  }
+
+  /** The user an extension token belongs to, when it is valid and was issued to this extension. */
+  extensionToken(token: string | undefined, extensionId: string): number | undefined {
+    if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined
+    const t = readJson<{ userId: number; extensionId: string; expiresAt: number }>(join(this.#root, 'extension-tokens', `${sha256(token)}.json`))
+    if (!t || t.extensionId !== extensionId) return undefined
+    if (t.expiresAt < Date.now()) {
+      rmSync(join(this.#root, 'extension-tokens', `${sha256(token)}.json`), { force: true })
+      return undefined
+    }
+    return t.userId
+  }
+
+  /** The user's extension tokens (an id derived from the hash, when it was created and expires). */
+  extensionTokens(userId: number): Array<{ id: string; extensionId: string; createdAt: number; expiresAt: number }> {
+    let names: string[] = []
+    try {
+      names = readdirSync(join(this.#root, 'extension-tokens'))
+    } catch {
+      return []
+    }
+    return names.flatMap((n) => {
+      const t = readJson<{ userId: number; extensionId: string; createdAt: number; expiresAt: number }>(join(this.#root, 'extension-tokens', n))
+      return t && t.userId === userId ? [{ id: n.slice(0, 16), extensionId: t.extensionId, createdAt: t.createdAt, expiresAt: t.expiresAt }] : []
+    })
+  }
+
+  revokeExtensionToken(userId: number, id: string): boolean {
+    if (!/^[0-9a-f]{16}$/.test(id)) return false
+    const name = this.extensionTokens(userId).find((t) => t.id === id) ? readdirSync(join(this.#root, 'extension-tokens')).find((n) => n.startsWith(id)) : undefined
+    if (!name) return false
+    rmSync(join(this.#root, 'extension-tokens', name), { force: true })
+    return true
   }
 
   endSession(sid: string): void {

@@ -32,6 +32,7 @@ PR_REVIEWER_ALLOW_ORGS=my-org
 # PR_REVIEWER_OAUTH_SCOPE=public_repo               # public repositories only (default: repo)
 # PR_REVIEWER_ALLOWED_ENDPOINTS=https://llm.internal.example/v1   # extra OpenAI-compatible endpoints users may pick
 # PR_REVIEWER_DEFAULT_UI=v2                         # which review page / opens: classic (default) or v2
+# PR_REVIEWER_EXTENSION_IDS=<32-letter id>           # browser extensions allowed to connect (comma-separated)
 ```
 
 Generate a secret with `openssl rand -base64 48`.
@@ -67,3 +68,11 @@ Off by default: the container has no access to a container runtime. Repository t
 Sandbox container; to enable them, give the app access to Docker (for example by mounting the Docker
 socket) and set `PR_REVIEWER_SANDBOX=on`. That access is powerful: only do it on a host dedicated to this.
 Reports always say when compile and lint did not run.
+
+## Browser extension
+
+Set `PR_REVIEWER_EXTENSION_IDS` to the ids of the pr-reviewer extensions your team may connect
+(the id is shown on `chrome://extensions`). When a user picks **Web App** in the extension, it opens
+`/auth/extension`; after they confirm, the extension receives a token that lasts 90 days. The token
+works only for `/v1` requests that come from that extension's own origin. Users can see and revoke
+their extension tokens at `/auth/extension/tokens`. No CORS headers are added for other sites.

@@ -8,7 +8,7 @@ import { err, ok, resolveSettings, Secret, type CredentialResolver, type Secret 
 import * as z from 'zod'
 import { apiUrlForHost } from './compose.js'
 import type { CliDeps } from './deps.js'
-import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, readJson, SECURITY_HEADERS, sendJson, type Principal, type Run, type UiVersion } from './review-service.js'
+import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, readBody, readJson, SECURITY_HEADERS, sendJson, type Principal, type Run, type UiVersion } from './review-service.js'
 import { USER_AGENT } from './version.js'
 import { WebStore, type UserSettings, type WebUser } from './web-store.js'
 
@@ -31,6 +31,8 @@ export interface WebOptions {
   sandbox?: boolean | undefined
   /** Which review page `/` opens (PR_REVIEWER_DEFAULT_UI); classic by default. */
   ui?: UiVersion | undefined
+  /** Browser extension IDs allowed to connect (PR_REVIEWER_EXTENSION_IDS); none by default (Story 7.7). */
+  extensionIds?: readonly string[] | undefined
   fetch: typeof fetch
   port?: number | undefined
   host?: string | undefined
@@ -212,9 +214,61 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     redirect(res, '/', [cookie(SESSION_COOKIE, sid, 7 * 24 * 3600), cookie(STATE_COOKIE, '', 0, '/auth')])
   }
 
+  const extensionIds = new Set((o.extensionIds ?? []).filter((x) => /^[a-p]{32}$/.test(x)))
+  /** The allowed extension a request comes from (its Origin), if any. */
+  const extensionOf = (req: IncomingMessage): string | undefined => {
+    const m = /^chrome-extension:\/\/([a-p]{32})$/.exec(String(req.headers.origin ?? ''))
+    return m && extensionIds.has(m[1]!) ? m[1] : undefined
+  }
+  const bearer = (req: IncomingMessage) => {
+    const h = String(req.headers.authorization ?? '')
+    return h.startsWith('Bearer ') ? h.slice(7) : undefined
+  }
+
   const currentUser = (req: IncomingMessage): WebUser | undefined => {
+    // The browser extension: a bearer token issued to that extension, from that extension's origin only.
+    const ext = extensionOf(req)
+    if (ext) {
+      const uid = store.extensionToken(bearer(req), ext)
+      return uid === undefined ? undefined : store.user(uid)
+    }
     const id = store.session(cookies(req)[SESSION_COOKIE])
     return id === undefined ? undefined : store.user(id)
+  }
+
+  const htmlPage = (res: ServerResponse, status: number, title: string, body: string) => {
+    res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", ...SECURITY_HEADERS })
+    res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="stylesheet" href="/app.css"></head><body><main class="wrap"><section class="card">${body}</section></main></body></html>`)
+  }
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
+  /** Story 7.7: a signed-in user lets an allowed extension act for them; the token goes back via Chrome's identity flow. */
+  const extensionAuth = async (req: IncomingMessage, res: ServerResponse, url: URL, method: string) => {
+    const user = (() => {
+      const id = store.session(cookies(req)[SESSION_COOKIE])
+      return id === undefined ? undefined : store.user(id)
+    })()
+    if (url.pathname === '/auth/extension/tokens') {
+      if (!user) return htmlPage(res, 401, 'Sign in', '<h1>Sign in first</h1><p><a class="btn primary" href="/auth/login">Sign in with GitHub</a></p>')
+      if (method === 'POST') {
+        const form = new URLSearchParams(await readBody(req))
+        store.revokeExtensionToken(user.id, form.get('id') ?? '')
+      }
+      const rows = store.extensionTokens(user.id).map((t) => `<li>Extension ${esc(t.extensionId.slice(0, 8))}… · since ${esc(new Date(t.createdAt).toISOString().slice(0, 10))} · expires ${esc(new Date(t.expiresAt).toISOString().slice(0, 10))} <form method="post" action="/auth/extension/tokens"><input type="hidden" name="id" value="${esc(t.id)}"><button class="btn small" type="submit">Revoke</button></form></li>`)
+      return htmlPage(res, 200, 'Extension access', `<h1>Browser extension access</h1>${rows.length ? `<ul class="list-plain">${rows.join('')}</ul>` : '<p class="muted">No extension can use your account.</p>'}<p><a href="/">Back</a></p>`)
+    }
+    const ext = (method === 'POST' ? new URLSearchParams(await readBody(req)) : url.searchParams)
+    const extId = ext.get('ext') ?? ''
+    const state = ext.get('state') ?? ''
+    if (!extensionIds.has(extId)) return htmlPage(res, 403, 'Not allowed', '<h1>This extension is not allowed</h1><p>Ask the administrator to add its ID to PR_REVIEWER_EXTENSION_IDS.</p>')
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(state)) return htmlPage(res, 400, 'Bad request', '<h1>The sign-in request is incomplete</h1><p>Start again from the extension.</p>')
+    if (!user) return htmlPage(res, 401, 'Sign in', `<h1>Sign in first</h1><p>Sign in to this Web App, then start again from the extension.</p><p><a class="btn primary" href="/auth/login">Sign in with GitHub</a></p>`)
+    if (method === 'GET') {
+      return htmlPage(res, 200, 'Allow the extension', `<h1>Allow the pr-reviewer extension to use your account?</h1><p>It will start reviews and post them as @${esc(user.login)} with your settings on this Web App. You can revoke this any time at <a href="/auth/extension/tokens">Extension access</a>.</p><form method="post" action="/auth/extension"><input type="hidden" name="ext" value="${esc(extId)}"><input type="hidden" name="state" value="${esc(state)}"><button class="btn primary" type="submit">Allow</button> <a class="btn" href="/">Cancel</a></form>`)
+    }
+    const token = store.createExtensionToken(user.id, extId)
+    log(`Extension access granted: @${user.login}\n`)
+    redirect(res, `https://${extId}.chromiumapp.org/#token=${encodeURIComponent(token)}&state=${encodeURIComponent(state)}`)
   }
 
   const settingsView = (user: WebUser) => {
@@ -266,9 +320,13 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     // DNS rebinding: only the public host. CSRF: state-changing requests must come from our own origin.
     if (String(req.headers.host ?? '') !== publicUrl.host) throw new HttpError(403, 'forbidden_host', 'Unknown host.')
     const method = req.method ?? 'GET'
-    if (req.headers['sec-fetch-site'] === 'cross-site') throw new HttpError(403, 'forbidden_origin', 'Cross-site requests are not allowed.')
-    if (method !== 'GET' && method !== 'HEAD' && req.headers.origin !== publicUrl.origin) throw new HttpError(403, 'forbidden_origin', 'Requests must come from this site.')
     const url = new URL(req.url ?? '/', publicUrl)
+    // The allowed extension calls /v1 with its bearer token from its own origin; everything else keeps the CSRF rules.
+    const fromExtension = extensionOf(req) !== undefined && bearer(req) !== undefined && url.pathname.startsWith('/v1/')
+    if (!fromExtension) {
+      if (req.headers['sec-fetch-site'] === 'cross-site') throw new HttpError(403, 'forbidden_origin', 'Cross-site requests are not allowed.')
+      if (method !== 'GET' && method !== 'HEAD' && req.headers.origin !== publicUrl.origin) throw new HttpError(403, 'forbidden_origin', 'Requests must come from this site.')
+    }
 
     const asset = assets[url.pathname]
     if (asset && (method === 'GET' || method === 'HEAD')) {
@@ -283,6 +341,7 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
     }
     if (url.pathname === '/auth/login' && method === 'GET') return login(res)
     if (url.pathname === '/auth/callback' && method === 'GET') return callback(req, res, url)
+    if ((url.pathname === '/auth/extension' || url.pathname === '/auth/extension/tokens') && (method === 'GET' || method === 'POST')) return extensionAuth(req, res, url, method)
     if (url.pathname === '/auth/logout' && method === 'POST') {
       const sid = cookies(req)[SESSION_COOKIE]
       if (sid) store.endSession(sid)

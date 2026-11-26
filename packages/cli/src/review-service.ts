@@ -162,6 +162,18 @@ export function sendJson(res: ServerResponse, status: number, body: unknown, sec
   res.end(redactText(text, secrets))
 }
 
+/** A small form body (application/x-www-form-urlencoded), for the Web App's own HTML forms. */
+export async function readBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length
+    if (size > MAX_BODY) throw new HttpError(413, 'too_large', 'Request body is too large.')
+    chunks.push(chunk as Buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
 export async function readJson(req: IncomingMessage): Promise<unknown> {
   if (!String(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
     throw new HttpError(415, 'unsupported_media_type', 'Send JSON (content-type: application/json).')
