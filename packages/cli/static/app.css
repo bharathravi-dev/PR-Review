@@ -180,6 +180,7 @@ tr.current td { background: var(--surface-2); }
 [hidden] { display: none !important; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 #stats-box { margin-top: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .pre-group { margin-top: 12px; border: 1px dashed var(--border); border-radius: var(--radius); padding: 10px 14px; }
 .pre-group > summary { margin-top: 0; color: var(--text); font-weight: 600; }
 .pre-group[open] > summary { margin-bottom: 6px; }

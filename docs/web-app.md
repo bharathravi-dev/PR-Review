@@ -31,6 +31,7 @@ PR_REVIEWER_ALLOW_ORGS=my-org
 # PR_REVIEWER_GITHUB_HOST=github.example.com         # GitHub Enterprise Server
 # PR_REVIEWER_OAUTH_SCOPE=public_repo               # public repositories only (default: repo)
 # PR_REVIEWER_ALLOWED_ENDPOINTS=https://llm.internal.example/v1   # extra OpenAI-compatible endpoints users may pick
+# PR_REVIEWER_DEFAULT_UI=v2                         # which review page / opens: classic (default) or v2
 ```
 
 Generate a secret with `openssl rand -base64 48`.

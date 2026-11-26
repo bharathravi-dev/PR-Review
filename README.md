@@ -42,7 +42,7 @@ asked to confirm; use `--yes` in scripts.
 | `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
 | `web` | Run the self-hosted Web App (see docs/web-app.md) |
-| `serve` | Open a review page in your browser (`--open`, `--port <n>`); see below |
+| `serve` | Open a review page in your browser (`--open`, `--port <n>`, `--ui classic\|v2`); see below |
 | `context <pr>` | Show what the review reads from GitHub |
 | `config show` / `config path` | Your resolved settings and where they came from |
 
@@ -64,6 +64,11 @@ Don't share the link; stop the page with Ctrl+C. The page speaks the `ReviewServ
 (`/v1/runs`, `/v1/runs/:id/events`, `/v1/runs/:id/report`, `/v1/runs/:id/publish`), which the browser
 extension will also use.
 
+
+**Two versions of the page.** Classic is at `/classic/` and the new v2 at `/v2/`; `/` opens classic unless
+you start with `--ui v2` (Web App: `PR_REVIEWER_DEFAULT_UI=v2`). "Try v2" and "Switch to classic" move between
+them and the browser remembers your choice. v2 becomes the default once it does everything classic does
+([docs/review-page-v2.md](docs/review-page-v2.md)).
 ## For a team: the Web App
 
 ```bash

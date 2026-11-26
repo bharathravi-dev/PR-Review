@@ -48,7 +48,7 @@ Commands:
   review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
-  serve              Open a review page in your browser, served only on this machine
+  serve              Open a review page in your browser, served only on this machine (--ui classic|v2)
   bench <dataset>    Measure review quality on PRs with known issues (precision, recall, F1)
   fix <PR>           Have your Claude Code or Codex fix your open findings in this checkout
   learnings <repo>   What reviews learned from feedback on earlier comments (👎, /dismiss, /remember)
@@ -530,18 +530,20 @@ function configCommand(args: string[], io: CliIo, deps: CliDeps): number {
 async function serveCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[]): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, open: { type: 'boolean' }, profile: { type: 'string' } } })
+    parsed = parseArgs({ args, allowPositionals: false, options: { port: { type: 'string' }, open: { type: 'boolean' }, profile: { type: 'string' }, ui: { type: 'string' } } })
   } catch (e) {
     return usageError(io, (e as Error).message)
   }
   const port = parsed.values.port === undefined ? 0 : Number(parsed.values.port)
   if (!Number.isInteger(port) || port < 0 || port > 65535) return usageError(io, '--port must be a whole number from 0 to 65535')
+  const ui = parsed.values.ui
+  if (ui !== undefined && ui !== 'classic' && ui !== 'v2') return usageError(io, '--ui must be classic or v2')
   const config = resolveConfig(io, deps, parsed.values.profile, {})
   if (typeof config === 'number') return config
 
   let server
   try {
-    server = await startServer({ deps, config, secrets, port, log: (t) => io.stderr(t) })
+    server = await startServer({ deps, config, secrets, port, ...(ui ? { ui } : {}), log: (t) => io.stderr(t) })
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code
     io.stderr(code === 'EADDRINUSE' ? `Port ${port} is in use; pick another with --port, or leave it out to use any free port.\n` : `Could not start the page: ${(e as Error).message}\n`)
@@ -585,6 +587,7 @@ async function webCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
     scope: e.PR_REVIEWER_OAUTH_SCOPE,
     allowedEndpoints: list(e.PR_REVIEWER_ALLOWED_ENDPOINTS),
     sandbox: e.PR_REVIEWER_SANDBOX === 'on',
+    ui: e.PR_REVIEWER_DEFAULT_UI === 'v2' ? ('v2' as const) : ('classic' as const),
     fetch: deps.fetch,
     port: Number(parsed.values.port ?? e.PORT ?? 8080),
     host: parsed.values.host ?? '0.0.0.0',

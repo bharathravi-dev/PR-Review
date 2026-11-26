@@ -8,7 +8,7 @@ import { err, ok, resolveSettings, Secret, type CredentialResolver, type Secret 
 import * as z from 'zod'
 import { apiUrlForHost } from './compose.js'
 import type { CliDeps } from './deps.js'
-import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, readJson, SECURITY_HEADERS, sendJson, type Principal, type Run } from './review-service.js'
+import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, readJson, SECURITY_HEADERS, sendJson, type Principal, type Run, type UiVersion } from './review-service.js'
 import { USER_AGENT } from './version.js'
 import { WebStore, type UserSettings, type WebUser } from './web-store.js'
 
@@ -29,6 +29,8 @@ export interface WebOptions {
   allowedEndpoints?: readonly string[] | undefined
   /** Run compile and lint in containers (needs a container runtime the server can reach). Default off. */
   sandbox?: boolean | undefined
+  /** Which review page `/` opens (PR_REVIEWER_DEFAULT_UI); classic by default. */
+  ui?: UiVersion | undefined
   fetch: typeof fetch
   port?: number | undefined
   host?: string | undefined
@@ -87,7 +89,7 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
   const allowOrgs = o.allowOrgs.map((x) => x.toLowerCase())
   const scope = [o.scope ?? 'repo', ...(allowOrgs.length ? ['read:org'] : [])].join(' ')
   const endpoints = new Set([OPENAI, ...(o.allowedEndpoints ?? [])].map((e) => e.replace(/\/+$/, '')))
-  const assets = loadAssets('web')
+  const assets = loadAssets('web', o.ui)
 
   const service = createReviewService({
     channel: 'WEB',

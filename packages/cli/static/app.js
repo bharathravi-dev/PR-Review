@@ -1,6 +1,10 @@
 // Local review page for `pr-reviewer serve`. A client of ReviewService v1 (AD-16).
 // Every string from GitHub, the PR, or the AI is inserted with textContent, never as HTML.
 import { defaultSelection, findingsSummary, groupFindings, selectAllFingerprints } from '/findings-view.js'
+import { followPreference, switchTo } from '/ui-switch.js'
+
+// Open v2 instead if this browser chose it (Story 9.3); runs before the URL fragment (serve's key) is read.
+followPreference('classic')
 
 const TOKEN_KEY = 'pr-reviewer-token'
 const $ = (id) => document.getElementById(id)
@@ -788,3 +792,8 @@ async function boot() {
 }
 
 boot()
+
+document.getElementById('ui-switch')?.addEventListener('click', (ev) => {
+  ev.preventDefault()
+  switchTo('v2')
+})

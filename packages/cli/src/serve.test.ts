@@ -96,9 +96,9 @@ afterEach(async () => {
   server = undefined
 })
 
-async function start(gh = github(), cfg = config()) {
+async function start(gh = github(), cfg = config(), ui?: 'classic' | 'v2') {
   const secrets: Secret[] = []
-  server = await startServer({ deps: deps(gh.impl), config: cfg, secrets, token: 'test-token-0123456789abcdef' })
+  server = await startServer({ deps: deps(gh.impl), config: cfg, secrets, token: 'test-token-0123456789abcdef', ...(ui ? { ui } : {}) })
   const call = (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const headers = new Headers(init.headers)
     if (!headers.has('authorization')) headers.set('authorization', `Bearer ${server!.token}`)
@@ -138,6 +138,26 @@ async function runToEnd(call: Awaited<ReturnType<typeof start>>['call']) {
   const events = await readEvents(await call(`/v1/runs/${id}/events`))
   return { id, events }
 }
+
+describe('classic and v2 side by side (Story 9.3)', () => {
+  it('serves both pages and their modules, and / opens the server default', async () => {
+    const { server: s } = await start()
+    const get = async (p: string) => {
+      const r = await fetch(`${s.url}${p}`)
+      return { status: r.status, type: r.headers.get('content-type') ?? '', text: await r.text() }
+    }
+    expect((await get('/')).text).toContain('src="/app.js"')
+    expect((await get('/classic/')).text).toContain('src="/app.js"')
+    expect((await get('/v2/')).text).toContain('src="/v2/app.js"')
+    for (const p of ['/ui-switch.js', '/v2/app.js', '/findings-view.js']) expect(await get(p)).toMatchObject({ status: 200, type: expect.stringContaining('text/javascript') })
+    expect((await get('/v2/app.css')).type).toContain('text/css')
+    expect((await get('/classic/')).text).toContain('id="ui-switch"')
+    await s.close()
+    server = undefined
+    const v2 = await start(undefined, undefined, 'v2')
+    expect(await (await fetch(`${v2.server.url}/`)).text()).toContain('src="/v2/app.js"')
+  })
+})
 
 describe('local review page (Story 8.1)', () => {
   it('serves the page and guards the API with the token, loopback Host, and same Origin', async () => {

@@ -91,14 +91,30 @@ export const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'self'
 const MAX_BODY = 64 * 1024
 const RUN_PATH = /^\/v1\/runs\/([0-9a-f-]{36})\/(events|report|publish)$/
 
-/** The page's static files; `index.html` gets its mode substituted (local page or Web App). */
-export function loadAssets(mode: 'local' | 'web'): Record<string, { type: string; body: Buffer }> {
+/** Which review page `/` opens: classic (today's) or v2 (Epic 9 Story 9.3). Classic until v2 passes its parity checklist. */
+export type UiVersion = 'classic' | 'v2'
+
+/**
+ * The page's static files. Classic is served at `/classic/`, v2 at `/v2/`, and `/` serves the default; each page then
+ * follows the browser's own remembered choice. `index.html` gets its mode substituted (local page or Web App).
+ */
+export function loadAssets(mode: 'local' | 'web', ui: UiVersion = 'classic'): Record<string, { type: string; body: Buffer }> {
   const read = (f: string) => readFileSync(new URL(`../static/${f}`, import.meta.url))
+  const html = (f: string) => ({ type: 'text/html; charset=utf-8', body: Buffer.from(read(f).toString('utf8').replace('content="local"', `content="${mode}"`)) })
+  const js = (f: string) => ({ type: 'text/javascript; charset=utf-8', body: read(f) })
+  const css = (f: string) => ({ type: 'text/css; charset=utf-8', body: read(f) })
+  const classic = html('index.html')
+  const v2 = html('v2/index.html')
   return {
-    '/': { type: 'text/html; charset=utf-8', body: Buffer.from(read('index.html').toString('utf8').replace('content="local"', `content="${mode}"`)) },
-    '/app.js': { type: 'text/javascript; charset=utf-8', body: read('app.js') },
-    '/findings-view.js': { type: 'text/javascript; charset=utf-8', body: read('findings-view.js') },
-    '/app.css': { type: 'text/css; charset=utf-8', body: read('app.css') },
+    '/': ui === 'v2' ? v2 : classic,
+    '/classic/': classic,
+    '/v2/': v2,
+    '/app.js': js('app.js'),
+    '/app.css': css('app.css'),
+    '/findings-view.js': js('findings-view.js'),
+    '/ui-switch.js': js('ui-switch.js'),
+    '/v2/app.js': js('v2/app.js'),
+    '/v2/app.css': css('v2/app.css'),
   }
 }
 

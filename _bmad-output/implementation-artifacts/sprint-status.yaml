@@ -108,7 +108,7 @@ development_status:
   epic-9: in-progress
   9-1-show-what-matters-first: review  # built and tested; page grouping verified by unit tests, not yet in a live browser run
   9-2-accessibility-parity-for-the-classic-page: review  # style contract test; not yet checked in a live browser
-  9-3-keep-the-classic-page-while-v2-is-built: backlog
+  9-3-keep-the-classic-page-while-v2-is-built: done
   9-4-the-v2-workspace-start-a-review-from-the-command-bar: backlog
   9-5-overview-the-verdict-first-live-while-it-runs: backlog
   9-6-findings-under-their-code: backlog

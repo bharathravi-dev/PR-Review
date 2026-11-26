@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import type { ResolvedConfig, Secret } from '@pr-reviewer/core'
 import type { CliDeps } from './deps.js'
-import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, SECURITY_HEADERS, sendJson, type Principal } from './review-service.js'
+import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, SECURITY_HEADERS, sendJson, type Principal, type UiVersion } from './review-service.js'
 
 export interface ServeOptions {
   deps: CliDeps
@@ -13,6 +13,8 @@ export interface ServeOptions {
   secrets: Secret[]
   /** 0 picks any free port. */
   port?: number
+  /** Which review page `/` opens (`--ui`); classic by default. */
+  ui?: UiVersion | undefined
   /** Fixed token (tests only); otherwise 192 random bits per launch. */
   token?: string
   log?: (text: string) => void
@@ -32,7 +34,7 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => undefined)
   const token = opts.token ?? randomBytes(24).toString('base64url')
   const tokenBytes = Buffer.from(token)
-  const assets = loadAssets('local')
+  const assets = loadAssets('local', opts.ui)
   const service = createReviewService({ channel: 'CLI', log, maxRuns: 25 })
   const principal: Principal = { id: 'local', config: opts.config, deps: opts.deps, secrets: opts.secrets }
   let port = 0
