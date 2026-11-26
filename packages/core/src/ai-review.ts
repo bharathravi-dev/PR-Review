@@ -313,20 +313,42 @@ export function planReviewRequests(ctx: RedactedContext, opts: BuildRequestOptio
     used += c
   }
   if (current.length) batches.push(current)
-  const reviewed = batches.slice(0, MAX_REVIEW_PARTS)
-  const skipped = batches.slice(MAX_REVIEW_PARTS).flat()
-  const n = reviewed.length
-  const requests = reviewed.map((batch, i) => {
+  const partNote = (batch: typeof fitted, i: number, n: number | string) => {
     const here = new Set(batch.map((f) => f.path))
     const others = ctx.files.map((f) => f.path).filter((p) => !here.has(p))
     const list = others.slice(0, OTHER_FILES_SHOWN).join(', ') + (others.length > OTHER_FILES_SHOWN ? ` and ${others.length - OTHER_FILES_SHOWN} more` : '')
-    return withFiles(batch, `Part ${i + 1} of ${n}: this pull request is large, so it is reviewed in parts. Review only the files shown here.${others.length ? ` The other changed files (${list}) are reviewed separately; don't report them as missing.` : ''}`)
-  })
+    return `Part ${i + 1} of ${n}: this pull request is large, so it is reviewed in parts. Review only the files shown here.${others.length ? ` The other changed files (${list}) are reviewed separately; don't report them as missing.` : ''}`
+  }
+  // Each part is measured exactly as it will be sent (with its note) and kept under the budget with a margin:
+  // files move on to the next part, and a lone file that still doesn't fit has its diff cut further.
+  const limit = budget - 64
+  const fits = (batch: typeof fitted, i: number) => planTokens(withFiles(batch, partNote(batch, i, 99))) <= limit
+  for (let i = 0; i < batches.length && i < MAX_REVIEW_PARTS; i++) {
+    let batch = batches[i]!
+    while (!fits(batch, i) && batch.length > 1) {
+      const moved = batch[batch.length - 1]!
+      batch = batch.slice(0, -1)
+      if (i + 1 < batches.length) batches[i + 1] = [moved, ...batches[i + 1]!]
+      else batches.push([moved])
+    }
+    for (let tries = 0; !fits(batch, i) && tries < 8; tries++) {
+      const f = batch[0]!
+      const patch = f.patch ?? ''
+      if (patch.length < 400) break
+      if (!/cut to fit/.test(patch)) cut++
+      batch = [{ ...f, head: f.head?.text !== undefined ? { omitted: 'total_limit' as const } : f.head, patch: `${patch.slice(0, Math.floor(patch.length / 2))}\n… (the rest of this diff was cut to fit the AI model’s context window)` }]
+    }
+    batches[i] = batch
+  }
+  const reviewed = batches.slice(0, MAX_REVIEW_PARTS).filter((b, i) => fits(b, i))
+  const skipped = batches.slice(MAX_REVIEW_PARTS).flat().concat(batches.slice(0, MAX_REVIEW_PARTS).filter((b, i) => !fits(b, i)).flat())
+  const n = reviewed.length
+  const requests = reviewed.map((batch, i) => withFiles(batch, partNote(batch, i, n)))
   const notes = [
     ...leftOutRelated,
     `Reviewed in ${n} part${n === 1 ? '' : 's'} to fit the AI model’s ${Math.round(budget / 1000)}k-token context window; each part saw only its own files.`,
     ...(diffOnly ? [`For ${diffOnly} large file(s) the AI saw only the diff, not the whole file${cut ? `; ${cut} diff(s) were cut` : ''}.`] : []),
-    ...(skipped.length ? [`${skipped.length} file(s) were not reviewed by the AI (more than ${MAX_REVIEW_PARTS} parts): ${skipped.slice(0, 20).map((f) => f.path).join(', ')}${skipped.length > 20 ? ', …' : ''}.`] : []),
+    ...(skipped.length ? [`${skipped.length} file(s) were not reviewed by the AI (too many parts, or too large for the context window): ${skipped.slice(0, 20).map((f) => f.path).join(', ')}${skipped.length > 20 ? ', …' : ''}.`] : []),
   ]
   return { requests, notes }
 }
@@ -536,7 +558,8 @@ export async function runAiReview(
         description: item.description,
         ...(item.impact ? { impact: item.impact } : {}),
         ...(item.recommendation ? { recommendation: item.recommendation } : {}),
-        ...(item.suggestion && location.anchorKind === 'LINE' ? { suggestion: item.suggestion } : {}),
+        // A suggestion must be replacement code; advice repeated from the recommendation is dropped.
+        ...(item.suggestion && location.anchorKind === 'LINE' && item.suggestion.trim() !== (item.recommendation ?? '').trim() ? { suggestion: item.suggestion } : {}),
         location,
         provenance: { validator: 'ai.review', provider: c.name, model: res.value.model },
       })

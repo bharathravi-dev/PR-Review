@@ -363,6 +363,15 @@ describe('small context windows (local models)', () => {
     expect(plan.notes.join(' ')).toContain(`Reviewed in ${plan.requests.length} parts`)
   })
 
+  it('keeps every part under the budget even with many long paths in the part notes', () => {
+    const ctx = big(60, 6_000)
+    const long = { ...ctx, files: ctx.files.map((f, i) => ({ ...f, path: `project/ws/app/src/lib/head/ui-admin-table/some-very-long-feature-folder-name/component-number-${i}/component-${i}.component.ts` })) } as typeof ctx
+    const plan = planReviewRequests(long, {}, 28_672)
+    expect(plan.requests.length).toBeGreaterThan(1)
+    for (const r of plan.requests) expect(Math.ceil(r.system.length / 3) + Math.ceil(r.prompt.length / 3) + Math.ceil(JSON.stringify(r.schema).length / 3) + 4096).toBeLessThanOrEqual(32_768)
+    expect(new Set(plan.requests.flatMap((r) => [...r.prompt.matchAll(/<file path="([^"]+)"/g)].map((m) => m[1]))).size).toBe(60)
+  })
+
   it('shows only the diff of a file too large for a part', () => {
     const plan = planReviewRequests(big(1, 200_000), {}, 28_672)
     expect(plan.requests).toHaveLength(1)
