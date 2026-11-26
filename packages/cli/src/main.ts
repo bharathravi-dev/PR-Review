@@ -402,7 +402,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   io.stderr(formatPreview(formatPrRef(ref.value), preview))
 
   if (!parsed.values.yes) {
-    const answer = (await deps.prompt(`Post this ${event === 'COMMENT' ? 'review' : 'review requesting changes'} to ${formatPrRef(ref.value)}? [y/N] `)).trim().toLowerCase()
+    const answer = (await deps.prompt(`Post this ${preview.event === 'APPROVE' ? 'APPROVING review' : event === 'COMMENT' ? 'review' : 'review requesting changes'} to ${formatPrRef(ref.value)}? [y/N] `)).trim().toLowerCase()
     if (answer !== 'y' && answer !== 'yes') {
       io.stderr('Not posted.\n')
       return reviewCode

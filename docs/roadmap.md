@@ -16,7 +16,7 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 6 | Replies in the PR thread: `@pr-reviewer why`, `fix`, `ignore`, `review` | Conversation is expected | done (`pr-reviewer respond`; webhooks arrive with item 7) |
 | 7 | GitHub App: install once, every PR reviewed on push (webhooks, in the Web App) | How every competitor is adopted | done (`pr-reviewer app`, docs/github-app.md) |
 | 8 | Review local changes before a PR (`pr-reviewer review --local`) | Shift left, like IDE review | done |
-| 9 | Opt-in approval, gated (checks ran and passed, no finding at or above a threshold) | Copilot can now approve; ours stays off by default | planned |
+| 9 | Opt-in approval, gated (checks ran and passed, no finding at or above a threshold) | Copilot can now approve; ours stays off by default | done (`publish.approve`) |
 | 10 | GitLab merge requests, then Bitbucket and Azure DevOps | CodeRabbit covers all four | planned |
 | 11 | Jira and Linear ticket awareness | Ticket-aware reviews | planned |
 | 12 | Publishing: npm package, Web App image on GHCR, extension zip on releases | People must be able to install it | planned |

@@ -127,7 +127,7 @@ export interface InlineComment {
 export interface GitHubWriter {
   createReview(
     ref: PrRef,
-    review: { commitId: string; /** Omitted for a pending (draft) review only the author sees (FR-20a). */ event?: 'COMMENT' | 'REQUEST_CHANGES' | undefined; body: string; comments: readonly InlineComment[] },
+    review: { commitId: string; /** Omitted for a pending (draft) review only the author sees (FR-20a). */ event?: 'COMMENT' | 'REQUEST_CHANGES' | 'APPROVE' | undefined; body: string; comments: readonly InlineComment[] },
   ): Promise<Result<{ id: number; url: string }>>
   createIssueComment(ref: PrRef, body: string): Promise<Result<{ id: number; url: string }>>
   /** Replies in a review thread (optional; commands in the PR thread use it, roadmap item 6). */

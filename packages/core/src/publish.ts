@@ -64,7 +64,10 @@ export function reviewedState(items: PublishedItems, rid: number, headSha: strin
 
 /** What to publish (AD-23). Pure data; the preview and the post are both rendered from it. */
 export interface PublishPlan {
-  event: 'COMMENT' | 'REQUEST_CHANGES'
+  /** APPROVE only through the opt-in approval policy (roadmap item 9); never asked for directly. */
+  event: 'COMMENT' | 'REQUEST_CHANGES' | 'APPROVE'
+  /** Why the approval policy approved (shown in the review body). */
+  approvalReasons?: string[] | undefined
   /** Pending (draft) reviews are an Auto-Review mode (FR-20a, Epic 5). */
   pending: boolean
   maxInline: number
@@ -137,11 +140,14 @@ export function planPublish(
     maxInline?: number | undefined
     minInlineSeverity?: Severity | undefined
     extraLinkPrefixes?: readonly string[] | undefined
+    /** The approval policy's decision; an approving decision turns a submitted COMMENT into APPROVE. */
+    approval?: { approve: boolean; reasons: string[] } | undefined
   },
 ): PublishPlan {
   const repoUrl = `https://${report.run.host}/${report.run.repo.fullName}`
   return {
-    event: opts.event ?? 'COMMENT',
+    event: opts.approval?.approve && (opts.event ?? 'COMMENT') === 'COMMENT' && !opts.pending ? 'APPROVE' : (opts.event ?? 'COMMENT'),
+    ...(opts.approval?.approve && (opts.event ?? 'COMMENT') === 'COMMENT' && !opts.pending ? { approvalReasons: opts.approval.reasons } : {}),
     pending: opts.pending ?? false,
     maxInline: opts.maxInline ?? DEFAULT_MAX_INLINE,
     minInlineSeverity: opts.minInlineSeverity ?? 'MINOR',
@@ -336,7 +342,7 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
   // A pending review is private to its author, so its summary goes in the review body, never in a public comment.
   const reviewBody = plan.pending
     ? `${summaryLines.join('\n').replace('published by the reviewer', 'left as a pending review for you to edit and submit')}\n\n${markerFor(report, plan, 'review')}`
-    : `PR Reviewer: ${inline.length} inline comment(s) for \`${report.run.headSha?.slice(0, 7) ?? '?'}\`. The summary is in the conversation below.\n\n${markerFor(report, plan, 'review')}`
+    : `${plan.event === 'APPROVE' ? `Approved by PR Reviewer's approval policy: ${(plan.approvalReasons ?? []).join('; ')}.\n\n` : ''}PR Reviewer: ${inline.length} inline comment(s) for \`${report.run.headSha?.slice(0, 7) ?? '?'}\`. The summary is in the conversation below.\n\n${markerFor(report, plan, 'review')}`
   return { event: plan.event, pending: plan.pending, reviewBody, summaryBody, inline, summaryOnly, withheld, stillOpen, resolved }
 }
 

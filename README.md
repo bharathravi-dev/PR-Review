@@ -315,6 +315,11 @@ ai:
   styleFindings: false        # true: keep the AI's style-only remarks (left out by default; repeats are always folded)
   incremental: true           # false: on later reviews re-check every file, not only those changed since the last review
   effort: adaptive            # light, standard, deep: fix the depth (adaptive: light for docs/small, deep for auth, secrets, CI, migrations)
+publish:
+  approve:                    # off by default; approves only when every condition holds, else comments
+    enabled: false
+    maxSeverity: MINOR        # any finding above this blocks approval
+    requireLayers: [COMPILE, LINT]   # must have run and passed where they apply (needs the Sandbox)
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20

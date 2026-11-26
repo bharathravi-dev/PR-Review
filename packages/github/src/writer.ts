@@ -49,7 +49,7 @@ export class GitHubPrWriter implements GitHubWriter {
 
   async createReview(
     ref: PrRef,
-    review: { commitId: string; event?: 'COMMENT' | 'REQUEST_CHANGES' | undefined; body: string; comments: readonly InlineComment[] },
+    review: { commitId: string; event?: 'COMMENT' | 'REQUEST_CHANGES' | 'APPROVE' | undefined; body: string; comments: readonly InlineComment[] },
   ): Promise<Result<{ id: number; url: string }>> {
     const res = await this.client.send<{ id: number; html_url: string }>('POST', `${repoPath(ref)}/pulls/${ref.number}/reviews`, {
       commit_id: review.commitId,

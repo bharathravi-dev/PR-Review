@@ -1,5 +1,6 @@
 // Review operations shared by the CLI commands and the local review page (AD-16: one engine path per Channel).
 import {
+  decideApproval,
   err,
   hunksFromContext,
   ok,
@@ -336,6 +337,8 @@ export async function preparePublish(
     maxInline: minDefined(settings.maxInlineComments, repoMaxInline(report)),
     minInlineSeverity: stricterSeverity(settings.minInlineSeverity, repoSetting(report, 'minInlineSeverity')),
     extraLinkPrefixes: settings.linkPrefixes,
+    // Opt-in approval: only with publish.approve.enabled, and only when every condition holds.
+    ...(settings.approve?.enabled ? { approval: decideApproval(report, settings.approve, { draft: context.draft, ownPr: context.author.toLowerCase() === github.viewer.login.toLowerCase() }) } : {}),
   })
   return ok({ plan, preview: renderPublish(report, plan) })
 }

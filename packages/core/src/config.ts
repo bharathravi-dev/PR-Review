@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { ApproveSettings } from './approval.js'
 import { AutoReviewSettings } from './auto-review.js'
 import { Severity } from './findings.js'
 import { err, ok, type Result } from './result.js'
@@ -87,6 +88,8 @@ export const Settings = z.strictObject({
       linkPrefixes: z.array(z.string()).optional(),
       /** Also set a `pr-reviewer` commit status on the head commit when posting (FR-21). Off by default. */
       commitStatus: z.boolean().optional(),
+      /** Opt-in approval (off by default): approve only when every condition holds (roadmap item 9). */
+      approve: ApproveSettings.optional(),
     })
     .optional(),
 })
