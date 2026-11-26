@@ -41,3 +41,4 @@ declare namespace chrome {
     function getCurrent(): Promise<{ id: number }>
   }
 }
+declare const __GITHUB_CLIENT_ID__: string

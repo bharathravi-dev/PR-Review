@@ -7,6 +7,8 @@ await build({
   root,
   logLevel: 'warn',
   publicDir: 'public',
+  // Device-flow sign-in needs a GitHub OAuth app; without its client ID the panel offers token sign-in only.
+  define: { __GITHUB_CLIENT_ID__: JSON.stringify(process.env.PR_REVIEWER_GITHUB_CLIENT_ID ?? '') },
   build: {
     outDir: 'build',
     emptyOutDir: true,

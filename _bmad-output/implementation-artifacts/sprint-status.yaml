@@ -90,9 +90,9 @@ development_status:
 
   epic-7: in-progress
   7-1-review-a-pr-from-the-side-panel-walking-skeleton: review  # bundled engine ran a full review in Chrome (stubbed chrome.* + mocked APIs); not yet loaded as an installed extension (branded Chrome blocks --load-extension); F6 into the panel not verified
-  7-2-welcome-consent-and-standalone-setup: backlog
-  7-3-choose-findings-open-them-in-the-diff-and-post: backlog
-  7-4-follow-the-tab-keep-recent-reviews-and-work-offline: backlog
+  7-2-welcome-consent-and-standalone-setup: review  # token setup, key test, AES-GCM storage verified in Chrome; device-flow sign-in needs a GitHub OAuth app (PR_REVIEWER_GITHUB_CLIENT_ID at build) and is untested live
+  7-3-choose-findings-open-them-in-the-diff-and-post: review  # preview and post through core publish tested with a fake GitHub; preview verified in Chrome; not yet posted to a real PR
+  7-4-follow-the-tab-keep-recent-reviews-and-work-offline: review  # implemented; tab following and offline not exercised in an installed extension
   7-5-the-review-button-on-the-pr-page: backlog
   7-6-store-ready-standalone-release: backlog
   7-7-connect-to-my-teams-web-app: backlog

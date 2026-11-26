@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PR Reviewer: privacy</title>
+<style>body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 16px;color:#1c2128}h1{font-size:1.4rem}h2{font-size:1.05rem;margin-top:24px}</style></head>
+<body>
+<h1>PR Reviewer browser extension: privacy</h1>
+<p>The extension reviews GitHub pull requests from a side panel. It has no server of its own and collects no analytics.</p>
+<h2>What is sent where</h2>
+<ul>
+<li><strong>GitHub</strong> (github.com and api.github.com, or an Enterprise host you add): requests to read the pull request you review, and, only when you press Post, to post your review and summary comment.</li>
+<li><strong>Your AI provider</strong> (Anthropic, OpenAI or the compatible endpoint you choose): the pull request's diff and file contents, with detected secrets removed first.</li>
+<li><strong>OSV</strong> (api.osv.dev): names and versions of packages the pull request adds or upgrades, to look up known vulnerabilities.</li>
+<li>Nothing is sent anywhere else.</li>
+</ul>
+<h2>What is stored in your browser</h2>
+<ul>
+<li>Your GitHub token and AI key, encrypted at rest with a key that cannot be exported, in the extension's own storage, which web pages cannot read. Remove them any time in Settings.</li>
+<li>The last review of up to 50 recent pull requests, including short code excerpts, so the panel can show them again. Clear them any time in Settings.</li>
+</ul>
+<h2>What is never done</h2>
+<ul>
+<li>Nothing is posted to GitHub unless you press Post. The extension never approves a pull request.</li>
+<li>The extension does not read GitHub's pages; it only places one button in the pull request header and reads the page's colour mode.</li>
+</ul>
+</body>
+</html>
