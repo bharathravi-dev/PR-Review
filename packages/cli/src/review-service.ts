@@ -88,7 +88,7 @@ export const SECURITY_HEADERS = {
   'cross-origin-resource-policy': 'same-origin',
 } as const
 
-export const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+export const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 const MAX_BODY = 64 * 1024
 const RUN_PATH = /^\/v1\/runs\/([0-9a-f-]{36})\/(events|report|publish|hunks)$/
@@ -147,6 +147,8 @@ export function loadAssets(mode: 'local' | 'web', ui: UiVersion = 'v2'): Record<
     '/app.css': css('app.css'),
     '/findings-view.js': js('findings-view.js'),
     '/ui-switch.js': js('ui-switch.js'),
+    // Inter, bundled: the pages load nothing from other sites (BR.dev brand font).
+    '/fonts/inter.woff2': { type: 'font/woff2', body: read('fonts/inter.woff2') },
     // Every module and stylesheet of v2.
     ...Object.fromEntries(
       readdirSync(new URL('../static/v2/', import.meta.url))

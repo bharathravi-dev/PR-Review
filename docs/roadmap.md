@@ -24,4 +24,5 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 14 | Team dashboard: accepted vs dismissed findings, by repo and person | Managers buy on evidence | planned |
 | 15 | Security deep scan (static rules in the Sandbox) | CodeRabbit and Copilot now market security | planned |
 | 16 | "Apply fix" from the review: commit a suggestion to the PR branch | One-click fixes | planned |
+| 18 | BR.dev brand: orange accent, Inter, PR mark and icon, light and dark, contrast-checked (docs/brand.md) | Your own brand on every surface | done |
 | 17 | Whole-codebase and cross-repo context (an index of the repository) | Greptile's main selling point | planned |

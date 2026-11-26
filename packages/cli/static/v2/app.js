@@ -212,6 +212,7 @@ function renderSidebar() {
         h('span', { class: 'muted' }, s ? `pr-reviewer v${s.version}` : ''),
       ),
     ),
+    h('a', { class: 'credit nav-label', href: 'https://bharathravi.dev/', target: '_blank', rel: 'noopener' }, 'Built by ', h('span', { class: 'br' }, 'BR'), h('span', { class: 'dev' }, '.dev')),
   )
 }
 

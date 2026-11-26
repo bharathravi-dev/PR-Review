@@ -610,7 +610,7 @@ function settingsView(): HTMLElement {
     )
       : '',
     h('div', { class: 'card' }, h('h2', {}, 'Stored reviews'), h('p', { class: 'muted' }, `${Object.keys(state.stored).length} of at most ${MAX_STORED} kept in this browser.`), h('button', { class: 'btn', type: 'button', onclick: confirmClear, disabled: !Object.keys(state.stored).length }, 'Clear stored reviews')),
-    h('div', { class: 'card' }, h('a', { href: chrome.runtime.getURL('privacy.html'), target: '_blank' }, 'Privacy policy')),
+    h('div', { class: 'card' }, h('a', { href: chrome.runtime.getURL('privacy.html'), target: '_blank' }, 'Privacy policy'), h('a', { class: 'credit', href: 'https://bharathravi.dev/', target: '_blank' }, 'Built by ', h('span', { class: 'br' }, 'BR'), h('span', { class: 'dev' }, '.dev'))),
     dlg,
   )
 }

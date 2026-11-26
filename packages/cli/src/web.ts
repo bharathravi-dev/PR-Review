@@ -242,8 +242,8 @@ export async function startWeb(o: WebOptions): Promise<RunningWeb> {
   }
 
   const htmlPage = (res: ServerResponse, status: number, title: string, body: string) => {
-    res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", ...SECURITY_HEADERS })
-    res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="stylesheet" href="/app.css"></head><body><main class="wrap"><section class="card">${body}</section></main></body></html>`)
+    res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", ...SECURITY_HEADERS })
+    res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="stylesheet" href="/app.css"></head><body><main class="wrap"><section class="card">${body}</section><p class="footer"><a class="credit" href="https://bharathravi.dev/">Built by <span class="br">BR</span><span class="dev">.dev</span></a></p></main></body></html>`)
   }
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 

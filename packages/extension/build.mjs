@@ -68,6 +68,38 @@ function png(size) {
     c.writeUInt32BE(crc(td))
     return Buffer.concat([len, td, c])
   }
+  // The PR Reviewer mark: orange "PR" on the BR.dev brand's dark background, in a rounded square (no gradient).
+  const BG = [0x09, 0x0a, 0x1a]
+  const FG = [0xff, 0x7b, 0x02]
+  // P and R drawn as geometry (stems, round bowls, a diagonal leg) in a unit box 1 tall, so they stay smooth.
+  const T = 0.18
+  const bowl = (x, y, cx, cy, rad) => x >= cx && Math.hypot(x - cx, y - cy) <= rad && Math.hypot(x - cx, y - cy) >= rad - T
+  const bar = (x, y, x0, x1, y0) => x >= x0 && x <= x1 && y >= y0 && y <= y0 + T
+  const P = (x, y) => {
+    if (x < 0 || x > 0.64 || y < 0 || y > 1) return false
+    if (x <= T) return true
+    const a = 0.29
+    return bar(x, y, 0, 0.64 - a, 0) || bar(x, y, 0, 0.64 - a, 2 * a - T) || bowl(x, y, 0.64 - a, a, a)
+  }
+  const R = (x, y) => {
+    if (x < 0 || x > 0.66 || y < 0 || y > 1) return false
+    if (x <= T) return true
+    const a = 0.285
+    if (bar(x, y, 0, 0.62 - a, 0) || bar(x, y, 0, 0.62 - a, 2 * a - T) || bowl(x, y, 0.62 - a, a, a)) return true
+    // The leg: a stroke from the bowl's foot to the bottom right.
+    const [x0, y0, x1, y1] = [0.3, 2 * a - T / 2, 0.66 - T / 2, 1 - T / 2]
+    const t = Math.max(0, Math.min(1, ((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / ((x1 - x0) ** 2 + (y1 - y0) ** 2)))
+    return Math.hypot(x - (x0 + t * (x1 - x0)), y - (y0 + t * (y1 - y0))) <= T / 2
+  }
+  const H = size * 0.46
+  const total = (0.64 + 0.16 + 0.66) * H
+  const left = (size - total) / 2
+  const top = (size - H) / 2
+  const ink = (px, py) => {
+    const x = (px - left) / H
+    const y = (py - top) / H
+    return P(x, y) || R(x - 0.8, y)
+  }
   const r = size * 0.22
   const rows = []
   for (let y = 0; y < size; y++) {
@@ -76,9 +108,11 @@ function png(size) {
       const dx = Math.max(r - x - 0.5, 0, x + 0.5 - (size - r))
       const dy = Math.max(r - y - 0.5, 0, y + 0.5 - (size - r))
       const alpha = Math.max(0, Math.min(1, r - Math.hypot(dx, dy) + 0.5))
-      const t = (x + y) / (2 * size)
-      const [a, b] = [[0x2f, 0x5b, 0xd3], [0x1d, 0x7a, 0x46]]
-      row.push(...a.map((v, i) => Math.round(v + (b[i] - v) * t)), Math.round(alpha * 255))
+      // 4x4 samples per pixel keep the letters smooth at 16px.
+      let on = 0
+      for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) if (ink(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4)) on++
+      const t = on / 16
+      row.push(...BG.map((v, i) => Math.round(v + (FG[i] - v) * t)), Math.round(alpha * 255))
     }
     rows.push(Buffer.from(row))
   }
