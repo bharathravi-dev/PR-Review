@@ -1,18 +1,23 @@
 ---
 status: final
 stepsCompleted: [1, 2, 3, 4]
+updateScope: 'Epic 7 stories (2026-11-26) from the extension UX contract; Epic 9 added from review-page feedback; Epics 1-6 and 8 unchanged'
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-pr-reviewer-2026-11-24/prd.md
   - _bmad-output/planning-artifacts/prds/prd-pr-reviewer-2026-11-24/addendum.md
   - _bmad-output/planning-artifacts/architecture/architecture-pr-reviewer-2026-11-25/ARCHITECTURE-SPINE.md
   - additional_info.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-pr-reviewer-2026-11-26/DESIGN.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-pr-reviewer-2026-11-26/EXPERIENCE.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-pr-reviewer-review-page-v2-2026-11-26/DESIGN.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-pr-reviewer-review-page-v2-2026-11-26/EXPERIENCE.md
 ---
 
 # PR Reviewer - Epic Breakdown
 
 ## Overview
 
-This document provides the complete epic and story breakdown for PR Reviewer, decomposing the requirements from the PRD and the Architecture Spine into implementable stories. There is no UX design contract yet; Release 1 is CLI-only, and UX work for the Web App (R3) and Browser Extension (R4) is planned before those releases.
+This document provides the complete epic and story breakdown for PR Reviewer, decomposing the requirements from the PRD and the Architecture Spine into implementable stories. Release 1 is CLI-only. The Browser Extension (Epic 7, R4) has a UX design contract (`ux-designs/ux-pr-reviewer-2026-11-26/`: DESIGN.md, EXPERIENCE.md, mockups); its UX Design Requirements are listed below.
 
 ## Requirements Inventory
 
@@ -81,6 +86,8 @@ NFR9: Quick-start per Channel: install to first review in < 10 min.
 NFR10: Audit record per Review Run (checks run/skipped, tool versions, resolved config, AI usage, gate inputs, what was Published); no source retained.
 NFR11: Caching only on unchanged inputs; isolated per repo and user.
 NFR12: Validation Capability Spec §36 scenarios within the v1 validator set are release criteria.
+NFR13: Extension credentials — in Connected mode the extension stores no AI Provider keys; any Credential it holds (Standalone AI key, GitHub token, backend session) is unreadable by page scripts, encrypted at rest, sent only over HTTPS to its own service, and covered by in-UI consent and a published privacy policy. (PRD §4.8)
+NFR14: Extension store policy — no remotely hosted code; configuration and data from a backend are treated as data only. (PRD §4.8)
 
 ### Additional Requirements
 
@@ -100,10 +107,47 @@ NFR12: Validation Capability Spec §36 scenarios within the v1 validator set are
 - Auto-Review stateless (GitHub markers), private automation repo, discover → sandbox + review jobs. (AD-14)
 - Thin Channels; `gh` extension is a shim; extension Standalone runs in the side panel page. (AD-16)
 - CLI exit codes and naming conventions per spine Consistency Conventions.
+- Extension: Chrome Manifest V3 with the Side Panel API (Chrome ≥ 116); package `extension/` with its own `src/compose.ts`. (Spine Stack, Structural Seed)
+- Extension Standalone runs `core` with the HTTP providers inside the side panel page, not the service worker; `core` stays isomorphic and runs under a CSP without `unsafe-eval`. (AD-1, AD-16)
+- Extension Connected mode talks to remote engines through `ReviewService v1` only: the Web App server and the CLI companion (`pr-reviewer serve`, Epic 8); progress renders from `RunEvent`s in `seq` order. (AD-16)
+- Before any Publish the head SHA is re-read; a moved head cancels the post. (AD-23)
+- Extension Credentials follow AD-10 (references, redacted Secret objects, no Credential in logs or Reports).
+- Extension internals (UI framework, bundler, storage per token) are decided at Release 4 within AD-1, AD-10, AD-16 and PRD §4.8. (Spine Deferred)
 
 ### UX Design Requirements
 
-None for Release 1 (CLI). Web App (Epic 6) and Browser Extension (Epic 7) require a `bmad-ux` pass before their stories are detailed.
+Release 1 (CLI) has none; the Web App (Epic 6) was built without a separate UX contract, reusing the review page. The Browser Extension (Epic 7) requirements below come from `ux-designs/ux-pr-reviewer-2026-11-26/` (DESIGN.md = look, EXPERIENCE.md = behaviour; spines win over mockups).
+
+UX-DR1: Panel design tokens — implement DESIGN.md tokens in light and dark (OS theme): the review page palette plus `border-strong` (#7d8794 / #6e7681) for every control edge and `focus-ring-outer`/`focus-ring-inner`; the rem type ramp (title 1rem, heading/body 0.875rem, label 0.75rem, badge 0.6875rem, mono 0.78rem); spacing incl. `panel-gutter` 12px and `target-min` 24px; every pair in the DESIGN.md contrast table meets its target.
+UX-DR2: Status and severity mapping — badges per DESIGN.md: BLOCKER/CRITICAL bad, MAJOR warn, MINOR/INFO info; PASSED ok; PASSED_WITH_WARNINGS/INCOMPLETE/WARNING warn; FAILED/ERROR/TIMEOUT bad; SKIPPED/NOT_APPLICABLE/CANCELLED/"Not included" neutral; status always in words.
+UX-DR3: Panel header — logo (decorative), "PR Reviewer", Mode chip, settings button; min 44px, wraps under zoom; Mode chip text states mode and health ("Standalone", "Standalone · signed out", "Web App · <host>", "Web App · unreachable", "This computer", "Checking…", "Offline"); chip click opens Settings at the connection section.
+UX-DR4: Welcome and consent — before anything is entered: what goes to GitHub, what goes to the AI provider (diff and files with secrets removed), nothing else, recent reviews incl. short code excerpts kept in the browser until cleared, privacy policy link, F6 hint; three mode choice cards (Standalone / My team's Web App / This computer, radio semantics); nothing stored until a mode is chosen; "Set up to review <pr>" when opened from a PR, returning there and starting after setup.
+UX-DR5: Setup: Standalone, GitHub — device-code sign-in (code in mono, Copy, "Expires at hh:mm", opens github.com device page, polls; two minutes before expiry a polite offer of a new code; expired and denied states with one-action recovery; code name spelled character by character) and "Use a token instead" (fine-grained token, exact permissions listed; required for Enterprise hosts).
+UX-DR6: Setup: Standalone, AI — provider (Anthropic or OpenAI-compatible) and masked key Input; Test makes one small call ("Testing…", then "Works: <model> answered" or the provider's error tied to the field); saved only after a successful test.
+UX-DR7: Setup: Web App — URL Input; HTTPS only; unreachable / not a pr-reviewer Web App / incompatible version states; sign-in through the Web App's GitHub sign-in; never asks for an AI key.
+UX-DR8: Setup: This computer — instructs `pr-reviewer serve --pair` [assumed command]; pairing-code Input (format and length stated, autocomplete off); shows the computer's name to confirm; wrong and expired code states keep focus in the field.
+UX-DR9: PR home and follow-the-tab — panel shows the PR of its window's active tab; navigation within the same PR never re-renders; states: Loading ("Loading <pr>…"), never reviewed ("Review this PR"), closed/merged/draft (state shown, posting caveat), current review (goes to Report), private repo access missing; Not a PR surface with recent reviews (or "No reviews yet.").
+UX-DR10: Run in progress — Step list rendered only from RunEvents in seq order, each step with a state word and glyph (Waiting ·, Running ring, Done ✓, Failed ✕, Skipped –); provider, model, elapsed time; Cancel → PR home "Review cancelled."; Standalone note "Closing this panel stops the review." vs backend "You can close the panel; the review keeps running."; reattach to backend runs; "stopped when the panel closed" state; Run failed state (plain reason, Retry, previous Report kept).
+UX-DR11: Background Standalone run — switching tab or PR keeps the run going; the panel follows the tab with a "Reviewing <pr> in the background · Show" strip; the PR's Review button reads "Reviewing…"; returning shows progress or the Report.
+UX-DR12: Report — Coverage block (Overall Status badge, coverage headline, not-run list with reasons — Standalone always names Sandbox checks — and gate reasons when failed); Findings toolbar (severity counts, Select all / none, severity filter, selection survives filtering, empty filter result); Details disclosure (walkthrough, checks table, related code, learnings, tokens and cost; collapsed); "No findings." still shows the Coverage block; AI layer ERROR with Retry.
+UX-DR13: Finding card — native checkbox labelled "Include in post: <SEVERITY> <title>, <path>:<line>" (label wraps the column); path:line is a real underlined link to the Files changed anchor opened in the current tab (Ctrl/Cmd-click new tab), panel keeps focus and announces it; Recommendation/suggested change in a native disclosure named per finding; excluded cards (unticked, dismissed, pre-existing) keep full contrast with a dashed `border-strong` edge and a "Not included" / "Dismissed" / "Pre-existing" badge; dismissed and pre-existing excluded by default and listed last.
+UX-DR14: Outdated Report — Outdated banner when the head moved, "Review again" primary; Post shown off via aria-disabled with the reason beside it.
+UX-DR15: Post panel — review type (Comment; Request changes only when allowed; never Approve); "Preview post" builds the preview (new inline, still open, resolved, findings moved to the summary over the inline limit, summary in a preview block); Post button appears only after a preview and is labelled with counts; zero included posts the summary only; "Posting…" disables it; head re-read before posting (moved → stop, Review again); preview changed on the server → new preview, wait for the user; result lines: posted (links), already posted for this commit, refused (GitHub's reason and the permission needed; selection and preview kept; "Try posting again"); in This computer mode a native confirmation dialog before posting.
+UX-DR16: Review button on the PR page — one instance inserted in DOM order beside the header actions, follows client-side navigation, not re-rendered within the same PR; labels "Review" / "Reviewing…" / "<n> findings" / "No findings" / "Outdated" from stored data, updated in place; click starts a review only in "Review", else opens the run or Report; follows GitHub's colour mode (OS fallback); own styles only; two-tone focus ring; forced-colors border and outline; accessible name = visible label + ", pr-reviewer"; on activation announces "Opened in the pr-reviewer side panel. Press F6 to move there."; focus restored if GitHub re-renders; absent (toolbar icon still works) when no placement is found.
+UX-DR17: Opening the panel — toolbar icon and a Chrome command (default Alt+Shift+R, user-changeable); the panel focuses its h1 when it opens.
+UX-DR18: Settings — mode and connection, GitHub identity, remove AI key and tokens (one action each), Enterprise hosts (optional host permission requested at add time; declined state), stored reviews (count, clear with a native confirmation dialog), privacy policy.
+UX-DR19: Local review store — the last review of each of the 50 most recent PRs kept in the browser (feeds follow-the-tab, the Review button label and Not a PR's recent list); cleared from Settings. [assumed size; architecture to confirm storage]
+UX-DR20: Global states — Offline (chip "Offline", Review and Post off with reason, stored Reports readable); sign-in or key expired (chip, PR home links the fixing step); backend unreachable (message per backend kind, offer Standalone when set up).
+UX-DR21: Accessibility structure and focus — header/main landmarks; one h1 per surface (tabindex -1) as focus target; document.title per surface; focus moves only on user-initiated surface changes, stays on automatic ones (else h1), never to body; focusable named scroll regions; native modal dialogs (initial focus Cancel, Esc cancels, focus returns).
+UX-DR22: Announcements — one visually hidden role=status region: during runs only layer start/finish merged within 3 s plus the final result once (step list and timer not live; reattach announces current state only); also key test success, save, preview ready, posted, filter and selection counts, tab followed, code copied, finding opened; role=alert for run failed, key test failed, posting refused, sign-in/key expired, backend unreachable.
+UX-DR23: Keyboard, motion, zoom — Tab in reading order; selection only via checkboxes; cards not focusable; Esc returns from Post/Settings or cancels a dialog, never in text fields/selects, never cancels a run; reduced motion (static ring, no transitions, instant scroll); 320px and 200% zoom without horizontal scroll (stacking below 360 CSS px); 24×24 px minimum targets; forced-colors support; underlined links everywhere.
+UX-DR24: Voice and tone — microcopy per EXPERIENCE.md Voice and Tone; engine status words with reasons (e.g. "SKIPPED (no Sandbox)"); errors start with the field name and say what to do.
+UX-DR25: Review page parity — adopt the extension's accessibility deltas in `packages/cli/static` (border-strong control edges, excluded finding card instead of opacity, underlined links) so both surfaces stay one product.
+
+User feedback on the review page (2026-11-26, screenshot of `pr-reviewer serve` on a real PR with 22 findings): "looking dull, and not using the capabilities the UI brings; it should follow the latest UI trends. Keep this version, and add a version 2." Observed in that screenshot: 20 of 22 findings were pre-existing TSLint style rules shown first, ticked for posting, and labelled MAJOR, burying the 2 AI correctness findings.
+
+UX-DR26: Signal before noise on the review page and Web App — new findings first, ordered by severity; pre-existing findings collapsed into one counted group ("20 pre-existing · show") and excluded from the post by default (as the extension already specifies in UX-DR13); the headline counts new findings separately from pre-existing ones.
+UX-DR27: Review page v2 — a redesigned review page (and Web App page) following a new `bmad-ux` v2 pass whose visual direction the user chooses from rendered options; v1 ("classic", today's page) stays available and selectable; both use `ReviewService v1`, with additive read routes only (v2 adds `GET /v1/runs/:id/hunks`). Design contract: `ux-designs/ux-pr-reviewer-review-page-v2-2026-11-26/` (final).
 
 ### FR Coverage Map
 
@@ -153,6 +197,9 @@ FR35: Epic 6 - server-side BYO keys
 FR36: Epic 7 - review from the PR page
 FR37: Epic 7 - Standalone and Connected modes
 FR38: Epic 7 - findings in context
+NFR13, NFR14: Epic 7 - extension credentials and store policy
+UX-DR1–UX-DR24: Epic 7 - extension UX contract (ux-designs/ux-pr-reviewer-2026-11-26)
+UX-DR25, UX-DR26, UX-DR27: Epic 9 - review page that shows what matters first; v2 alongside classic
 FR39: Epic 4 - Sandbox-only execution
 FR40: Epic 4 - tool-free layers
 
@@ -182,13 +229,17 @@ A user enables Auto-Review once and every PR in their Watch Scope — including 
 A team self-hosts the Web App; members sign in with GitHub, paste a PR link, watch the run, read the Report in the page, and publish selected Findings.
 **FRs covered:** FR30, FR31, FR32, FR33, FR34, FR35
 
-### Epic 7: Review from the GitHub PR page (Release 4)
-A user installs the browser extension and reviews the PR they're looking at — Standalone with their own key, or Connected to their Web App or local CLI.
-**FRs covered:** FR36, FR37, FR38
+### Epic 7: Review from the GitHub PR page (Release 4; Connected mode 4.x)
+A user installs the browser extension and reviews the PR they're looking at. First Standalone with their own key: set up, review, read findings in context, and post selected ones from the side panel, in a store-ready extension. Then Connected to their team's Web App or their own paired `pr-reviewer`, for full reviews including tool checks; this includes the server-side changes that let the Web App and `pr-reviewer serve` accept the extension (token sign-in and pairing). Stories are ordered so the Standalone slice ships before any Connected story; UX-DR21–UX-DR24 apply to every story.
+**FRs covered:** FR36, FR37, FR38 · **NFRs:** NFR13, NFR14 · **UX-DRs:** UX-DR1–UX-DR24
 
 ### Epic 8: Review from a local page on my machine (Release 1, pulled ahead by course correction 2026-11-25)
 A user runs `pr-reviewer serve`, opens a page on their own machine, pastes a PR link or picks an open PR, watches the run, reads the Report, and posts the Findings they select — using the CLI's own credentials and configuration. The server is the CLI companion of AD-16 and implements `ReviewService v1`, so the extension's Connected mode (Story 7.3) reuses it.
 **FRs covered:** FR23, FR25 (in the page), and the single-user local form of FR31, FR32, FR33
+
+### Epic 9: A review page that shows what matters first (v2, classic kept)
+A user reviewing a PR in `pr-reviewer serve` or the Web App sees the findings that matter first, with noise grouped away, on a redesigned v2 page, and can switch back to today's page ("classic") at any time.
+**UX-DRs covered:** UX-DR25, UX-DR26, UX-DR27 · builds on Epics 6 and 8
 
 ## Epic 1: Review a PR from my terminal
 
@@ -753,43 +804,222 @@ So that I stay in control and can track progress.
 
 ## Epic 7: Review from the GitHub PR page
 
-A user installs the browser extension and reviews the PR they're looking at — Standalone with their own key, or Connected. *(Release 4 — requires a `bmad-ux` pass; stories outlined.)*
+A user installs the browser extension and reviews the PR they're looking at. Stories 7.1–7.6 are the Standalone slice (Release 4) and ship before any Connected story; 7.7–7.8 add Connected mode (Release 4.x), including the server-side changes the Web App and `pr-reviewer serve` need. Review-page parity (UX-DR25) moved to Epic 9 as Story 9.2. Design contract: `ux-designs/ux-pr-reviewer-2026-11-26/` (DESIGN.md, EXPERIENCE.md, mockups; spines win over mockups). Every story's surfaces meet UX-DR21 (structure and focus), UX-DR22 (announcements), UX-DR23 (keyboard, motion, zoom) and UX-DR24 (voice); these are not repeated per story.
 
-### Story 7.1: Standalone review from the side panel
+### Story 7.1: Review a PR from the side panel (walking skeleton)
 
-As a user,
-I want to install the extension, add my API key, and click Review on a PR,
-So that I get a review without running anything else.
-
-**Acceptance Criteria:**
-
-**Given** the extension installed with an API key and GitHub sign-in
-**When** the user clicks Review on a PR page
-**Then** the side panel runs `core` with HTTP providers in the panel page (not the service worker), shows progress and Findings, and labels skipped Sandbox layers (FR36, FR37, AD-16)
-
-### Story 7.2: Findings in context and Publish
-
-As a user,
-I want each Finding linked to its diff line and to post selected ones,
-So that I can act on them from the PR page.
+As a developer with my own AI API key,
+I want to open the pr-reviewer side panel on a GitHub PR and run a review there,
+So that I get a Report beside the PR without running anything else.
 
 **Acceptance Criteria:**
 
-**Given** a completed review in the panel
-**When** the user clicks a Finding or publishes selected ones
-**Then** it navigates to the diff line using API data (not page structure) and publishes via the engine (FR38)
+**Given** a new `packages/extension` Channel (Manifest V3, Side Panel API, Chrome ≥ 116) with its own `src/compose.ts`
+**When** it is built and loaded unpacked
+**Then** the toolbar icon and a Chrome command (default Alt+Shift+R, user-changeable) open the side panel, and the panel focuses its `h1` (UX-DR17)
+**And** the boundary lint treats `extension` as a Channel, the bundle contains no remotely hosted code, and it runs under a CSP without `unsafe-eval` (AD-1, NFR14)
 
-### Story 7.3: Connected mode
+**Given** a GitHub token and an Anthropic or OpenAI-compatible key entered in a minimal settings form (guided setup is Story 7.2)
+**When** the active tab is a PR on github.com
+**Then** the panel shows that PR (identified from the tab URL; title and head from the GitHub API, never from the page) with "Review this PR"; any other tab shows "Open a pull request to review it." (FR36)
 
-As a user,
-I want to connect the extension to my Web App or a paired local CLI,
-So that I get full reviews including tool checks.
+**Given** the user presses Review
+**When** the run executes
+**Then** `core` runs in the panel page (not the service worker) with the GitHub reader, the secret scanner and the HTTP providers, and AI calls succeed from the panel page (AD-1, AD-16)
+**And** the Step list renders only from `RunEvent`s in `seq` order, each step with a state word and glyph (Waiting, Running, Done, Failed, Skipped), provider, model and elapsed time; Sandbox checks show `SKIPPED (no Sandbox)` (UX-DR10)
+**And** a secret in the diff never appears in the provider request (test), and no Credential appears in any log or Report (NFR2, AD-10)
+
+**Given** a finished run
+**When** the Report shows
+**Then** it has the Coverage block (Overall Status badge per the status mapping, coverage headline, checks not run with reasons) and the findings with severity badges, read-only (selection and posting are Story 7.3) (UX-DR2, UX-DR12)
+**And** the panel uses the DESIGN.md tokens in light and dark (OS theme), and the header shows the logo, "PR Reviewer" and the Mode chip "Standalone" (UX-DR1, UX-DR3)
+
+**Given** a run in progress
+**When** the user presses Cancel, the run fails, or the panel is closed
+**Then** PR home says "Review cancelled.", gives the failure reason in plain words with Retry, or on next open says "The last review was stopped when the panel closed."; the Standalone run shows "Closing this panel stops the review." while it runs (UX-DR10)
+**And** whether F6 moves focus into the side panel on Chrome 116+ is verified and recorded; if not, the hint text used in later stories names the key that does
+
+### Story 7.2: Welcome, consent, and Standalone setup
+
+As a new user who just installed the extension from the store,
+I want to be told what is sent where, sign in to GitHub, and add my AI key with a test,
+So that my first review works and I know what I agreed to.
 
 **Acceptance Criteria:**
 
-**Given** a backend URL or a paired local CLI companion (loopback, pairing token, origin check)
-**When** the user reviews in Connected mode
-**Then** the backend runs the full engine and the panel shows the same Report (FR37)
+**Given** the panel opens for the first time
+**When** Welcome shows
+**Then** before anything is entered it states what goes to GitHub, what goes to the AI provider (the diff and files with detected secrets removed), that nothing goes anywhere else, that recent reviews (including short code excerpts) stay in this browser until cleared, and links the privacy policy; it names the key that moves focus into the panel (UX-DR4)
+**And** it offers three mode cards with radio semantics; until Stories 7.7 and 7.8 land, "My team's Web App" and "This computer" are shown as not available yet; nothing is stored until a mode is chosen
+
+**Given** Standalone is chosen
+**When** the user connects GitHub
+**Then** "Use a token" accepts a fine-grained token, lists the exact permissions it needs, and verifies it (identity and read access); this route works for every host (UX-DR5)
+**And** when a GitHub OAuth client ID is configured for github.com, "Sign in with GitHub" runs the device flow: the code in mono with Copy and "Expires at hh:mm", the github.com device page opened in a new tab, polling until approved; two minutes before expiry it offers a new code; expired and denied states recover in one action; the code's accessible name is spelled out
+
+**Given** GitHub is connected
+**When** the user picks Anthropic or OpenAI-compatible (with base URL) and enters a key
+**Then** the key field is masked; Test shows "Testing…", then "Works: <model> answered." or the provider's error tied to the field (`aria-invalid`, described by the error, focus moved to it, value kept); the key is saved only after a successful test (UX-DR6, UX-DR24)
+
+**Given** stored credentials
+**When** they are saved, used or removed
+**Then** they are held where page and content scripts cannot read them, encrypted at rest, sent only over HTTPS to their own service, never written to logs or Reports, and each is removable in Settings with one action (NFR13, AD-10, UX-DR18)
+**And** an expired or rejected token or key turns the Mode chip to "Standalone · signed out" and PR home links the setup step that fixes it (UX-DR3, UX-DR20)
+
+**Given** setup was started from a PR ("Set up to review <pr>")
+**When** setup completes
+**Then** the panel returns to that PR and starts the review; this replaces Story 7.1's minimal settings form
+
+### Story 7.3: Choose findings, open them in the diff, and post
+
+As a reviewer,
+I want to open each finding at its line, untick the ones I disagree with, preview, and post the rest,
+So that my review lands on the PR as I intended, from the PR page.
+
+**Acceptance Criteria:**
+
+**Given** a Report
+**When** findings show
+**Then** each Finding card has a native checkbox labelled "Include in post: <SEVERITY> <title>, <path>:<line>"; findings are included by default except dismissed and pre-existing ones, which are listed last; excluded cards keep full contrast with a dashed `border-strong` edge and a "Not included" / "Dismissed" / "Pre-existing" badge (UX-DR13)
+**And** the Findings toolbar shows severity counts, Select all / none and a severity filter; selection survives filtering; an empty filter result says so with a way to clear it; the Details disclosure holds the walkthrough, checks table, related code, learnings, tokens and cost (UX-DR12)
+
+**Given** a finding with a location
+**When** the user activates its path:line
+**Then** it is a real, underlined link to the Files changed anchor built from API data (not page structure), opened in the current tab (Ctrl/Cmd-click opens a new tab); the panel keeps focus and announces "Opened <path>:<line> in the page" (FR38, UX-DR13)
+
+**Given** the PR's head moved since the review
+**When** the Report shows
+**Then** the Outdated banner offers "Review again" and Post is `aria-disabled` with the reason beside it (UX-DR14)
+
+**Given** the Post panel
+**When** the user prepares a post
+**Then** review type is Comment, or Request changes only when allowed, never Approve; "Preview post" shows new inline comments, still open, resolved, findings moved to the summary over the inline limit, and the summary in a preview block; the Post button appears only after a preview and is labelled with the counts; zero included posts the summary only (UX-DR15)
+**And** posting goes through the same engine publish path, single GitHub writer and sanitising as the CLI (AD-9); no publish logic lives in the extension
+
+**Given** the user presses Post
+**When** it runs
+**Then** the button shows "Posting…" and cannot be pressed again; the head is re-read first and a moved head stops the post with "Review again" (AD-23); a changed preview is shown again and waits for the user
+**And** the result line shows posted (links to the review and summary), already posted for this commit, or refused (GitHub's reason and the permission needed, selection and preview kept, "Try posting again"); the Report marks posted findings
+
+### Story 7.4: Follow the tab, keep recent reviews, and work offline
+
+As a reviewer moving between PRs,
+I want the panel to show the PR in my current tab, remember recent reviews, and keep a review running when I switch away,
+So that I never see the wrong PR's results and never lose a review.
+
+**Acceptance Criteria:**
+
+**Given** the panel is open
+**When** the user switches tabs or navigates to another PR in the same window
+**Then** the panel shows the active tab's PR, says so in the status region, and keeps focus where it was if that element still exists; navigation within the same PR (Conversation, Files changed, anchors) never re-renders the panel (UX-DR9, UX-DR21)
+**And** loading shows "Loading <pr>…"; closed, merged and draft PRs show their state, with a note that GitHub may refuse comments on a closed PR; missing read access says which access is missing
+
+**Given** finished reviews
+**When** they are stored
+**Then** the last review of each of the 50 most recent PRs is kept in extension storage, schema-validated on read (AD-4); a PR with a current review opens straight to its Report, one whose head moved opens the outdated Report; Not a PR lists recent reviews (or "No reviews yet."); Settings shows the count and clears them after a native confirmation dialog (UX-DR19, UX-DR18)
+
+**Given** a Standalone run in progress
+**When** the user switches to another tab or PR
+**Then** the run continues; the panel follows the tab and shows "Reviewing <pr> in the background · Show"; returning shows the progress or the Report; one run at a time per PR, different PRs may run at once (UX-DR11)
+
+**Given** the browser is offline
+**When** the panel is used
+**Then** the Mode chip reads "Offline", Review and Post are off with the reason, and stored Reports stay readable (UX-DR20)
+
+### Story 7.5: The Review button on the PR page
+
+As a reviewer,
+I want a small button in the PR header that starts a review or shows its result,
+So that I can see at a glance whether this PR has findings and act in one click.
+
+**Acceptance Criteria:**
+
+**Given** a GitHub PR page (including client-side navigation between PRs and tabs)
+**When** the content script runs
+**Then** exactly one button is inserted in DOM order beside the header actions (no tabindex, no absolute positioning), using its own styles only; it reads no PR data from the page; if no placement is found nothing is shown and the toolbar icon still works (FR36, UX-DR16)
+**And** within the same PR it is not re-rendered; if GitHub re-renders the header while it has focus, focus returns to the new instance
+
+**Given** the stored state of that PR (Story 7.4)
+**When** the button renders
+**Then** it reads "Review", "Reviewing…", "<n> findings" / "No findings" or "Outdated", updating the text in place; its accessible name is the visible label followed by ", pr-reviewer"
+**And** pressing it opens the panel and starts a review only in the "Review" state, otherwise it shows the run or the Report; it announces from its own shadow root "Opened in the pr-reviewer side panel. Press <key> to move there." (the key verified in Story 7.1)
+
+**Given** GitHub's light or dark colour mode
+**When** the button renders
+**Then** it uses the matching DESIGN.md tokens (OS theme if GitHub's mode cannot be read), the two-tone focus ring on any background, and a `ButtonText` border with `Highlight` focus in forced-colors mode
+**And** tests cover several recorded GitHub header variants and a page with no placement
+
+### Story 7.6: Store-ready Standalone release
+
+As a developer who finds pr-reviewer in the Chrome Web Store,
+I want an extension that asks only for the access it needs, explains its data use, and works with my Enterprise host,
+So that I can install it with confidence.
+
+**Acceptance Criteria:**
+
+**Given** the manifest
+**When** it is reviewed
+**Then** required permissions are the minimum (side panel, storage, github.com and api.github.com, the default AI provider APIs); OpenAI-compatible endpoints and Enterprise hosts are optional host permissions requested only when the user adds them; each permission has a written justification (NFR14)
+
+**Given** Settings → Enterprise hosts
+**When** the user adds a host
+**Then** Chrome is asked for that host only; a decline shows "Chrome did not allow access to <host>, so PRs there can't be reviewed." with Try again; token sign-in is used for that host (UX-DR18)
+
+**Given** the privacy policy
+**When** it is published
+**Then** it lives in the repository, is linked from Welcome and the store listing, and matches what Welcome says is sent and stored (NFR13)
+
+**Given** a release build
+**When** CI packages it
+**Then** the zip is reproducible, versioned in lockstep with `engineVersion`, and the store listing text and screenshots come from the mockups; the README gains an extension section
+
+**Given** every panel surface and the Review button
+**When** the accessibility audit runs
+**Then** automated checks pass in light and dark at 320px and at 200% zoom, the DESIGN.md contrast table holds, and a keyboard and screen-reader checklist (focus rules, announcements, dialogs, time limits) passes (UX-DR21–UX-DR23)
+
+### Story 7.7: Connect to my team's Web App
+
+As a member of a team that self-hosts the Web App,
+I want the extension to run reviews on our Web App without holding an AI key,
+So that I get full reviews, including compile and lint, from the PR page.
+
+**Acceptance Criteria:**
+
+**Given** the Web App
+**When** an administrator lists allowed extension IDs in its configuration (no ID is hardcoded)
+**Then** a signed-in user can open an extension sign-in page, confirm "Allow the pr-reviewer extension to use your account?", and the extension receives a bearer token that is scoped to `ReviewService v1`, expires, is stored hashed, and can be revoked from the Web App page
+**And** `/v1` accepts that token from an allowed extension origin only, still rejects cross-site requests otherwise, and cookie sessions and the existing CSRF rule are unchanged for the page
+
+**Given** Setup: Web App in the panel
+**When** the user enters a URL
+**Then** only HTTPS is accepted; unreachable, not a pr-reviewer Web App, and incompatible version (via `Accept-Schema`) each have their own message; no AI key is requested or stored (UX-DR7, NFR13)
+
+**Given** a connected panel
+**When** the user reviews a PR
+**Then** the Mode chip reads "Web App · <host>"; the run is created through `ReviewService v1`; the Step list renders from its event stream and re-attaches after the panel is reopened ("You can close the panel; the review keeps running."); Report and Post behave as in Story 7.3, posting through `/v1/runs/:id/publish` with the same preview step (AD-16, AD-23)
+**And** an unreachable Web App shows "Web App · unreachable" and offers Standalone when it is set up (UX-DR20)
+
+### Story 7.8: Pair the extension with pr-reviewer on this computer
+
+As a developer who already uses the `pr-reviewer` CLI,
+I want to pair the extension with it,
+So that reviews from the PR page run with my CLI's settings, including my subscription and tool checks, without my AI login touching the browser.
+
+**Acceptance Criteria:**
+
+**Given** `pr-reviewer serve --pair` (the command name is settled in this story)
+**When** it starts
+**Then** it binds loopback only on a stable, configurable port, prints a short pairing code valid for at least 10 minutes, and exchanges a correct code for a long-lived pairing token stored hashed in the CLI's state, recording the extension's origin and showing the computer's name to confirm
+**And** `/v1` then accepts that token from that origin only (CORS for exactly that origin, a deliberate change from Story 8.1); every other origin, Host, and missing or wrong token is still rejected; `pr-reviewer serve --unpair` revokes it
+
+**Given** Setup: This computer in the panel
+**When** the user enters the code
+**Then** its format and length are stated and autocomplete is off; a wrong or expired code keeps focus in the field with "That code didn't match" / "That code expired. Run pr-reviewer serve --pair again." (UX-DR8)
+
+**Given** a paired panel
+**When** the user reviews and posts
+**Then** the Mode chip reads "This computer"; the run uses the CLI's configuration and Credentials, including subscriptions, as Channel CLI (AD-16), and the extension never sees them; every post asks "Post <n> inline comments as @<login> from pr-reviewer on <computer>?" in a native dialog before publishing (FR37)
+**And** when `serve` is not running, the panel says "pr-reviewer on this computer isn't running. Start it with: pr-reviewer serve --pair." and offers Standalone when it is set up
 
 ## Epic 8: Review from a local page on my machine
 
@@ -842,3 +1072,178 @@ So that I can start a review with one click.
 **When** the user lists it
 **Then** `GET /v1/pulls?repo=` returns open PRs with their reviewed state (as `list` does), and choosing one starts a review
 
+## Epic 9: A review page that shows what matters first (v2, classic kept)
+
+From user feedback on 2026-11-26 (see UX-DR26, UX-DR27). Stories 9.1 and 9.2 fix today's page (noise, then contrast), so they help whichever version is used. Story 9.3 makes room for v2 without losing classic. Stories 9.4–9.9 build v2 from the `bmad-ux` v2 contract (`ux-designs/ux-pr-reviewer-review-page-v2-2026-11-26/`: the user chose Direction A · Command with borrowed elements, then delegated the remaining decisions); v2 becomes the default only in Story 9.9. Whether the extension (Epic 7) follows v2's look is an open question for a later `bmad-ux` Update of its DESIGN.md.
+
+### Story 9.1: Show what matters first
+
+As a reviewer reading a Report with many findings,
+I want new problems first and pre-existing tool noise grouped and left out of the post by default,
+So that the findings worth posting are the ones I see and select.
+
+**Acceptance Criteria:**
+
+**Given** a Report on the review page or the Web App
+**When** findings show
+**Then** NEW findings come first, ordered by severity; PRE_EXISTING findings are collapsed into one group with a count ("20 pre-existing · Show"), unticked, and listed after them; the summary line counts them separately ("2 new findings · 20 pre-existing") (UX-DR26)
+**And** "Select all" selects new findings only; ticking a pre-existing one is still possible inside the group
+
+**Given** ESLint or TSLint findings
+**When** their severity is set
+**Then** rules in the style category (formatting, whitespace, quotes, commas, ordering, naming) are MINOR at most, whatever the configured rule severity; other rules keep the current mapping; the gate and the published comments follow the new severities, and tests cover both linters
+
+**Given** the PR from the feedback (20 pre-existing TSLint style findings, 2 AI findings)
+**When** it is reviewed again
+**Then** the page opens with the 2 AI findings visible and selected, and the 20 TSLint findings collapsed, unselected, and MINOR
+
+### Story 9.2: Accessibility parity for the classic page
+
+As a user of `pr-reviewer serve` or the Web App,
+I want the review page to meet the same contrast rules as the extension,
+So that it is readable for everyone and matches the extension.
+
+**Acceptance Criteria:**
+
+**Given** `packages/cli/static`
+**When** the change lands
+**Then** inputs, selects, checkboxes and secondary buttons use `border-strong`, excluded findings use the dashed edge and badge instead of 60% opacity, and links are underlined (UX-DR25)
+**And** the review page and Web App tests still pass, and the change applies to the Web App page too
+
+### Story 9.3: Keep the classic page while v2 is built
+
+As a user who knows today's review page,
+I want to keep using it while a new version arrives, and switch between them,
+So that a redesign never takes away a page I rely on.
+
+**Acceptance Criteria:**
+
+**Given** `pr-reviewer serve` and the Web App
+**When** they start
+**Then** they serve both pages from the same `ReviewService v1`: classic (today's page, with Stories 9.1 and 9.2 applied) and v2; `serve --ui classic|v2` and a Web App setting choose the default (classic until v2 reaches parity), and each page has a "Switch to classic / v2" link that is remembered per browser
+**And** a parity checklist (start a review, pick an open PR, stats, progress, Report, select, edit wording, preview, post, settings) is tracked in the repository, and v2 becomes the default only when every item passes
+
+### Story 9.4: The v2 workspace: start a review from the command bar
+
+As a reviewer opening the review page,
+I want a workspace where I start reviews from a command bar and move with the keyboard,
+So that reviewing feels fast and modern without losing anything classic does.
+
+**Acceptance Criteria:**
+
+**Given** the v2 page served behind Story 9.3's switch
+**When** it opens with no run
+**Then** it shows the sidebar (Start, Stats, Settings), the identity menu (GitHub and AI health in words, Settings, Switch to classic, version, Sign out on the Web App) and Start: a large command field with recent reviews or "No reviews yet. Paste a PR link to start."; `serve` opened without its key shows only the Locked surface (UX-DR27)
+**And** the tokens, type ramp, focus rings and theme setting (System / Light / Dark) follow the v2 DESIGN.md
+
+**Given** the command palette (⌘K / Ctrl+K, the sidebar field, or Start's inline field)
+**When** the user pastes a PR link or types owner/repo
+**Then** "Review owner/repo#n" is offered first, or that repository's open PRs are listed with their reviewed state; invalid references, unreadable PRs (naming the missing permission), refused starts, loading, no matches and no open PRs each have their own message; Enter starts the review and Esc closes and returns focus
+
+**Given** a run started from v2
+**When** the page is reloaded
+**Then** the last run reattaches (running) or its Report opens (finished), announcing only the current state (FR31)
+
+**Given** the keyboard model
+**When** shortcuts are used
+**Then** `g` chords, `?`, `/`, j/k, x, e, c, p work per the v2 EXPERIENCE.md map, never while focus is in a field, select, combobox, menu or open dialog or during IME composition; Esc closes one layer at a time, innermost first; the `?` sheet lists the current bindings; Settings → Keyboard offers On / Only when the list or detail has focus / Off and remapping (WCAG 2.1.4)
+**And** the focus model holds: skip link, F6 regions, focus moves only on user-initiated surface changes
+
+### Story 9.5: Overview: the verdict first, live while it runs
+
+As a reviewer,
+I want the result summarised in a sentence with the key numbers and the run as a live timeline,
+So that I know in seconds whether a PR needs my attention.
+
+**Acceptance Criteria:**
+
+**Given** a running review
+**When** Overview shows
+**Then** the hero reads "Reviewing", tiles are skeletons replaced in place, and the run timeline fills from run events in seq order with a state word, outcome and duration per layer; the running ring animates at most 5 seconds; nothing shimmers; reduced motion removes all transitions
+
+**Given** a finished review
+**When** Overview shows
+**Then** the hero shows the status pill, the verdict sentence (from the walkthrough summary, else built from status and counts) and gate reasons when the gate failed; four tiles (new findings, pre-existing, checks, tokens and model) each lead to their surface; "Needs attention" previews the new findings; a toast "Review finished · <n> new findings · Show findings" appears if the user was elsewhere, never takes focus, and its action is also `g a`
+**And** when an earlier review of this PR exists, the "Since last review" strip shows resolved / still open / new, each a link; on the Web App, "Earlier runs" lists the PR's runs with new / resolved / unchanged against the previous one (FR34)
+
+**Given** a failed run, a failed or rate-limited AI layer, or a moved head
+**When** Overview shows
+**Then** the reason is in plain words with Retry (the AI node reads "Failed: provider rate-limited" and the status is never PASSED), or the Outdated banner offers Review again and posting is off with the reason
+
+### Story 9.6: Findings under their code
+
+As a reviewer,
+I want each finding shown under the lines of the PR it is about, with the fix beside it,
+So that I can judge it without leaving the page.
+
+**Acceptance Criteria:**
+
+**Given** `ReviewService v1`
+**When** this story lands
+**Then** it serves `GET /v1/runs/:id/hunks` (additive): for each file with findings, the PR's diff hunks overlapping the findings' line ranges with 3 lines of context, at most 400 lines per file and 4,000 per run, from the run's PR context; a run without context returns a clear "unavailable" (UX-DR27 as amended)
+
+**Given** Needs attention and Pre-existing
+**When** they show
+**Then** the list is rows of a native checkbox ("Include in post: <SEVERITY> <title>, <path>:<lines>") and a title button with `aria-current` on the shown finding; j/k move between rows and update the detail without moving focus, Enter moves focus to the detail heading, x toggles inclusion; Select all (new findings only) and Select none; filter chips (toggle buttons) by severity, confidence and file; low-confidence findings start excluded with a "Low confidence" badge; the "20 pre-existing · Show" row opens Pre-existing, where findings are excluded until ticked (UX-DR26)
+**And** the detail shows the badges (severity, category, source, confidence, scope, advisory, dismissed by), the title, the GitHub link, the hunk as a table with line numbers and change type in text, the comment with "Why it matters" and the recommendation, and the suggested change; findings outside the diff show without code and with the file link; failed hunks show "The code for this finding could not be loaded."
+**And** the first exclusion in a session shows the teaching hint (👎 or /dismiss on GitHub teaches future reviews)
+
+**Given** widths of 800–1099px and below 800px
+**When** the page is used
+**Then** the sidebar becomes an icon rail with accessible names and the active indicator; below 800px the detail replaces the list with "← Needs attention" and "1 of n", and back returns focus to the row
+
+### Story 9.7: Edit, preview, post, and fix with your agent
+
+As a reviewer,
+I want to reword a finding in place, see exactly what will be posted, post it, or hand the findings to my coding agent,
+So that what reaches GitHub is what I mean, and fixing is one step away.
+
+**Acceptance Criteria:**
+
+**Given** a finding
+**When** the user presses e
+**Then** an editor opens in the thread for title, description and recommendation, each with a live Markdown preview, plus "Include the suggested change"; Save (⌘Enter / Ctrl+Enter) keeps the edits for posting and marks the finding "edited"; Esc with unsaved changes keeps the draft and moves focus to Cancel, and only Cancel discards (FR33)
+
+**Given** the post drawer (p or "Preview post")
+**When** it opens
+**Then** it is a modal dialog with a visible Close; it builds the preview (inline comments, still open, resolved, overflow to the summary, the summary) and announces "Preview ready"; Post appears after the preview, labelled with the counts; review type Comment, or Request changes when allowed, never Approve; posting re-reads the head (AD-23), shows "Posting…", and ends in posted (links, focus on the result), already posted, or refused (reason and permission, selection kept); any change to inclusion or wording discards the preview; full width below 800px
+
+**Given** included findings
+**When** the user chooses "Fix <n> included findings with your agent" (Needs attention header or drawer)
+**Then** the agent panel shows `pr-reviewer fix <pr>` with Copy and "Copy combined prompt"; per finding, c copies its agent prompt; nothing runs from the page
+
+### Story 9.8: Checks, Walkthrough, Stats and Settings in v2
+
+As a reviewer,
+I want every part of the Report, my stats and my settings in v2,
+So that I never need classic for anything.
+
+**Acceptance Criteria:**
+
+**Given** a Report
+**When** Checks and Walkthrough show
+**Then** Checks has the full timeline with each layer's detail and reason, detected projects and limitations; Walkthrough has the summary, effort, changes by file, linked issues, related code, learnings used (who and a link), Review Rules checked, run details, and Download Markdown / JSON; every Report field is reachable somewhere in v2 (FR32)
+
+**Given** Stats (`g s`, sidebar, palette)
+**When** it shows
+**Then** tiles (posted, addressed, dismissed, still open) for 7 / 30 / 90 days, tables by severity and source and by PR, with loading, empty and error states
+
+**Given** Settings
+**When** it opens
+**Then** on `serve` it shows provider and model from the config; on the Web App it adds an allow-listed endpoint, masked API key, Test and Remove key, and opens itself when AI is not ready (FR35); it also holds theme, default view and Keyboard; saving, saved and errors are announced and tied to fields
+
+### Story 9.9: v2 accessibility audit and parity sign-off
+
+As a maintainer,
+I want proof that v2 is accessible and does everything classic does,
+So that it can become the default safely.
+
+**Acceptance Criteria:**
+
+**Given** every v2 surface in light and dark, at 320px and 200% zoom, and in forced colours
+**When** the audit runs
+**Then** automated checks pass, the DESIGN.md contrast targets hold, and a keyboard and screen-reader checklist passes (list pattern, shortcut guard, Esc order, dialogs, focus model, announcements, toasts, state words)
+
+**Given** Story 9.3's parity checklist
+**When** every item passes in v2 on both `serve` and the Web App
+**Then** the default view becomes v2 (the browser's own choice and the server setting still win), classic stays one click away, and the README and docs/web-app.md describe both

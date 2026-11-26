@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-25-2026 10:00
-last_updated: 11-25-2026 10:00
+last_updated: 11-26-2026 12:00
 project: pr-reviewer
 project_key: NOKEY
 tracking_system: file-system
@@ -89,9 +89,14 @@ development_status:
   epic-6-retrospective: optional
 
   epic-7: backlog
-  7-1-standalone-review-from-the-side-panel: backlog
-  7-2-findings-in-context-and-publish: backlog
-  7-3-connected-mode: backlog
+  7-1-review-a-pr-from-the-side-panel-walking-skeleton: backlog
+  7-2-welcome-consent-and-standalone-setup: backlog
+  7-3-choose-findings-open-them-in-the-diff-and-post: backlog
+  7-4-follow-the-tab-keep-recent-reviews-and-work-offline: backlog
+  7-5-the-review-button-on-the-pr-page: backlog
+  7-6-store-ready-standalone-release: backlog
+  7-7-connect-to-my-teams-web-app: backlog
+  7-8-pair-the-extension-with-pr-reviewer-on-this-computer: backlog
   epic-7-retrospective: optional
 
   epic-8: done
@@ -99,3 +104,15 @@ development_status:
   8-2-pick-findings-and-post-from-the-page: done
   8-3-pick-an-open-pr-from-the-page: done
   epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-show-what-matters-first: backlog
+  9-2-accessibility-parity-for-the-classic-page: backlog
+  9-3-keep-the-classic-page-while-v2-is-built: backlog
+  9-4-the-v2-workspace-start-a-review-from-the-command-bar: backlog
+  9-5-overview-the-verdict-first-live-while-it-runs: backlog
+  9-6-findings-under-their-code: backlog
+  9-7-edit-preview-post-and-fix-with-your-agent: backlog
+  9-8-checks-walkthrough-stats-and-settings-in-v2: backlog
+  9-9-v2-accessibility-audit-and-parity-sign-off: backlog
+  epic-9-retrospective: optional
