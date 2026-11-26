@@ -158,6 +158,12 @@ repository's own agent settings or hooks. Nothing is committed or pushed; you re
 yourself, and the next review closes what was fixed. `--only 1,3` picks findings, `--print` prints the
 prompt for any other agent.
 
+**Until it's ready: `pr-reviewer ship <PR>`.** In a clean checkout of your PR's head, ship reviews the PR, asks
+your Claude Code or Codex to fix findings at MAJOR or above, failed checks, and failed CI, commits the fixes, pushes,
+waits for CI, and reviews again, for up to three rounds (`--rounds`, `--min-severity`). It stops when the PR is ready,
+when the agent changes nothing, or when the rounds run out, and lists what is still open. It never merges and never
+force-pushes; `--post` posts the final review and sets a `pr-reviewer/ship` commit status that branch rules can require.
+
 **From your coding agent (MCP).** `pr-reviewer mcp` is an MCP server on stdio with two read-only tools:
 `review_pr` (runs a review and returns the findings, each with a fix prompt) and `open_findings` (your posted
 findings on a PR that are not yet fixed or dismissed). It uses your normal config and credentials, and never
