@@ -144,8 +144,8 @@ async function runToEnd(call: Awaited<ReturnType<typeof start>>['call']) {
 }
 
 describe('classic and v2 side by side (Story 9.3)', () => {
-  it('serves both pages and their modules, and / opens the server default', async () => {
-    const { server: s } = await start()
+  it('serves both pages and their modules, and / opens the server default (v2 unless --ui classic)', async () => {
+    const { server: s } = await start(undefined, undefined, 'classic')
     const get = async (p: string) => {
       const r = await fetch(`${s.url}${p}`)
       return { status: r.status, type: r.headers.get('content-type') ?? '', text: await r.text() }
@@ -158,7 +158,7 @@ describe('classic and v2 side by side (Story 9.3)', () => {
     expect((await get('/classic/')).text).toContain('id="ui-switch"')
     await s.close()
     server = undefined
-    const v2 = await start(undefined, undefined, 'v2')
+    const v2 = await start()
     expect(await (await fetch(`${v2.server.url}/`)).text()).toContain('src="/v2/app.js"')
   })
 })
@@ -172,7 +172,8 @@ describe('local review page (Story 8.1)', () => {
     const page = await fetch(`${s.url}/`)
     expect(page.status).toBe(200)
     expect(page.headers.get('content-security-policy')).toContain("script-src 'self'")
-    expect(await page.text()).toContain('<script type="module" src="/app.js">')
+    expect(await page.text()).toContain('src="/v2/app.js"')
+    expect(await (await fetch(`${s.url}/classic/`)).text()).toContain('<script type="module" src="/app.js">')
     // app.js imports the findings view module; it must be served as JavaScript (Story 9.1).
     expect(await (await fetch(`${s.url}/app.js`)).text()).toContain("from '/findings-view.js'")
     const view = await fetch(`${s.url}/findings-view.js`)

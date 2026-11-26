@@ -1,6 +1,6 @@
 // Classic and v2 review pages side by side (Epic 9 Story 9.3). Which one opens: the browser's own choice
 // (remembered here), then the server default (`serve --ui` or the Web App's PR_REVIEWER_DEFAULT_UI), which
-// is classic until v2 passes the parity checklist (docs/review-page-v2.md).
+// is v2 unless set to classic.
 
 const KEY = 'pr-reviewer-ui'
 export const PATHS = { classic: '/classic/', v2: '/v2/' }

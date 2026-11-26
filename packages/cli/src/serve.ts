@@ -14,7 +14,7 @@ export interface ServeOptions {
   secrets: Secret[]
   /** 0 picks any free port. */
   port?: number
-  /** Which review page `/` opens (`--ui`); classic by default. */
+  /** Which review page `/` opens (`--ui`); v2 by default. */
   ui?: UiVersion | undefined
   /** Fixed token (tests only); otherwise 192 random bits per launch. */
   token?: string

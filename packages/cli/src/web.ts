@@ -29,7 +29,7 @@ export interface WebOptions {
   allowedEndpoints?: readonly string[] | undefined
   /** Run compile and lint in containers (needs a container runtime the server can reach). Default off. */
   sandbox?: boolean | undefined
-  /** Which review page `/` opens (PR_REVIEWER_DEFAULT_UI); classic by default. */
+  /** Which review page `/` opens (PR_REVIEWER_DEFAULT_UI); v2 by default. */
   ui?: UiVersion | undefined
   /** Browser extension IDs allowed to connect (PR_REVIEWER_EXTENSION_IDS); none by default (Story 7.7). */
   extensionIds?: readonly string[] | undefined

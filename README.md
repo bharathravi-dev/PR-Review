@@ -42,7 +42,7 @@ asked to confirm; use `--yes` in scripts.
 | `bench <dataset>` | Measure review quality: precision, recall, F1 against PRs with known issues |
 | `auto enable` / `auto status` | Turn on automatic reviews in a private repository of yours; see below |
 | `web` | Run the self-hosted Web App (see docs/web-app.md) |
-| `serve` | Open a review page in your browser (`--open`, `--port <n>`, `--ui classic\|v2`, `--pair`, `--unpair`); see below |
+| `serve` | Open a review page in your browser (`--open`, `--port <n>`, `--ui v2\|classic`, `--pair`, `--unpair`); see below |
 | `context <pr>` | Show what the review reads from GitHub |
 | `config show` / `config path` | Your resolved settings and where they came from |
 
@@ -65,10 +65,10 @@ Don't share the link; stop the page with Ctrl+C. The page speaks the `ReviewServ
 extension will also use.
 
 
-**Two versions of the page.** Classic is at `/classic/` and the new v2 at `/v2/`; `/` opens classic unless
-you start with `--ui v2` (Web App: `PR_REVIEWER_DEFAULT_UI=v2`). "Try v2" and "Switch to classic" move between
-them and the browser remembers your choice. v2 becomes the default once it does everything classic does
-([docs/review-page-v2.md](docs/review-page-v2.md)).
+**Two versions of the page.** `/` opens the new design (v2, also at `/v2/`); the earlier page is at `/classic/`.
+"Switch to classic" (in v2's top bar, command bar and Settings) and "Try v2" move between them, and the browser
+remembers your choice. To open classic by default, start with `--ui classic` (Web App: `PR_REVIEWER_DEFAULT_UI=classic`).
+See [docs/review-page-v2.md](docs/review-page-v2.md).
 ## From the GitHub PR page: the browser extension (in progress)
 
 `pnpm build` also builds a Chrome extension into `packages/extension/build/`. Load it unpacked from

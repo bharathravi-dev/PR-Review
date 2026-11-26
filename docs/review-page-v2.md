@@ -5,11 +5,11 @@ The review page has two versions served side by side by `pr-reviewer serve` and 
 - **classic** at `/classic/` (the page that has always been there)
 - **v2** at `/v2/` (the redesign in `_bmad-output/planning-artifacts/ux-designs/ux-pr-reviewer-review-page-v2-2026-11-26/`)
 
-`/` opens the server's default: `pr-reviewer serve --ui classic|v2`, or `PR_REVIEWER_DEFAULT_UI=classic|v2` for the Web App.
+`/` opens the server's default, **v2**: start `pr-reviewer serve --ui classic`, or set `PR_REVIEWER_DEFAULT_UI=classic` for the Web App, to open classic instead.
 A browser's own choice ("Try v2" / "Switch to classic") wins and is remembered in that browser.
 
-The default stays **classic** until every item below works in v2, on both `serve` and the Web App (Epic 9 Story 9.9).
-v2 implements every item; each was checked in a real browser against a mock of `ReviewService v1`. An item is ticked
+v2 became the default on 2026-11-26 at the product owner's request, ahead of the manual sign-off in Story 9.9; classic
+stays available while the items below are confirmed on a real `serve` and Web App. v2 implements every item; each was checked in a real browser against a mock of `ReviewService v1`. An item is ticked
 only after it has been used against a real `serve` or Web App.
 
 | Capability | serve | Web App |

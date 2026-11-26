@@ -50,7 +50,7 @@ Commands:
   review <pr>        Review a PR and print the Report (<pr> is a URL or owner/repo#number)
   list <repo>        List open PRs and whether you reviewed their latest commit, then pick one
   stats              How your posted findings fared: resolved, dismissed, still open
-  serve              Open a review page in your browser, served only on this machine (--ui classic|v2)
+  serve              Open a review page in your browser, served only on this machine (--ui v2|classic)
   bench <dataset>    Measure review quality on PRs with known issues (precision, recall, F1)
   fix <PR>           Have your Claude Code or Codex fix your open findings in this checkout
   learnings <repo>   What reviews learned from feedback on earlier comments (👎, /dismiss, /remember)
@@ -611,7 +611,7 @@ async function webCommand(args: string[], io: CliIo, deps: CliDeps): Promise<num
     scope: e.PR_REVIEWER_OAUTH_SCOPE,
     allowedEndpoints: list(e.PR_REVIEWER_ALLOWED_ENDPOINTS),
     sandbox: e.PR_REVIEWER_SANDBOX === 'on',
-    ui: e.PR_REVIEWER_DEFAULT_UI === 'v2' ? ('v2' as const) : ('classic' as const),
+    ui: e.PR_REVIEWER_DEFAULT_UI === 'classic' ? ('classic' as const) : ('v2' as const),
     extensionIds: list(e.PR_REVIEWER_EXTENSION_IDS),
     fetch: deps.fetch,
     port: Number(parsed.values.port ?? e.PORT ?? 8080),

@@ -125,14 +125,14 @@ export function hunksForReport(report: Report, context: PrContext | undefined): 
   return { schemaVersion: SERVICE_SCHEMA_VERSION, files, unavailable }
 }
 
-/** Which review page `/` opens: classic (today's) or v2 (Epic 9 Story 9.3). Classic until v2 passes its parity checklist. */
+/** Which review page `/` opens: v2 (the default since 2026-11-26) or classic, the earlier page, kept at `/classic/`. */
 export type UiVersion = 'classic' | 'v2'
 
 /**
  * The page's static files. Classic is served at `/classic/`, v2 at `/v2/`, and `/` serves the default; each page then
  * follows the browser's own remembered choice. `index.html` gets its mode substituted (local page or Web App).
  */
-export function loadAssets(mode: 'local' | 'web', ui: UiVersion = 'classic'): Record<string, { type: string; body: Buffer }> {
+export function loadAssets(mode: 'local' | 'web', ui: UiVersion = 'v2'): Record<string, { type: string; body: Buffer }> {
   const read = (f: string) => readFileSync(new URL(`../static/${f}`, import.meta.url))
   const html = (f: string) => ({ type: 'text/html; charset=utf-8', body: Buffer.from(read(f).toString('utf8').replace('content="local"', `content="${mode}"`)) })
   const js = (f: string) => ({ type: 'text/javascript; charset=utf-8', body: read(f) })
