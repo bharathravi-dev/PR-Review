@@ -9,6 +9,8 @@ The review page has two versions served side by side by `pr-reviewer serve` and 
 A browser's own choice ("Try v2" / "Switch to classic") wins and is remembered in that browser.
 
 The default stays **classic** until every item below works in v2, on both `serve` and the Web App (Epic 9 Story 9.9).
+v2 implements every item; each was checked in a real browser against a mock of `ReviewService v1`. An item is ticked
+only after it has been used against a real `serve` or Web App.
 
 | Capability | serve | Web App |
 |---|---|---|

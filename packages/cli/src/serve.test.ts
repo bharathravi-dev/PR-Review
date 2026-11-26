@@ -149,7 +149,7 @@ describe('classic and v2 side by side (Story 9.3)', () => {
     expect((await get('/')).text).toContain('src="/app.js"')
     expect((await get('/classic/')).text).toContain('src="/app.js"')
     expect((await get('/v2/')).text).toContain('src="/v2/app.js"')
-    for (const p of ['/ui-switch.js', '/v2/app.js', '/findings-view.js']) expect(await get(p)).toMatchObject({ status: 200, type: expect.stringContaining('text/javascript') })
+    for (const p of ['/ui-switch.js', '/v2/app.js', '/v2/api.js', '/v2/dom.js', '/v2/keys.js', '/v2/model.js', '/findings-view.js']) expect(await get(p)).toMatchObject({ status: 200, type: expect.stringContaining('text/javascript') })
     expect((await get('/v2/app.css')).type).toContain('text/css')
     expect((await get('/classic/')).text).toContain('id="ui-switch"')
     await s.close()
@@ -227,6 +227,13 @@ describe('local review page (Story 8.1)', () => {
     expect(md.headers.get('content-type')).toContain('text/markdown')
     expect(await md.text()).toContain('# PR review: octo/app#9 — Add retry [REDACTED]')
     expect((await call('/v1/runs/00000000-0000-7000-8000-000000000000/report')).status).toBe(404)
+
+    // The diff around each finding, for review page v2 (Story 9.6).
+    const hunks = (await (await call(`/v1/runs/${id}/hunks`)).json()) as { files: Array<{ path: string; hunks: Array<{ lines: Array<{ kind: string; newLine?: number; text: string }> }> }>; unavailable: string[] }
+    expect(hunks.unavailable).toEqual([])
+    expect(hunks.files.map((f) => f.path)).toEqual(['src/retry.ts'])
+    expect(hunks.files[0]!.hunks[0]!.lines).toContainEqual({ kind: 'add', newLine: 2, text: 'export const retries = 3' })
+    expect((await call('/v1/runs/00000000-0000-7000-8000-000000000000/hunks')).status).toBe(404)
   })
 })
 

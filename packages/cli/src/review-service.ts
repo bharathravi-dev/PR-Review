@@ -1,12 +1,13 @@
 // ReviewService v1 (AD-16): one implementation shared by the CLI companion (`serve`) and the Web App (`web`), so the
 // two cannot drift. A request runs as a Principal: who is asking, with their own configuration and Credentials.
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   CreateRunRequest,
   PublishRequest,
   SERVICE_SCHEMA_VERSION,
   formatPrRef,
+  hunksAround,
   parsePrRef,
   parseRepoRef,
   previewDigest,
@@ -14,6 +15,7 @@ import {
   renderMarkdown,
   uuidv7,
   type Channel,
+  type DiffHunk,
   type PrContext,
   type PrRef,
   type PublishPreview,
@@ -89,7 +91,39 @@ export const SECURITY_HEADERS = {
 export const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 const MAX_BODY = 64 * 1024
-const RUN_PATH = /^\/v1\/runs\/([0-9a-f-]{36})\/(events|report|publish)$/
+const RUN_PATH = /^\/v1\/runs\/([0-9a-f-]{36})\/(events|report|publish|hunks)$/
+
+/** Limits of `GET /v1/runs/:id/hunks` (review page v2): context lines around a finding, lines per file and per run. */
+const HUNK_CONTEXT = 3
+const HUNK_LINES_PER_FILE = 400
+const HUNK_LINES_PER_RUN = 4000
+
+/**
+ * The PR's diff around each finding's lines, so a page can show a finding under its code (additive read route, UX-DR27).
+ * Built from the run's PR context; files without a patch (binary, too large, removed from the diff) are listed as unavailable.
+ */
+export function hunksForReport(report: Report, context: PrContext | undefined): { schemaVersion: number; files: Array<{ path: string; hunks: DiffHunk[]; truncated: boolean }>; unavailable: string[] } {
+  const ranges = new Map<string, Array<{ start: number; end: number }>>()
+  for (const f of report.findings) {
+    const l = f.location
+    if (l.anchorKind !== 'LINE' || !l.path || !l.startLine) continue
+    ranges.set(l.path, [...(ranges.get(l.path) ?? []), { start: l.startLine, end: l.endLine ?? l.startLine }])
+  }
+  const files: Array<{ path: string; hunks: DiffHunk[]; truncated: boolean }> = []
+  const unavailable: string[] = []
+  let budget = HUNK_LINES_PER_RUN
+  for (const [path, rs] of ranges) {
+    const patch = context?.files.find((f) => f.path === path)?.patch
+    if (!patch || budget <= 0) {
+      unavailable.push(path)
+      continue
+    }
+    const { hunks, truncated } = hunksAround(patch, rs, HUNK_CONTEXT, Math.min(HUNK_LINES_PER_FILE, budget))
+    budget -= hunks.reduce((n, h) => n + h.lines.length, 0)
+    if (hunks.length) files.push({ path, hunks, truncated })
+  }
+  return { schemaVersion: SERVICE_SCHEMA_VERSION, files, unavailable }
+}
 
 /** Which review page `/` opens: classic (today's) or v2 (Epic 9 Story 9.3). Classic until v2 passes its parity checklist. */
 export type UiVersion = 'classic' | 'v2'
@@ -113,8 +147,12 @@ export function loadAssets(mode: 'local' | 'web', ui: UiVersion = 'classic'): Re
     '/app.css': css('app.css'),
     '/findings-view.js': js('findings-view.js'),
     '/ui-switch.js': js('ui-switch.js'),
-    '/v2/app.js': js('v2/app.js'),
-    '/v2/app.css': css('v2/app.css'),
+    // Every module and stylesheet of v2.
+    ...Object.fromEntries(
+      readdirSync(new URL('../static/v2/', import.meta.url))
+        .filter((f) => /\.(js|css)$/.test(f))
+        .map((f) => [`/v2/${f}`, f.endsWith('.css') ? css(`v2/${f}`) : js(`v2/${f}`)]),
+    ),
   }
 }
 
@@ -378,6 +416,11 @@ export function createReviewService(opts: ServiceOptions) {
       return send(200, run.report), true
     }
     if (m[2] === 'publish' && method === 'POST') return send(200, await handlePublish(p, run, await readJson(req))), true
+    if (m[2] === 'hunks' && method === 'GET') {
+      if (run.status === 'running') return send(202, { status: 'running' }), true
+      if (!run.report) throw new HttpError(500, 'run_failed', run.error ?? 'The review failed.')
+      return send(200, hunksForReport(run.report, run.context)), true
+    }
     return false
   }
 
