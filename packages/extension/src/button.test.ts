@@ -6,7 +6,7 @@ const doc = (present: string[]) => ({ querySelector: (s: string) => (present.inc
 
 describe('the Review button on the PR page (Story 7.5)', () => {
   it('labels each state from stored data', () => {
-    expect(buttonLabel(undefined)).toEqual({ label: 'Review', state: 'review' })
+    expect(buttonLabel(undefined)).toEqual({ label: 'AI review', state: 'review' })
     expect(buttonLabel({ status: 'running', findings: 0, headSha: '' })).toEqual({ label: 'Reviewing…', state: 'running' })
     expect(buttonLabel({ status: 'done', findings: 3, headSha: 'a' })).toEqual({ label: '3 findings', state: 'current' })
     expect(buttonLabel({ status: 'done', findings: 1, headSha: 'a' }).label).toBe('1 finding')

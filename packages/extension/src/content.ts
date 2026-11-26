@@ -11,8 +11,7 @@ button.outdated { background: var(--warn-bg); color: var(--warn); border-color: 
 button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 button.outdated:hover { background: var(--warn-bg); border-color: var(--warn); }
 button:focus-visible { outline: 2px solid var(--ring-outer); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ring-inner); }
-.mark { width: 14px; height: 14px; border-radius: 4px; background: #090A1A; color: #FF7B02; display: inline-grid; place-items: center; font: 800 7px/1 system-ui, sans-serif; letter-spacing: -0.02em; }
-.mark::before { content: "PR"; }
+.mark { width: 16px; height: 16px; flex: none; display: block; }
 .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .light { --accent: #FF7B02; --accent-hover: #E66A00; --accent-text: #111827; --ok: #1d7a46; --warn: #8a5a00; --warn-bg: #fdf1d6; --ring-outer: #111827; --ring-inner: #FFFFFF; }
@@ -39,6 +38,23 @@ function theme(): 'light' | 'dark' {
   return githubTheme({ colorMode: d.getAttribute('data-color-mode'), darkTheme: d.getAttribute('data-dark-theme'), lightTheme: d.getAttribute('data-light-theme') }, matchMedia('(prefers-color-scheme: dark)').matches) ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 }
 
+const SVG = 'http://www.w3.org/2000/svg'
+function reviewIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG, 'svg')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('stroke', 'currentColor')
+  svg.setAttribute('stroke-width', '1.6')
+  svg.setAttribute('stroke-linecap', 'round')
+  svg.setAttribute('stroke-linejoin', 'round')
+  for (const d of ['M2.5 3h11v7.5h-6.2L4.2 13v-2.5H2.5z', 'M5.6 6.9l1.6 1.6 3.2-3.2']) {
+    const path = document.createElementNS(SVG, 'path')
+    path.setAttribute('d', d)
+    svg.append(path)
+  }
+  return svg
+}
+
 async function paint(pr: string): Promise<void> {
   if (!button) return
   const { label, state } = buttonLabel(await stateFor(pr))
@@ -46,8 +62,9 @@ async function paint(pr: string): Promise<void> {
   // Update in place so focus is kept (UX-DR16).
   button.className = state === 'outdated' ? 'outdated' : ''
   button.replaceChildren()
-  const g = document.createElement('span')
-  g.className = glyph
+  // A vector icon (a review bubble with a check) stays sharp at any zoom; tiny text did not.
+  const g = glyph === 'mark' ? reviewIcon() : document.createElement('span')
+  g.setAttribute('class', glyph)
   g.setAttribute('aria-hidden', 'true')
   const text = document.createElement('span')
   text.textContent = label

@@ -22,7 +22,7 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 12 | Publishing: npm package, Web App image on GHCR, extension zip on releases | People must be able to install it | done (tag vX.Y.Z → `.github/workflows/release.yml`; docs/releasing.md) |
 | 13 | Published benchmark numbers (`bench` on a public dataset) | Trust in quality | method, tooling and baseline done (docs/benchmarks.md); a full 50-PR run uses the Claude plan, so it is run on request |
 | 14 | Team dashboard: accepted vs dismissed findings, by repo and person | Managers buy on evidence | done (Web App Team view, `PR_REVIEWER_ADMINS`) |
-| 15 | Security deep scan (static rules in the Sandbox) | CodeRabbit and Copilot now market security | planned |
+| 15 | Security deep scan (static rules in the Sandbox) | CodeRabbit and Copilot now market security | done (`security.patterns`: injection, XSS, TLS off, JWT, deserialisation, CORS, weak hashes, insecure random) |
 | 16 | "Apply fix" from the review: commit a suggestion to the PR branch | One-click fixes | planned |
 | 18 | BR.dev brand: orange accent, Inter, PR mark and icon, light and dark, contrast-checked (docs/brand.md) | Your own brand on every surface | done |
 | 17 | Whole-codebase and cross-repo context (an index of the repository) | Greptile's main selling point | planned |

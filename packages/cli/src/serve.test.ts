@@ -211,6 +211,7 @@ describe('local review page (Story 8.1)', () => {
     expect(events.filter((e) => e.type === 'LAYER_STATUS' && e.payload.status !== 'NOT_APPLICABLE').map((e) => [e.payload.layer, e.payload.status])).toEqual([
       ['CONTEXT', 'PASSED'],
       ['SECURITY', 'PASSED'],
+      ['SECURITY', 'PASSED'],
       ['SECRETS', 'PASSED'],
       ['AI_REVIEW', 'WARNING'],
     ])

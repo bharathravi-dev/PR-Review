@@ -16,9 +16,10 @@ export interface PrState {
   headSha: string
 }
 
-/** The Review button's label for a PR (UX-DR16): "Review", "Reviewing…", "<n> findings", "No findings", "Outdated". */
+/** The Review button's label for a PR (UX-DR16): "AI review", "Reviewing…", "<n> findings", "No findings", "Outdated". */
 export function buttonLabel(s: PrState | undefined, currentHead?: string): { label: string; state: 'review' | 'running' | 'current' | 'outdated' } {
-  if (!s) return { label: 'Review', state: 'review' }
+  // "AI review", not "Review": GitHub's own "Submit review" sits beside it.
+  if (!s) return { label: 'AI review', state: 'review' }
   if (s.status === 'running') return { label: `Reviewing${ELLIPSIS}`, state: 'running' }
   if (currentHead && s.headSha && currentHead !== s.headSha) return { label: 'Outdated', state: 'outdated' }
   return { label: s.findings === 0 ? 'No findings' : `${s.findings} finding${s.findings === 1 ? '' : 's'}`, state: 'current' }

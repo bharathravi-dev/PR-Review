@@ -140,7 +140,7 @@ describe('pr-reviewer review', () => {
     const md = readFileSync(join(dir, 'report.md'), 'utf8')
     const json = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8'))
     expect(md).toContain('AI_REVIEW | ai.review | ERROR (PROVIDER_UNAVAILABLE)')
-    expect(json.layers.filter((l: { status: string }) => l.status !== 'NOT_APPLICABLE').map((l: { layer: string }) => l.layer)).toEqual(['CONTEXT', 'SECURITY', 'SECRETS', 'AI_REVIEW'])
+    expect(json.layers.filter((l: { status: string }) => l.status !== 'NOT_APPLICABLE').map((l: { layer: string }) => l.layer)).toEqual(['CONTEXT', 'SECURITY', 'SECURITY', 'SECRETS', 'AI_REVIEW'])
     for (const text of [md, JSON.stringify(json), r.out, r.err]) {
       expect(text).not.toContain(TOKEN)
       expect(text).not.toContain(AI_KEY)
