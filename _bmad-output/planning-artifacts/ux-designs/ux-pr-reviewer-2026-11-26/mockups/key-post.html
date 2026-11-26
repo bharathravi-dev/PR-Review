@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen: Post (side panel)</title>
+<style>
+/* Governs: DESIGN.md Components (buttons, card, mode chip), Typography (mono for preview); EXPERIENCE.md
+   Component Patterns (Post panel), State Patterns (Posted, Posting refused), Voice and Tone, Key Flows 1
+   steps 7-8 and failure path. Spines win on conflict. Static, no JS, no network. */
+.light { --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f6; --border:#dde1e7; --border-strong:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --accent-text:#ffffff; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fdf1d6; --bad:#b3261e; --bad-bg:#fbe4e2; color-scheme: light; }
+.dark { --bg:#0f1216; --surface:#171b21; --surface-2:#1e232b; --border:#2c333d; --border-strong:#6e7681; --text:#e3e7ec; --muted:#97a1ad; --accent:#7c9cf5; --accent-text:#0f1216; --ok:#6fd39a; --ok-bg:#16311f; --warn:#f0c35a; --warn-bg:#352a12; --bad:#ff8c82; --bad-bg:#3a1a18; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: #c9ced6; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.stage { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.caption { font: 12px/1.4 system-ui, sans-serif; color: #2b3038; margin: 0 0 6px; }
+.frame { width: 380px; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.chrome { height: 30px; background: #dfe3e8; display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: #3b414a; }
+.dark .chrome { background: #2a2f36; color: #c5ccd4; }
+.panel { background: var(--bg); color: var(--text); height: 760px; overflow: hidden; display: flex; flex-direction: column; }
+.head { height: 44px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 12px; flex: none; }
+.brand { font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.logo { width: 16px; height: 16px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); display: inline-block; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 550; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.body { padding: 12px; display: grid; gap: 12px; }
+.back { color: var(--accent); font-size: 13px; font-weight: 500; text-decoration: underline; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
+h1 { font-size: 16px; font-weight: 650; margin: 0; }
+h3 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+.muted { color: var(--muted); font-size: 13px; margin: 0; }
+.field { display: grid; gap: 4px; font-size: 12px; font-weight: 550; color: var(--muted); }
+.select { font: inherit; font-size: 14px; font-weight: 400; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { font: inherit; font-weight: 550; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.full { width: 100%; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+pre { margin: 4px 0 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45; max-height: 150px; overflow: hidden; }
+ul { margin: 0; padding-left: 18px; font-size: 13px; }
+.result { border-radius: 8px; padding: 10px 12px; }
+.result.ok { background: var(--ok-bg); color: var(--ok); }
+.result.bad { background: var(--bad-bg); color: var(--bad); }
+.result a { color: inherit; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div>
+    <p class="caption">Post, preview shown · light (Flow 1, step 7)</p>
+    <div class="frame light">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Standalone</span></div>
+        <div class="body">
+          <a class="back" href="#">← Report</a>
+          <div class="card">
+            <h1>Post to GitHub</h1>
+            <p class="muted">Posts as @tom: one review with inline comments, plus one summary comment that is updated on later runs. Approving is never possible.</p>
+            <label class="field">Review type<span class="select">Comment ▾</span></label>
+            <div class="row"><button class="btn">Refresh preview</button></div>
+            <button class="btn primary full">Post 2 inline comments and the summary</button>
+            <p class="muted">2 of 3 findings selected</p>
+          </div>
+          <div class="card">
+            <div>
+              <h3>New inline comments (2)</h3>
+              <ul>
+                <li><span class="mono">src/retry.ts:42</span> MAJOR · correctness — Retries without backoff</li>
+                <li><span class="mono">src/retry.ts:18</span> MINOR · correctness — Retry count ignores the configured limit</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Summary comment</h3>
+<pre>## PR Reviewer: PASSED_WITH_WARNINGS
+Head 9f3c2e1 · 2 finding(s) (1 major, 1 minor) · 2 new inline
+Checks run: context, secrets, AI review.
+Not run: compile, lint: SKIPPED (no Sandbox).</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="caption">Post, after posting and when GitHub refuses · dark (Flow 1, step 8 and failure)</p>
+    <div class="frame dark">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Standalone</span></div>
+        <div class="body">
+          <a class="back" href="#">← Report</a>
+          <div class="card">
+            <h1>Post to GitHub</h1>
+            <div class="result ok">Posted 2 inline comments and the summary as @tom. <a href="#">Open the review</a> · <a href="#">Open the summary</a></div>
+          </div>
+          <div class="card">
+            <h1>Post to GitHub</h1>
+            <div class="result bad">GitHub refused: the token can read this PR but not comment on it. Authorise it for the octo organisation (SSO), or use a token with Pull requests: write. Your selection is kept.</div>
+            <button class="btn primary full">Try posting again</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

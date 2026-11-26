@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen: Report (side panel)</title>
+<style>
+/* Governs: DESIGN.md Colors, Typography, Components (panel header, mode chip, finding card, severity badges,
+   outdated banner, buttons); EXPERIENCE.md Component Patterns (Finding card, Findings toolbar, Coverage block,
+   Details disclosure, Outdated banner), State Patterns (PR reviewed current / head moved), Key Flows 1 step 6
+   and 2 step 2. Spines win on conflict. Static, no JS, no network.
+   Excluded finding: dashed border-strong edge + NOT INCLUDED badge, full contrast (no opacity). */
+.light { --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f6; --border:#dde1e7; --border-strong:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --accent-text:#ffffff; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fdf1d6; --bad:#b3261e; --bad-bg:#fbe4e2; --info:#3d5a80; --info-bg:#e6edf6; --neutral-bg:#eceef1; color-scheme: light; }
+.dark { --bg:#0f1216; --surface:#171b21; --surface-2:#1e232b; --border:#2c333d; --border-strong:#6e7681; --text:#e3e7ec; --muted:#97a1ad; --accent:#7c9cf5; --accent-text:#0f1216; --ok:#6fd39a; --ok-bg:#16311f; --warn:#f0c35a; --warn-bg:#352a12; --bad:#ff8c82; --bad-bg:#3a1a18; --info:#a9c1e6; --info-bg:#1b2636; --neutral-bg:#242a33; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: #c9ced6; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.stage { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.caption { font: 12px/1.4 system-ui, sans-serif; color: #2b3038; margin: 0 0 6px; }
+.frame { width: 380px; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.chrome { height: 30px; background: #dfe3e8; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; color: #3b414a; }
+.dark .chrome { background: #2a2f36; color: #c5ccd4; }
+.panel { background: var(--bg); color: var(--text); height: 760px; overflow: hidden; display: flex; flex-direction: column; }
+.head { height: 44px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 12px; flex: none; }
+.brand { font-weight: 650; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.logo { width: 16px; height: 16px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); display: inline-block; }
+.head-right { display: flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 550; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.icon-btn { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); display: grid; place-items: center; font-size: 14px; }
+.body { padding: 12px; display: grid; gap: 12px; overflow: hidden; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+h1 { font-size: 16px; font-weight: 650; line-height: 1.25; margin: 0 0 4px; }
+h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.meta { font-size: 12px; color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11px; font-weight: 650; letter-spacing: .02em; white-space: nowrap; }
+.warn { background: var(--warn-bg); color: var(--warn); }
+.bad { background: var(--bad-bg); color: var(--bad); }
+.info { background: var(--info-bg); color: var(--info); }
+.neutral { background: var(--neutral-bg); color: var(--muted); }
+.status-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.coverage { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.notrun { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.counts { display: flex; gap: 6px; flex-wrap: wrap; }
+.link { color: var(--accent); font-weight: 500; font-size: 13px; text-decoration: underline; }
+.finding { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: auto minmax(0,1fr); gap: 2px 10px; }
+.finding.off { border: 1px dashed var(--border-strong); }
+.box { width: 16px; height: 16px; margin-top: 3px; border-radius: 4px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.box.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.ftitle { font-weight: 600; }
+.fmeta { grid-column: 2; font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.fmeta a { color: var(--accent); }
+.fbody { grid-column: 2; margin-top: 2px; }
+.more { grid-column: 2; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.btn { font: inherit; font-weight: 550; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.full { width: 100%; }
+.banner { border-radius: 8px; padding: 10px 12px; background: var(--warn-bg); color: var(--warn); display: grid; gap: 8px; }
+.details { color: var(--muted); font-size: 13px; }
+.footer { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div>
+    <p class="caption">Report, current review · light · Standalone (Flow 1, step 6)</p>
+    <div class="frame light">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head">
+          <div class="brand"><span class="logo"></span>PR Reviewer</div>
+          <div class="head-right"><span class="chip"><span class="dot"></span>Standalone</span><span class="icon-btn" aria-label="Settings">⚙</span></div>
+        </div>
+        <div class="body">
+          <div class="card">
+            <h1>octo/app#42 — Add retry with backoff</h1>
+            <div class="meta">by dev · head <span class="mono">9f3c2e1</span> · reviewed 2 min ago with Anthropic (your key)</div>
+            <div class="status-row"><span class="badge warn">PASSED_WITH_WARNINGS</span><span class="meta">3 findings</span></div>
+            <p class="coverage">Checks run: context, secrets, AI review, workflow and config changes. Not run: compile, lint — a check that did not run is not a pass.</p>
+            <ul class="notrun"><li>compile, lint: SKIPPED (no Sandbox)</li></ul>
+          </div>
+          <div class="toolbar">
+            <div class="counts"><span class="badge warn">1 MAJOR</span><span class="badge info">1 MINOR</span><span class="badge info">1 INFO</span></div>
+            <span><a class="link" href="#">Select all</a> · <a class="link" href="#">Select none</a></span>
+          </div>
+          <div class="finding">
+            <span class="box on">✓</span>
+            <div><span class="badge warn">MAJOR</span> <span class="ftitle">Retries without backoff</span></div>
+            <div class="fmeta"><a href="#">src/retry.ts:42</a> · AI · confidence high</div>
+            <div class="fbody">The loop retries immediately on every failure, which multiplies load on a service that is already struggling.</div>
+            <div class="more">▸ Recommendation and suggested change</div>
+          </div>
+          <div class="finding">
+            <span class="box on">✓</span>
+            <div><span class="badge info">MINOR</span> <span class="ftitle">Retry count ignores the configured limit</span></div>
+            <div class="fmeta"><a href="#">src/retry.ts:18</a> · AI · confidence medium</div>
+            <div class="fbody"><span class="mono">maxRetries</span> is read from config but the loop uses the literal 5.</div>
+            <div class="more">▸ Recommendation</div>
+          </div>
+          <div class="finding off">
+            <span class="box"></span>
+            <div><span class="badge neutral">NOT INCLUDED</span> <span class="badge info">INFO</span> <span class="ftitle">Consider logging the final failure</span></div>
+            <div class="fmeta"><a href="#">src/retry.ts:57</a> · AI · confidence low</div>
+          </div>
+          <div class="details">▸ Details: walkthrough, checks, related code, learnings, tokens and cost</div>
+          <button class="btn primary full">Post to GitHub</button>
+          <div class="footer">2 of 3 findings selected. Nothing is posted until you press Post.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="caption">Report, head moved · dark (Flow 2, step 2)</p>
+    <div class="frame dark">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head">
+          <div class="brand"><span class="logo"></span>PR Reviewer</div>
+          <div class="head-right"><span class="chip"><span class="dot"></span>Standalone</span><span class="icon-btn" aria-label="Settings">⚙</span></div>
+        </div>
+        <div class="body">
+          <div class="banner">
+            <div>This review is of an older commit (<span class="mono">9f3c2e1</span>). The PR is now at <span class="mono">b71d004</span>.</div>
+            <div><button class="btn primary">Review again</button></div>
+          </div>
+          <div class="card">
+            <h1>octo/app#42 — Add retry with backoff</h1>
+            <div class="meta">by dev · reviewed 2 days ago with Anthropic (your key)</div>
+            <div class="status-row"><span class="badge warn">PASSED_WITH_WARNINGS</span><span class="meta">3 findings</span></div>
+          </div>
+          <div class="finding">
+            <span class="box on">✓</span>
+            <div><span class="badge warn">MAJOR</span> <span class="ftitle">Retries without backoff</span></div>
+            <div class="fmeta"><a href="#">src/retry.ts:42</a> · AI · confidence high</div>
+            <div class="fbody">The loop retries immediately on every failure, which multiplies load on a service that is already struggling.</div>
+          </div>
+          <div class="finding">
+            <span class="box on">✓</span>
+            <div><span class="badge info">MINOR</span> <span class="ftitle">Retry count ignores the configured limit</span></div>
+            <div class="fmeta"><a href="#">src/retry.ts:18</a> · AI · confidence medium</div>
+          </div>
+          <button class="btn full" aria-disabled="true" style="opacity:.55">Post to GitHub</button>
+          <div class="footer" style="color:var(--text)">Posting is off: this review is of an older commit. Review again to post.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

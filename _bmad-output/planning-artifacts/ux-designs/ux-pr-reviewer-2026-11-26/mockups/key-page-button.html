@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen: Review button states</title>
+<style>
+/* Governs: DESIGN.md Components (Review button, review-button / review-button-outdated tokens, two-tone
+   focus ring), Do's and Don'ts; EXPERIENCE.md Component Patterns (Review button), Accessibility Floor
+   (Review button: name starts with the visible label). The button follows GitHub's theme: light tokens on a
+   light GitHub page, -dark tokens on a dark one. The surrounding header is a neutral, simplified stand-in for
+   a PR page header, not a copy of GitHub's design; only the pr-reviewer button is specified.
+   Spines win on conflict. Static, no JS, no network. */
+.host-light { --h-bg:#ffffff; --h-text:#1f2328; --h-muted:#59636e; --h-border:#d1d9e0; --h-pill:#1f883d;
+  --accent:#2f5bd3; --accent-text:#ffffff; --ok:#1d7a46; --warn:#8a5a00; --warn-bg:#fdf1d6; }
+.host-dark { --h-bg:#0d1117; --h-text:#e6edf3; --h-muted:#9198a1; --h-border:#3d444d; --h-pill:#238636;
+  --accent:#7c9cf5; --accent-text:#0f1216; --ok:#6fd39a; --warn:#f0c35a; --warn-bg:#352a12; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: #c9ced6; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.caption { font: 12px/1.4 system-ui, sans-serif; color: #2b3038; margin: 18px 0 6px; }
+.caption:first-child { margin-top: 0; }
+.host { background: var(--h-bg); color: var(--h-text); border: 1px solid var(--h-border); border-radius: 10px; padding: 14px 16px; width: 760px; max-width: 100%; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.title { font-size: 20px; font-weight: 400; }
+.title .num { color: var(--h-muted); }
+.meta { margin-top: 6px; display: flex; gap: 8px; align-items: center; color: var(--h-muted); font-size: 13px; }
+.pill { background: var(--h-pill); color: #fff; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+.host-actions { display: flex; gap: 8px; align-items: center; }
+.host-btn { border: 1px solid var(--h-border); border-radius: 6px; padding: 3px 10px; font-size: 12px; color: var(--h-text); background: transparent; }
+/* The pr-reviewer Review button: own styles only. */
+.prr { display: inline-flex; align-items: center; gap: 6px; height: 28px; min-width: 24px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); font: 550 0.75rem/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; white-space: nowrap; }
+.prr .mark { width: 12px; height: 12px; border-radius: 4px; background: linear-gradient(135deg, var(--accent-text), var(--ok)); opacity: .9; }
+.prr .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent-text); border-right-color: transparent; }
+.prr.outdated { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+.prr.outdated .mark { background: linear-gradient(135deg, var(--warn), var(--ok)); }
+/* Two-tone focus ring (WCAG C40): dark outline + white inner ring, >= 3:1 on any GitHub background. */
+.prr.focused { outline: 2px solid #1c2128; outline-offset: 2px; box-shadow: 0 0 0 2px #ffffff; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.states { display: grid; grid-template-columns: repeat(5, auto); gap: 14px 22px; justify-content: start; align-items: center; margin-top: 4px; }
+.states .lbl { font-size: 12px; color: var(--h-muted); margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<p class="caption">Placement in the PR header · GitHub light · state "3 findings" (accessible name "3 findings, pr-reviewer")</p>
+<div class="host host-light">
+  <div class="title-row">
+    <div class="title">Add retry with backoff <span class="num">#42</span></div>
+    <div class="host-actions">
+      <button class="prr"><span class="mark" aria-hidden="true"></span>3 findings<span class="sr">, pr-reviewer</span></button>
+      <span class="host-btn">Edit</span><span class="host-btn">Code ▾</span>
+    </div>
+  </div>
+  <div class="meta"><span class="pill">Open</span> dev wants to merge 3 commits into main from retry</div>
+</div>
+
+<p class="caption">All states · GitHub light (light tokens)</p>
+<div class="host host-light">
+  <div class="states">
+    <div><div class="lbl">Never reviewed</div><button class="prr"><span class="mark" aria-hidden="true"></span>Review<span class="sr"> this PR, pr-reviewer</span></button></div>
+    <div><div class="lbl">Running</div><button class="prr"><span class="ring" aria-hidden="true"></span>Reviewing…<span class="sr">, pr-reviewer</span></button></div>
+    <div><div class="lbl">Current review</div><button class="prr"><span class="mark" aria-hidden="true"></span>3 findings<span class="sr">, pr-reviewer</span></button></div>
+    <div><div class="lbl">Head moved</div><button class="prr outdated"><span class="mark" aria-hidden="true"></span>Outdated<span class="sr">, pr-reviewer</span></button></div>
+    <div><div class="lbl">Keyboard focus</div><button class="prr focused"><span class="mark" aria-hidden="true"></span>Review<span class="sr"> this PR, pr-reviewer</span></button></div>
+  </div>
+</div>
+
+<p class="caption">All states · GitHub dark (-dark tokens)</p>
+<div class="host host-dark">
+  <div class="states">
+    <div><div class="lbl">Never reviewed</div><button class="prr"><span class="mark" aria-hidden="true"></span>Review<span class="sr"> this PR, pr-reviewer</span></button></div>
+    <div><div class="lbl">Running</div><button class="prr"><span class="ring" aria-hidden="true"></span>Reviewing…<span class="sr">, pr-reviewer</span></button></div>
+    <div><div class="lbl">Current review</div><button class="prr"><span class="mark" aria-hidden="true"></span>No findings<span class="sr">, pr-reviewer</span></button></div>
+    <div><div class="lbl">Head moved</div><button class="prr outdated"><span class="mark" aria-hidden="true"></span>Outdated<span class="sr">, pr-reviewer</span></button></div>
+    <div><div class="lbl">Keyboard focus</div><button class="prr focused"><span class="mark" aria-hidden="true"></span>3 findings<span class="sr">, pr-reviewer</span></button></div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen: Welcome and Standalone setup (side panel)</title>
+<style>
+/* Governs: EXPERIENCE.md Information Architecture (Welcome and consent, Setup: Standalone), State Patterns
+   (First open; Not set up, review asked), Credentials and Consent, Component Patterns (Key field, Mode chip),
+   Voice and Tone, Key Flows 1 steps 2-4; DESIGN.md Components (buttons, card, mode chip). Spines win on
+   conflict. Static, no JS, no network. */
+.light { --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f6; --border:#dde1e7; --border-strong:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --accent-text:#ffffff; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fdf1d6; --bad:#b3261e; --bad-bg:#fbe4e2; color-scheme: light; }
+.dark { --bg:#0f1216; --surface:#171b21; --surface-2:#1e232b; --border:#2c333d; --border-strong:#6e7681; --text:#e3e7ec; --muted:#97a1ad; --accent:#7c9cf5; --accent-text:#0f1216; --ok:#6fd39a; --ok-bg:#16311f; --warn:#f0c35a; --warn-bg:#352a12; --bad:#ff8c82; --bad-bg:#3a1a18; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: #c9ced6; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.stage { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.caption { font: 12px/1.4 system-ui, sans-serif; color: #2b3038; margin: 0 0 6px; max-width: 380px; }
+.frame { width: 380px; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.chrome { height: 30px; background: #dfe3e8; display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: #3b414a; }
+.dark .chrome { background: #2a2f36; color: #c5ccd4; }
+.panel { background: var(--bg); color: var(--text); height: 760px; overflow: hidden; display: flex; flex-direction: column; }
+.head { height: 44px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 12px; flex: none; }
+.brand { font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.logo { width: 16px; height: 16px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); display: inline-block; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 550; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); }
+.body { padding: 12px; display: grid; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
+h1 { font-size: 16px; font-weight: 650; margin: 0; }
+h2 { font-size: 14px; font-weight: 600; margin: 0; }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: 13px; }
+ul.plain { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+.choice { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; background: var(--surface); }
+.choice.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--border-strong); margin-top: 2px; }
+.choice.on .radio { border: 5px solid var(--accent); }
+.choice .t { font-weight: 600; }
+.choice .d { grid-column: 2; font-size: 12px; color: var(--muted); }
+.tag { font-size: 11px; font-weight: 650; color: var(--muted); }
+.btn { font: inherit; font-weight: 550; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.full { width: 100%; }
+.link { color: var(--accent); font-weight: 500; font-size: 13px; text-decoration: underline; }
+.step { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.num { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 650; background: var(--surface-2); border: 1px solid var(--border); }
+.num.done { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.num.now { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 22px; font-weight: 650; letter-spacing: .12em; text-align: center; padding: 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
+.field { display: grid; gap: 4px; font-size: 12px; font-weight: 550; color: var(--muted); }
+.input { font: inherit; font-size: 14px; font-weight: 400; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.result { border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.result.ok { background: var(--ok-bg); color: var(--ok); }
+.ok-line { color: var(--ok); font-size: 13px; font-weight: 550; }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div>
+    <p class="caption">Welcome and consent · light · first open after clicking Review on octo/app#42 (Flow 1, step 2)</p>
+    <div class="frame light">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Not set up</span></div>
+        <div class="body">
+          <div class="card">
+            <h1>Set up to review octo/app#42</h1>
+            <p class="muted">Choose how reviews run. You can change this later in Settings.</p>
+          </div>
+          <div class="card">
+            <h2>What is sent where</h2>
+            <ul class="plain">
+              <li>GitHub: requests to read this PR and, only when you press Post, to post your review.</li>
+              <li>Your AI provider: the PR's diff and files, with detected secrets removed.</li>
+              <li>Nothing goes anywhere else. No analytics.</li>
+              <li>Your recent reviews, including short code excerpts, stay in this browser until you clear them.</li>
+            </ul>
+            <a class="link" href="#">Privacy policy</a>
+          </div>
+          <div class="choice on"><span class="radio"></span><span class="t">Standalone</span><span class="d">Your own AI API key and GitHub sign-in. Compile and lint do not run. Move to the panel any time with F6.</span></div>
+          <div class="choice"><span class="radio"></span><span class="t">My team's Web App <span class="tag">· full checks</span></span><span class="d">Reviews run on your team's self-hosted pr-reviewer. No AI key in the browser.</span></div>
+          <div class="choice"><span class="radio"></span><span class="t">This computer <span class="tag">· full checks</span></span><span class="d">Pair with pr-reviewer installed on this computer. Uses its AI settings.</span></div>
+          <button class="btn primary full">Continue with Standalone</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="caption">Setup: Standalone, step 1 · GitHub device-code sign-in · light (Flow 1, step 3)</p>
+    <div class="frame light">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Not set up</span></div>
+        <div class="body">
+          <div class="row"><span class="step"><span class="num now">1</span>GitHub</span><span class="step"><span class="num">2</span>AI provider</span></div>
+          <div class="card">
+            <h1>Sign in with GitHub</h1>
+            <p class="muted">Enter this code on the GitHub page that opened in a new tab, then approve.</p>
+            <div class="code" aria-label="Code: W D J B dash M J H T">WDJB-MJHT</div>
+            <div class="row"><button class="btn">Copy code</button><span class="muted">Waiting for approval · expires at 14:32</span></div>
+            <a class="link" href="#">Open the GitHub page again</a>
+          </div>
+          <a class="link" href="#">Use a token instead</a>
+          <p class="muted">For GitHub Enterprise or if you prefer: paste a fine-grained token; the permissions it needs are listed.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="caption">Setup: Standalone, step 2 · AI key tested · dark (Flow 1, step 4)</p>
+    <div class="frame dark">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Not set up</span></div>
+        <div class="body">
+          <div class="row"><span class="step"><span class="num done">✓</span>GitHub</span><span class="step"><span class="num now">2</span>AI provider</span></div>
+          <p class="ok-line">Signed in to GitHub as @tom</p>
+          <div class="card">
+            <h1>Your AI provider</h1>
+            <label class="field">Provider<span class="input" style="font-family:inherit">Anthropic ▾</span></label>
+            <label class="field">API key<span class="input">sk-ant-••••••••••••••••3f9a</span></label>
+            <p class="muted">Stored in this browser only, where web pages cannot read it. Used only for calls to Anthropic.</p>
+            <div class="row"><button class="btn">Test</button></div>
+            <div class="result ok">Works: claude-opus-5-5 answered.</div>
+            <button class="btn primary full">Save and review octo/app#42</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

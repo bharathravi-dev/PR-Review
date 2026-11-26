@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen: Run in progress (side panel)</title>
+<style>
+/* Governs: EXPERIENCE.md State Patterns (Running; Panel reopened during a backend run), Component Patterns
+   (Mode chip), Voice and Tone, Accessibility Floor (live region, reduced motion), Key Flows 1 step 5 and
+   3 steps 3-4; DESIGN.md Components (progress steps). Spines win on conflict. Static, no JS, no network;
+   the running ring is drawn static, as under reduced motion. */
+.light { --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f6; --border:#dde1e7; --border-strong:#7d8794; --text:#1c2128; --muted:#5d6673; --accent:#2f5bd3; --accent-text:#ffffff; --ok:#1d7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fdf1d6; --bad:#b3261e; --bad-bg:#fbe4e2; --info:#3d5a80; --info-bg:#e6edf6; --neutral-bg:#eceef1; color-scheme: light; }
+.dark { --bg:#0f1216; --surface:#171b21; --surface-2:#1e232b; --border:#2c333d; --border-strong:#6e7681; --text:#e3e7ec; --muted:#97a1ad; --accent:#7c9cf5; --accent-text:#0f1216; --ok:#6fd39a; --ok-bg:#16311f; --warn:#f0c35a; --warn-bg:#352a12; --bad:#ff8c82; --bad-bg:#3a1a18; --info:#a9c1e6; --info-bg:#1b2636; --neutral-bg:#242a33; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; background: #c9ced6; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.stage { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.caption { font: 12px/1.4 system-ui, sans-serif; color: #2b3038; margin: 0 0 6px; max-width: 380px; }
+.frame { width: 380px; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.chrome { height: 30px; background: #dfe3e8; display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: #3b414a; }
+.dark .chrome { background: #2a2f36; color: #c5ccd4; }
+.panel { background: var(--bg); color: var(--text); height: 560px; overflow: hidden; display: flex; flex-direction: column; }
+.head { height: 44px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 12px; flex: none; }
+.brand { font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.logo { width: 16px; height: 16px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--ok)); display: inline-block; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 550; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.body { padding: 12px; display: grid; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+h1 { font-size: 16px; font-weight: 650; margin: 0; }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: 13px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.steps { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 6px; }
+.steps li { display: flex; gap: 10px; align-items: baseline; }
+.state { width: 16px; text-align: center; flex: none; font-weight: 700; }
+.done .state { color: var(--ok); }
+.waiting { color: var(--muted); }
+.ring { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; }
+.detail { color: var(--muted); font-size: 12px; }
+.skip .state { color: var(--muted); }
+.note { border-radius: 8px; padding: 8px 10px; font-size: 13px; background: var(--info-bg); color: var(--info); }
+.note.warn { background: var(--warn-bg); color: var(--warn); }
+.btn { font: inherit; font-weight: 550; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div>
+    <p class="caption">Run in progress · Standalone · light (Flow 1, step 5)</p>
+    <div class="frame light">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Standalone</span></div>
+        <div class="body">
+          <div class="card" aria-live="polite">
+            <h1>Reviewing octo/app#42</h1>
+            <p class="muted">With Anthropic (your key), claude-opus-5-5 · 0:38</p>
+            <ul class="steps">
+              <li class="done"><span class="state">✓</span><span>Read the PR <span class="detail">12 files, head <span class="mono">9f3c2e1</span></span></span></li>
+              <li class="done"><span class="state">✓</span><span>Detect projects <span class="detail">TypeScript, Node</span></span></li>
+              <li class="skip"><span class="state">–</span><span>Compile and lint <span class="detail">SKIPPED (no Sandbox)</span></span></li>
+              <li class="done"><span class="state">✓</span><span>Secrets <span class="detail">none found</span></span></li>
+              <li><span class="state"><span class="ring"></span></span><span>AI review <span class="detail">reading the change and 3 related files</span></span></li>
+              <li class="waiting"><span class="state">·</span><span>Report</span></li>
+            </ul>
+          </div>
+          <p class="note warn">Closing this panel stops the review.</p>
+          <div><button class="btn">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="caption">Run in progress · Web App, re-attached after the panel was closed · dark (Flow 3, steps 3-4)</p>
+    <div class="frame dark">
+      <div class="chrome">Side panel · PR Reviewer</div>
+      <div class="panel">
+        <div class="head"><div class="brand"><span class="logo"></span>PR Reviewer</div><span class="chip"><span class="dot"></span>Web App · review.team.example</span></div>
+        <div class="body">
+          <div class="card" aria-live="polite">
+            <h1>Reviewing octo/portal#7</h1>
+            <p class="muted">On your team's Web App · 1:52</p>
+            <ul class="steps">
+              <li class="done"><span class="state">✓</span><span>Read the PR <span class="detail">4 files</span></span></li>
+              <li class="done"><span class="state">✓</span><span>Detect projects <span class="detail">Angular 12.2.16</span></span></li>
+              <li><span class="state"><span class="ring"></span></span><span>Compile and lint <span class="detail">running in the Web App's Sandbox</span></span></li>
+              <li class="done"><span class="state">✓</span><span>Secrets <span class="detail">none found</span></span></li>
+              <li class="waiting"><span class="state">·</span><span>AI review</span></li>
+              <li class="waiting"><span class="state">·</span><span>Report</span></li>
+            </ul>
+          </div>
+          <p class="note">You can close the panel; the review keeps running.</p>
+          <div><button class="btn">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
