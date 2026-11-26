@@ -9,6 +9,7 @@ import { parseRulesChecklist } from './rules.js'
 import { executeValidators, type AdvisoryPort, type CachePort, type SandboxPort, type SandboxStep, type Validator, type ValidatorContext } from './validator.js'
 import { applyDismissals, ownInlineComments, readDismissals } from './feedback.js'
 import { readLearnings, type Learning } from './learnings.js'
+import { findRelatedFiles, type RelatedFile } from './related.js'
 import { fetchContext } from './fetch-context.js'
 import type { Finding, LayerId, LayerResult } from './findings.js'
 import type { PrRef } from './pr-ref.js'
@@ -46,6 +47,7 @@ export interface EnginePorts {
 /** At most this many linked issues, each cut to this many characters, reach the AI. */
 const MAX_LINKED_ISSUES = 3
 const MAX_ISSUE_CHARS = 4000
+const PRIVATE_KEY = /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/
 const capText = (t: string, max: number) => (t.length > max ? `${t.slice(0, max)}\n(issue text truncated)` : t)
 
 /** The review-affecting projection of Configuration (AD-12 `affectsReview`). */
@@ -59,6 +61,8 @@ export interface ReviewSettings {
   verify?: boolean | undefined
   /** false ignores what the repository's maintainers said about earlier comments (learning from feedback). */
   learn?: boolean | undefined
+  /** false keeps unchanged related code (imports, callers, tests) out of the AI prompt. */
+  relatedFiles?: boolean | undefined
 }
 
 export interface ReviewInput {
@@ -88,7 +92,7 @@ export interface ReviewInput {
 
 /** configHash = H(review-affecting settings, defaults omitted) (AD-12). */
 export function computeConfigHash(review: ReviewSettings = {}): Promise<string> {
-  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined, verify: review.verify === true ? true : undefined, learn: review.learn === false ? false : undefined })
+  return hashObject({ provider: review.provider, model: review.model, rules: review.rules?.length ? [...review.rules] : undefined, toolResults: review.toolResults === false ? false : undefined, verify: review.verify === true ? true : undefined, learn: review.learn === false ? false : undefined, relatedFiles: review.relatedFiles === false ? false : undefined })
 }
 
 /** idempotencyKey = H({host, repoId, pr, headSha, configHash, engineMajor, rid}) (AD-11). */
@@ -220,6 +224,35 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   record(scan.layer)
   emit('STAGE_FINISHED', { stage: 'execute' })
 
+  // Unchanged code next to the change, for the AI. It is scanned like the PR itself, so its secrets never reach the AI.
+  let related: RelatedFile[] = []
+  if (input.review?.relatedFiles !== false && scan.completed) {
+    const found = await findRelatedFiles(files, ctx.files.map((f) => ({ path: f.path, status: f.status, patch: f.patch, headText: f.head?.text })))
+    limitations.push(...found.notes)
+    // A private key cut off by an excerpt would not match the scanner, so files that hold one are left out.
+    const shown = found.related.filter((r) => !PRIVATE_KEY.test(r.text))
+    if (shown.length) {
+      let extra: ReturnType<SecretScanner> | undefined
+      try {
+        extra = ports.scanSecrets({
+          ...ctx,
+          title: '',
+          body: '',
+          reviews: [],
+          reviewComments: [],
+          issueComments: [],
+          files: shown.map((r) => ({ path: r.path, status: 'modified', additions: 0, deletions: 0, binary: false, patchTruncated: false, head: { text: r.text } })),
+        })
+      } catch {
+        extra = undefined
+      }
+      if (extra?.completed) {
+        const values = [...scan.values, ...extra.values]
+        related = shown.map((r) => ({ ...r, text: redactText(r.text, values) }))
+      } else limitations.push('Related files were left out of the AI review: they could not be scanned for secrets.')
+    }
+  }
+
   // redact → review
   const aiFindings: Finding[] = []
   let ai: Report['ai']
@@ -238,6 +271,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       rules: input.review?.rules ?? [],
       repoRules,
       guidance: repoConfig.guidance.map((g) => ({ path: g.path, text: redactText(g.text, scan.values) })),
+      relatedFiles: related,
       learnings: learnings.map((l) => ({ kind: l.kind, text: redactText(l.text, scan.values) })),
       linkedIssues: linkedIssues.map((i) => ({ number: i.number, repo: i.repo, title: redactText(i.title, scan.values), body: redactText(capText(i.body, MAX_ISSUE_CHARS), scan.values) })),
       toolResults:
@@ -287,6 +321,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     repo: { sha: ctx.baseSha, settings: repoSettings, ignored: repoConfig.ignored, rules: repoRules, guidance: repoConfig.guidance.map((g) => g.path) },
     ...(walkthrough ? { walkthrough } : {}),
     ...(learnings.length ? { learnings: learnings.map((l) => ({ ...l, text: redactText(l.text, scan.values) })) } : {}),
+    ...(related.length ? { relatedFiles: related.map((r) => ({ path: r.path, relation: r.relation, excerpt: r.excerpt })) } : {}),
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
   })
   return { report, context: ctx }
@@ -407,6 +442,7 @@ async function assemble(a: {
   repo?: { sha: string; settings: RepoSettings; ignored: string[]; rules: string[]; guidance: string[] }
   walkthrough?: Walkthrough
   learnings?: Learning[]
+  relatedFiles?: Array<{ path: string; relation: string; excerpt: boolean }>
   sandbox?: { planHash: string; imageDigest: string; ran: boolean }
 }): Promise<Report> {
   const { input, ctx } = a
@@ -457,6 +493,7 @@ async function assemble(a: {
     ...(a.projects ? { projects: a.projects } : {}),
     ...(a.walkthrough ? { walkthrough: a.walkthrough } : {}),
     ...(a.learnings?.length ? { learnings: a.learnings } : {}),
+    ...(a.relatedFiles?.length ? { relatedFiles: a.relatedFiles } : {}),
     ...(a.repo?.guidance.length ? { guidanceFiles: a.repo.guidance } : {}),
     ...(a.sandbox ? { sandbox: a.sandbox } : {}),
     audit: {

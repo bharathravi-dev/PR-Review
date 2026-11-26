@@ -84,6 +84,8 @@ export const Report = z.looseObject({
   learnings: z
     .array(z.object({ kind: z.enum(['REMEMBER', 'DISMISSED']), text: z.string(), by: z.string(), pr: z.number().int(), url: z.string().optional() }))
     .optional(),
+  /** Unchanged files shown to the AI for context, and why each was picked. */
+  relatedFiles: z.array(z.object({ path: z.string(), relation: z.string(), excerpt: z.boolean() })).optional(),
   /** Repository guidance files the review read at the base commit. */
   guidanceFiles: z.array(z.string()).optional(),
   /** Projects the PR touches, with their detected stack (FR-3). */
@@ -250,6 +252,9 @@ export function renderMarkdown(report: Report): string {
     const d = report.ai.droppedFindings
     if (d.schema + d.grounding > 0) out.push(`_${d.grounding} AI finding(s) dropped for locations outside the Head Commit._`)
     if (d.verification) out.push(`_${d.verification} AI finding(s) dropped by the verification pass._`)
+  }
+  if (report.relatedFiles?.length) {
+    out.push(`_Related code shown to the AI: ${report.relatedFiles.map((r) => `\`${r.path}\` (${r.relation}${r.excerpt ? ', excerpts' : ''})`).join(', ')}._`)
   }
   if (report.learnings?.length) {
     out.push('', `## Learned from this repository's feedback (${report.learnings.length})`, ...report.learnings.map((l) => `- ${l.kind === 'REMEMBER' ? 'Remember' : 'Dismissed'}: ${l.text.replace(/^Dismissed /, '')} (${l.by}, #${l.pr})`))

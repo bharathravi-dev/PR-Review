@@ -202,6 +202,7 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
         concurrency: { type: 'string' },
         verify: { type: 'boolean' },
         'no-tool-results': { type: 'boolean' },
+        'no-related-files': { type: 'boolean' },
       },
     })
   } catch (e) {
@@ -231,11 +232,14 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
   const resolved = resolve(parsed.values.profile)
   if (typeof resolved === 'number') return resolved
   // Every run must be a fresh review: a cached AI answer would make the runs identical and hide the variance.
-  // --verify and --no-tool-results override the config so the same dataset can be compared with and without them.
+  // --verify, --no-tool-results and --no-related-files override the config so the same dataset can be compared
+  // with and without them. Your feedback on those repositories never shapes a benchmark run.
   const ai = {
     ...resolved.settings.ai,
+    learn: false,
     ...(parsed.values.verify ? { verify: true } : {}),
     ...(parsed.values['no-tool-results'] ? { toolResults: false } : {}),
+    ...(parsed.values['no-related-files'] ? { relatedFiles: false } : {}),
   }
   const config: ResolvedConfig = { ...resolved, settings: { ...resolved.settings, ai, cache: { ...resolved.settings.cache, enabled: false } } }
   let judge: Judge | undefined
@@ -284,7 +288,7 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
   const summary = {
     dataset: { name: dataset.name, version: dataset.version ?? null, source: dataset.source ?? null, cases: cases.length, filter: parsed.values.filter ?? null },
     runs,
-    reviewer: { provider: providerName(config, parsed.values.provider), model: parsed.values.model ?? null, verify: ai.verify === true, toolResults: ai.toolResults !== false },
+    reviewer: { provider: providerName(config, parsed.values.provider), model: parsed.values.model ?? null, verify: ai.verify === true, toolResults: ai.toolResults !== false, relatedFiles: ai.relatedFiles !== false },
     matching: { lineWindow: LINE_WINDOW, judge: parsed.values.judge ?? null, judgeSharesReviewerFamily: judge ? sameFamily : null, comments: 'inline, about the change, at or above the inline severity floor' },
     precision: { mean: mean(per.map((m) => m.precision)), stdev: stdev(per.map((m) => m.precision)) },
     recall: { mean: mean(per.map((m) => m.recall)), stdev: stdev(per.map((m) => m.recall)) },
@@ -307,7 +311,7 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
   const money = summary.usdPerPr > 0 ? `, $${summary.usdPerPr.toFixed(3)}` : ''
   io.stdout(
     [
-      `Benchmark ${dataset.name}${dataset.version ? ` v${dataset.version}` : ''}: ${cases.length} PR(s) × ${runs} run(s)${ai.verify ? ', with verification' : ''}${ai.toolResults === false ? ', without tool results' : ''}; matching ±${LINE_WINDOW} lines${judge ? ` + judge ${parsed.values.judge}` : ' (line match only: add --judge for root-cause matching)'}`,
+      `Benchmark ${dataset.name}${dataset.version ? ` v${dataset.version}` : ''}: ${cases.length} PR(s) × ${runs} run(s)${ai.verify ? ', with verification' : ''}${ai.toolResults === false ? ', without tool results' : ''}${ai.relatedFiles === false ? ', without related files' : ''}; matching ±${LINE_WINDOW} lines${judge ? ` + judge ${parsed.values.judge}` : ' (line match only: add --judge for root-cause matching)'}`,
       ...(sameFamily ? ['  note: the judge uses the same provider type as the reviewer, which may favour it; prefer a different model family'] : []),
       `  precision ${fmt(per.map((m) => m.precision))}   recall ${fmt(per.map((m) => m.recall))}   F1 ${fmt(per.map((m) => m.f1))}`,
       `  recall by severity: ${severities.map((s) => `${s.toLowerCase()} ${(summary.recallBySeverity[s]! * 100).toFixed(0)}%`).join(', ') || 'n/a'}`,

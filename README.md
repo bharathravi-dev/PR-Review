@@ -169,7 +169,8 @@ pr-reviewer bench bench/data/golden-50.json --filter cal_dot_com --judge openai 
 
 Flags: `--runs` (1–10), `--judge <provider>`, `--provider`/`--model` for the reviewer, `--filter <text>`
 (cases whose PR contains it), `--limit <n>`, `--concurrency` (1–8), `--out <file>`, and `--verify` /
-`--no-tool-results` to measure those settings against the same PRs.
+`--no-tool-results` / `--no-related-files` to measure those settings against the same PRs. Benchmark runs
+never use your feedback on those repositories (`ai.learn` is off for them).
 
 ## What gets checked
 
@@ -192,6 +193,14 @@ pre-existing and never fail the review.
 container: the source is unpacked inside it, installs can reach only `registry.npmjs.org` (through an
 allow-list proxy), analysis has no network at all, and no token or key is ever passed in. Without Docker
 or Podman those checks are reported as not run.
+
+**Code around the change.** Besides the changed files, the AI sees a few unchanged files at the head commit
+(at most 8, 40,000 characters): local modules the change imports and uses, nearby files that import a
+changed file and use the names it changes (callers), and the tests named after it. JavaScript, TypeScript
+and Python imports are understood; other languages get their tests. Large files are shown as excerpts
+around the relevant names. These files are scanned for secrets like the PR itself, and any that holds a
+private key is left out. Finding callers reads up to 20 nearby files. The report lists what was shown;
+`ai.relatedFiles: false` turns it off.
 
 ## Settings a repository can keep
 
@@ -247,6 +256,7 @@ ai:
   toolResults: true           # false: keep compile, lint, audit, and CI results out of the AI prompt
   verify: false               # true: a second AI call checks each finding and drops what it can't confirm
   learn: true                 # false: ignore 👎, /dismiss, and /remember feedback from earlier reviews
+  relatedFiles: true          # false: show the AI only the changed files, not their imports, callers, tests
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20
