@@ -44,6 +44,7 @@ import {
   createCodexProvider,
   createGitHub,
   createGitLab,
+  createTickets,
   createOllamaProvider,
   createOpenAiProvider,
   findClaudeCode,
@@ -309,6 +310,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
     {
       github: o.github.reader,
       scanSecrets: secretScanner,
+      tickets: createTickets(o.deps.env, o.deps.fetch, o.secrets),
       providers: chain,
       ledger: tracked ? fileLedger(dir) : undefined,
       validators,

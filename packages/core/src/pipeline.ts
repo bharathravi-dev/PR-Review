@@ -1,5 +1,6 @@
 import { chooseEffort, effortRule, type EffortSetting } from './effort.js'
 import { quietFindings } from './noise.js'
+import { ticketKeys, type Ticket } from './tickets.js'
 import { lastReviewedHead } from './publish.js'
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
@@ -45,6 +46,8 @@ export interface EnginePorts {
   installSteps?: ((ctx: ValidatorContext) => SandboxStep[]) | undefined
   /** Milliseconds since the epoch. */
   now: () => number
+  /** Jira and Linear tickets by key (roadmap item 11); absent when none is configured. */
+  tickets?: ((keys: readonly string[]) => Promise<Ticket[]>) | undefined
 }
 
 /** At most this many linked issues, each cut to this many characters, reach the AI. */
@@ -166,6 +169,9 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   const linked = ports.github.linkedIssues ? await ports.github.linkedIssues(input.ref) : undefined
   if (linked && !linked.ok) limitations.push(`Linked issues could not be read: ${linked.error.message}`)
   const linkedIssues = linked?.ok ? linked.value.slice(0, MAX_LINKED_ISSUES) : []
+  // Tickets named in the title, branch or description; a ticket that can't be read is simply left out.
+  const keys = ports.tickets ? ticketKeys(ctx.title, ctx.headRef, ctx.body) : []
+  const tickets = keys.length ? await ports.tickets!(keys).catch(() => [] as Ticket[]) : []
   // What the repository's maintainers said about earlier comments; needs the Reviewer Identity to find them.
   let learnings: Learning[] = []
   if (input.reviewerId !== undefined && input.review?.learn !== false) {
@@ -309,6 +315,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       relatedFiles: related,
       learnings: learnings.map((l) => ({ kind: l.kind, text: redactText(l.text, scan.values) })),
       linkedIssues: linkedIssues.map((i) => ({ number: i.number, repo: i.repo, title: redactText(i.title, scan.values), body: redactText(capText(i.body, MAX_ISSUE_CHARS), scan.values) })),
+      tickets: tickets.map((t) => ({ key: t.key, source: t.source, title: redactText(t.title, scan.values), body: redactText(capText(t.body, MAX_ISSUE_CHARS), scan.values) })),
       toolResults:
         input.review?.toolResults === false
           ? undefined

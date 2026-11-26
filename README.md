@@ -49,6 +49,12 @@ asked to confirm; use `--yes` in scripts.
 Exit codes: 0 passed, 1 passed with warnings (0 with `--warnings-ok`), 2 failed, 3 incomplete, 4 error,
 5 cancelled, 6 post failed or blocked, 64 usage error, 78 configuration error.
 
+## Tickets: Jira and Linear
+
+Name a ticket in the PR title, branch or description (`ENG-123`) and the review checks the change against it, reporting
+anything the ticket asks for that the change misses. Set `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (Jira Cloud
+or Server) and/or `LINEAR_API_KEY`. Up to three tickets are read; their text is secret-scanned and treated as data.
+
 ## GitLab
 
 Merge requests work like PRs: `pr-reviewer review https://gitlab.com/group/project/-/merge_requests/12` (nested

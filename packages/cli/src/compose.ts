@@ -1,8 +1,8 @@
 // Composition root for the CLI Channel (AD-2, AD-16): the only CLI file that imports adapters.
-import { redactText, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type Validator } from '@pr-reviewer/core'
+import { redactText, Secret as SecretValue, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type Ticket, type Validator } from '@pr-reviewer/core'
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
-import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, gitlabApiUrl } from '@pr-reviewer/github'
+import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, createTicketPort, gitlabApiUrl } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
 import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
@@ -35,6 +35,16 @@ export function createGitHub(opts: { apiUrl: string; token?: string | undefined;
 export function createGitLab(opts: { apiUrl?: string | undefined; host: string; token?: string | undefined; fetch: typeof fetch; userAgent: string }): { reader: GitHubReader; writer: GitHubWriter } {
   const o = { apiUrl: opts.apiUrl ?? gitlabApiUrl(opts.host), token: opts.token, fetch: opts.fetch, userAgent: opts.userAgent }
   return { reader: new GitLabReader(o), writer: new GitLabWriter(o) }
+}
+
+/** Jira (JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN) and Linear (LINEAR_API_KEY) tickets, when configured. */
+export function createTickets(env: Readonly<Record<string, string | undefined>>, fetchImpl: typeof fetch, secrets: Secret[]): ((keys: readonly string[]) => Promise<Ticket[]>) | undefined {
+  const jira = env.JIRA_BASE_URL && env.JIRA_EMAIL && env.JIRA_API_TOKEN ? { baseUrl: env.JIRA_BASE_URL, email: env.JIRA_EMAIL, token: env.JIRA_API_TOKEN } : undefined
+  const linear = env.LINEAR_API_KEY ? { apiKey: env.LINEAR_API_KEY } : undefined
+  if (!jira && !linear) return undefined
+  if (jira) secrets.push(new SecretValue(jira.token))
+  if (linear) secrets.push(new SecretValue(linear.apiKey))
+  return createTicketPort({ fetch: fetchImpl, jira, linear })
 }
 
 export function createAnthropicProvider(opts: { name?: string | undefined; apiKey: Secret; model?: string | undefined; baseUrl?: string | undefined; timeoutMs?: number | undefined; fetch: typeof fetch }): ReviewProvider {
