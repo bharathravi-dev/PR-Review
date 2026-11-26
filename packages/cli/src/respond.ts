@@ -1,16 +1,10 @@
 // `pr-reviewer respond <PR>`: answers `@pr-reviewer …` commands left on the PR since the last run (roadmap item 6).
 // Run it by hand, from a schedule, or from a webhook; each command is answered once.
 import { parseArgs } from 'node:util'
-import { EXIT_CODES, handleCommand, parsePrRef, pendingCommands, redactText, type PrContext, type ResolvedConfig, type Secret } from '@pr-reviewer/core'
-import { scanSecrets } from '@pr-reviewer/validators'
+import { EXIT_CODES, handleCommand, parsePrRef, pendingCommands, type ResolvedConfig, type Secret } from '@pr-reviewer/core'
+import { redactFile } from './compose.js'
 import type { CliDeps, CliIo } from './deps.js'
 import { buildProviderChain, connectGitHub, executeReview, performPublish, preparePublish } from './engine.js'
-
-/** Removes secrets from one file's text with the same scanner the review uses. */
-export function redactFile(path: string, text: string): string {
-  const ctx = { files: [{ path, status: 'modified', additions: 0, deletions: 0, binary: false, patchTruncated: false, head: { text } }], title: '', body: '', reviews: [], reviewComments: [], issueComments: [] } as unknown as PrContext
-  return redactText(text, scanSecrets(ctx).values)
-}
 
 export async function respondCommand(args: string[], io: CliIo, deps: CliDeps, secrets: Secret[], resolve: (profile?: string) => ResolvedConfig | number, usage: (m: string) => number): Promise<number> {
   let parsed

@@ -1,5 +1,5 @@
 // Composition root for the CLI Channel (AD-2, AD-16): the only CLI file that imports adapters.
-import type { AdvisoryPort, CredentialResolver, GitHubReader, GitHubWriter, ReviewProvider, SandboxPort, Secret, SecretScanner, Validator } from '@pr-reviewer/core'
+import { redactText, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type Validator } from '@pr-reviewer/core'
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
 import { AutomationClient, GitHubClient, GitHubPrReader, GitHubPrWriter, apiUrlForHost } from '@pr-reviewer/github'
@@ -62,4 +62,10 @@ export function createSandbox(opts: { runtime?: string | undefined }): SandboxPo
 
 export function createAdvisories(opts: { url?: string | undefined; fetch: typeof fetch }): AdvisoryPort {
   return new OsvAdvisories(opts)
+}
+
+/** Removes secrets from one file's text with the same scanner the review uses (replies in the PR thread). */
+export function redactFile(path: string, text: string): string {
+  const ctx = { files: [{ path, status: 'modified', additions: 0, deletions: 0, binary: false, patchTruncated: false, head: { text } }], title: '', body: '', reviews: [], reviewComments: [], issueComments: [] } as unknown as PrContext
+  return redactText(text, scanSecrets(ctx).values)
 }
