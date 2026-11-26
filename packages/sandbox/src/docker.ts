@@ -15,6 +15,26 @@ export const NODE_IMAGES: Readonly<Record<number, string>> = {
   24: 'node:24-bookworm-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530',
 }
 
+/** Toolchain images for language-specific checks, pinned by digest like the Node images. */
+export const RUNTIME_IMAGES: Readonly<Record<'java' | 'python' | 'go', string>> = {
+  java: 'maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320',
+  python: 'python:3.12-slim@sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b',
+  go: 'golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db',
+}
+
+/** Per-toolchain environment: the registry proxy for tools that ignore HTTPS_PROXY, and no surprise downloads. */
+export function runtimeEnv(runtime: string | undefined, viaProxy: boolean): string[] {
+  const e = (k: string, v: string) => ['-e', `${k}=${v}`]
+  if (runtime === 'java') {
+    // Maven and Gradle read JVM proxy properties, not HTTPS_PROXY.
+    const props = viaProxy ? '-Dhttps.proxyHost=proxy -Dhttps.proxyPort=3128 -Dhttp.proxyHost=proxy -Dhttp.proxyPort=3128 ' : ''
+    return [...e('JAVA_TOOL_OPTIONS', `${props}-Xmx2g`), ...e('MAVEN_ARGS', '-B -ntp'), ...e('GRADLE_USER_HOME', '/scratch/gradle')]
+  }
+  if (runtime === 'go') return [...e('GOTOOLCHAIN', 'local'), ...e('GOFLAGS', '-mod=mod'), ...e('GOPATH', '/scratch/go'), ...e('GOCACHE', '/scratch/go-cache'), ...(viaProxy ? [] : e('GOPROXY', 'off'))]
+  if (runtime === 'python') return [...e('PIP_DISABLE_PIP_VERSION_CHECK', '1'), ...e('PIP_NO_INPUT', '1'), ...e('PYTHONDONTWRITEBYTECODE', '1')]
+  return []
+}
+
 const MAX_OUTPUT = 10 * 1024 * 1024
 const UID = '1000:1000'
 
@@ -113,8 +133,10 @@ export class ContainerSandbox implements SandboxPort {
 
   async run(plan: SandboxPlan, planHash: string, source: { headSha: string; archive: Uint8Array }): Promise<Result<SandboxRunResult>> {
     const cli = this.#cli ?? this.#o.command ?? 'docker'
-    const image = this.#images[plan.nodeMajor]
-    if (!image) return err('sandbox_no_image', `No pinned image for Node ${plan.nodeMajor}.`)
+    const image = plan.runtime && plan.runtime !== 'node' ? RUNTIME_IMAGES[plan.runtime] : this.#images[plan.nodeMajor]
+    if (!image) return err('sandbox_no_image', plan.runtime && plan.runtime !== 'node' ? `No pinned image for ${plan.runtime}.` : `No pinned image for Node ${plan.nodeMajor}.`)
+    // The registry proxy is a Node script, so it always runs from a Node image, whatever the toolchain is.
+    const proxyImage = this.#images[plan.nodeMajor] ?? Object.values(this.#images).at(-1)!
     const imageDigest = image.includes('@') ? image.slice(image.indexOf('@') + 1) : image
     const id = `prr-${randomBytes(5).toString('hex')}`
     const work = `${id}-work`
@@ -126,10 +148,12 @@ export class ContainerSandbox implements SandboxPort {
     const docker = (args: string[], timeoutMs = 120_000, stdin?: Uint8Array) => this.#run(cli, args, { timeoutMs, stdin })
     const cleanup: Array<() => Promise<unknown>> = []
     try {
-      const present = await docker(['image', 'inspect', image], 30_000)
-      if (present.code !== 0) {
-        const pulled = await docker(['pull', image], 15 * 60_000)
-        if (pulled.code !== 0) return err('sandbox_pull_failed', `Could not pull ${image}: ${tail(pulled.stderr)}`)
+      for (const img of new Set([image, ...(plan.steps.some((s) => s.phase === 'INSTALL') ? [proxyImage] : [])])) {
+        const present = await docker(['image', 'inspect', img], 30_000)
+        if (present.code !== 0) {
+          const pulled = await docker(['pull', img], 15 * 60_000)
+          if (pulled.code !== 0) return err('sandbox_pull_failed', `Could not pull ${img}: ${tail(pulled.stderr)}`)
+        }
       }
       for (const v of [work, scratch]) {
         const made = await docker(['volume', 'create', v])
@@ -157,7 +181,7 @@ export class ContainerSandbox implements SandboxPort {
         cleanup.push(() => docker(['network', 'rm', net]))
         const started = await docker([
           'run', '-d', '--name', proxy, '--network', 'bridge', '--user', UID, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-          '--read-only', '--memory', '256m', '-e', 'PRR_PORT=3128', '-e', `PRR_ALLOW=${plan.registries.join(',')}`, image, 'node', '--input-type=module', '-e', PROXY_SCRIPT,
+          '--read-only', '--memory', '256m', '-e', 'PRR_PORT=3128', '-e', `PRR_ALLOW=${plan.registries.join(',')}`, proxyImage, 'node', '--input-type=module', '-e', PROXY_SCRIPT,
         ])
         cleanup.unshift(() => docker(['rm', '-f', proxy]))
         if (started.code !== 0) return err('sandbox_proxy_failed', `Could not start the registry proxy: ${tail(started.stderr)}`)
@@ -169,17 +193,17 @@ export class ContainerSandbox implements SandboxPort {
           if (!ready) await new Promise((r) => setTimeout(r, 250))
         }
         if (!ready) return err('sandbox_proxy_failed', 'The registry proxy did not start.')
-        for (const step of installs) results.push(await this.#step(cli, image, step, net, work, scratch, `${id}-${results.length}`))
+        for (const step of installs) results.push(await this.#step(cli, image, step, net, work, scratch, `${id}-${results.length}`, plan.runtime))
         await docker(['rm', '-f', proxy])
       }
-      for (const step of plan.steps.filter((s) => s.phase === 'ANALYZE')) results.push(await this.#step(cli, image, step, 'none', work, scratch, `${id}-${results.length}`))
+      for (const step of plan.steps.filter((s) => s.phase === 'ANALYZE')) results.push(await this.#step(cli, image, step, 'none', work, scratch, `${id}-${results.length}`, plan.runtime))
       return ok({ planHash, headSha: source.headSha, imageDigest, results })
     } finally {
       for (const c of cleanup) await c().catch(() => undefined)
     }
   }
 
-  async #step(cli: string, image: string, step: SandboxStep, network: string, work: string, scratch: string, name: string): Promise<SandboxStepResult> {
+  async #step(cli: string, image: string, step: SandboxStep, network: string, work: string, scratch: string, name: string, runtime?: string): Promise<SandboxStepResult> {
     const viaProxy = network !== 'none'
     const proxyEnv = viaProxy
       ? [
@@ -195,7 +219,7 @@ export class ContainerSandbox implements SandboxPort {
       '-v', `${work}:/work`, '-v', `${scratch}:/scratch`, '-w', cwd ? `/work/${cwd}` : '/work',
       '-e', 'HOME=/scratch/home', '-e', 'CI=true', '-e', 'npm_config_cache=/scratch/npm-cache', '-e', 'npm_config_update_notifier=false',
       '-e', 'COREPACK_HOME=/scratch/corepack', '-e', 'COREPACK_ENABLE_DOWNLOAD_PROMPT=0', '-e', 'NODE_OPTIONS=--max-old-space-size=2560',
-      ...proxyEnv, image, ...step.cmd,
+      ...proxyEnv, ...runtimeEnv(runtime, viaProxy), image, ...step.cmd,
     ]
     const started = Date.now()
     const r = await this.#run(cli, args, { timeoutMs: step.timeoutMs })

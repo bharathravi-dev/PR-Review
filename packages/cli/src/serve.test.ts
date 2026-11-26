@@ -212,6 +212,8 @@ describe('local review page (Story 8.1)', () => {
       ['CONTEXT', 'PASSED'],
       ['SECURITY', 'PASSED'],
       ['SECURITY', 'PASSED'],
+      ['SYNTAX', 'PASSED'],
+      ['STATIC_ANALYSIS', 'PASSED'],
       ['SECRETS', 'PASSED'],
       ['AI_REVIEW', 'WARNING'],
     ])

@@ -23,6 +23,7 @@ import { redactContext, type SecretScanOutcome } from './redact.js'
 import { redactText } from './secret.js'
 import { compareFindings, evaluateGate, FPV, Report, type Channel } from './report.js'
 import { DEFAULT_CONTEXT_LIMITS, type ContextLimits, type PrContext } from './schemas.js'
+import { retrieveLanguageStandards } from './standards-rag.js'
 
 /** File-only secret scanner (Validator for the SECRETS layer) that also yields values for `redact`. */
 export type SecretScanner = (ctx: PrContext) => SecretScanOutcome & { findings: Finding[]; layer: LayerResult }
@@ -336,6 +337,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
               findings: executed.findings.map((f) => ({ ...f, title: redactText(f.title, scan.values), location: { ...f.location, ...(f.location.path ? { path: redactText(f.location.path, scan.values) } : {}) } })),
               layers: [...layers],
             },
+      languageStandards: retrieveLanguageStandards({ projects: detected.projects, changedPaths: ctx.files.map((f) => f.path) }),
       now: ports.now,
       channel: input.channel,
       limits: input.costLimits,

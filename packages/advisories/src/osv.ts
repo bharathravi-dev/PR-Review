@@ -1,4 +1,4 @@
-import { err, ok, type Advisory, type AdvisoryPort, type Result } from '@pr-reviewer/core'
+import { err, ok, type Advisory, type AdvisoryEcosystem, type AdvisoryPort, type Result } from '@pr-reviewer/core'
 
 /** The public OSV database; overridable with `advisories.url` in the user config. */
 export const DEFAULT_OSV_URL = 'https://api.osv.dev'
@@ -25,7 +25,7 @@ export class OsvAdvisories implements AdvisoryPort {
     this.source = this.#base === DEFAULT_OSV_URL ? 'OSV (osv.dev)' : `OSV (${this.#base})`
   }
 
-  async query(packages: Array<{ ecosystem: 'npm'; name: string; version: string }>): Promise<Result<Array<{ name: string; version: string; advisories: Advisory[] }>>> {
+  async query(packages: Array<{ ecosystem: AdvisoryEcosystem; name: string; version: string }>): Promise<Result<Array<{ name: string; version: string; advisories: Advisory[] }>>> {
     if (packages.length === 0) return ok([])
     const batch = await this.#json<{ results: Array<{ vulns?: Array<{ id: string }> }> }>('/v1/querybatch', {
       queries: packages.map((p) => ({ package: { ecosystem: p.ecosystem, name: p.name }, version: p.version })),

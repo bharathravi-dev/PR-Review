@@ -13,6 +13,16 @@ import type { PrContext } from './schemas.js'
 /** Hosts INSTALL may reach by default: the npm registry and Yarn's mirror of it (Yarn lockfiles point there). */
 export const DEFAULT_REGISTRIES: readonly string[] = ['registry.npmjs.org', 'registry.yarnpkg.com']
 
+/** Toolchains the Sandbox runs (language-specific checks); node is the default. */
+export type SandboxRuntime = 'node' | 'java' | 'python' | 'go'
+
+/** Hosts each non-Node toolchain's install may reach: its own package registries only. */
+export const RUNTIME_REGISTRIES: Readonly<Record<Exclude<SandboxRuntime, 'node'>, readonly string[]>> = {
+  java: ['repo.maven.apache.org', 'repo1.maven.org', 'plugins.gradle.org', 'services.gradle.org', 'downloads.gradle.org', 'downloads.gradle-dn.com', 'jcenter.bintray.com', 'maven.google.com', 'dl.google.com'],
+  python: ['pypi.org', 'files.pythonhosted.org'],
+  go: ['proxy.golang.org', 'sum.golang.org', 'storage.googleapis.com'],
+}
+
 /** One command in the Sandbox. INSTALL may reach only the package registries; ANALYZE has no network. */
 export interface SandboxStep {
   /** `<validator id>:<name>`; results are routed back by this id. */
@@ -28,6 +38,8 @@ export interface SandboxStep {
 export interface SandboxPlan {
   /** Node major for the toolchain image. */
   nodeMajor: number
+  /** The toolchain image (default node, chosen by nodeMajor). */
+  runtime?: SandboxRuntime | undefined
   /** Hosts INSTALL may reach. */
   registries: string[]
   steps: SandboxStep[]
@@ -90,9 +102,12 @@ export interface Advisory {
   fixedIn?: string | undefined
 }
 
+/** Package ecosystems supported by AdvisoryPort / OSV queries. */
+export type AdvisoryEcosystem = 'npm' | 'Maven' | 'PyPI' | 'Go'
+
 export interface AdvisoryPort {
   readonly source: string
-  query(packages: Array<{ ecosystem: 'npm'; name: string; version: string }>): Promise<Result<Array<{ name: string; version: string; advisories: Advisory[] }>>>
+  query(packages: Array<{ ecosystem: AdvisoryEcosystem; name: string; version: string }>): Promise<Result<Array<{ name: string; version: string; advisories: Advisory[] }>>>
 }
 
 // ── Cache port (AD-26) ──────────────────────────────────────────────────
@@ -161,6 +176,8 @@ export interface Validator {
   inputs?(ctx: ValidatorContext): string[]
   /** Commands to run in the Sandbox (Sandbox Validators). */
   sandboxSteps?(ctx: ValidatorContext): SandboxStep[]
+  /** The toolchain its steps need (default node); each toolchain runs as its own Sandbox session. */
+  runtime?: SandboxRuntime | undefined
   run(ctx: ValidatorContext, ports: ValidatorPorts): Promise<ValidatorResult>
 }
 
@@ -256,30 +273,38 @@ export async function executeValidators(validators: readonly Validator[], ctx: V
       block = { reason: 'NO_SANDBOX', detail: `No Sandbox: ${probe && !probe.ok ? probe.error.message : 'Docker or Podman was not found'}. Build, compile, and lint checks were not run.` }
     } else if (!probe.value.egressControl) {
       block = { reason: 'NO_EGRESS_CONTROL', detail: 'Install could not be limited to the package registry, so it was not run.' }
-    } else if (nodeMajor.major === undefined) {
-      block = { reason: 'UNSUPPORTED_RUNTIME', detail: `The project asks for Node ${nodeMajor.wanted}; the Sandbox has Node ${probe.value.nodeMajors.join(', ')}.` }
     }
     if (block) for (const v of needSandbox) blocked.set(v.id, block)
     else {
-      const plan: SandboxPlan = {
-        nodeMajor: nodeMajor.major!,
-        registries: opts.registries?.length ? [...opts.registries] : [...DEFAULT_REGISTRIES],
-        steps: [...(opts.installSteps?.(ctx) ?? []), ...needSandbox.flatMap((v) => v.sandboxSteps?.(ctx) ?? [])],
-      }
-      const planHash = await hashObject({ plan: plan as unknown as Record<string, unknown> })
-      const archive = opts.archive ? await opts.archive() : undefined
-      if (!archive?.ok) {
-        const why = archive && !archive.ok ? archive.error.message : 'no source archive available'
-        for (const v of needSandbox) blocked.set(v.id, { reason: 'TOOL_CRASHED', detail: `The source could not be downloaded for the Sandbox: ${why}` })
-      }
-      else {
+      // One Sandbox session per toolchain: Node (with the engine's installs) and each language's own image.
+      const groups = new Map<SandboxRuntime, Validator[]>()
+      for (const v of needSandbox) groups.set(v.runtime ?? 'node', [...(groups.get(v.runtime ?? 'node') ?? []), v])
+      let archive: Result<Uint8Array> | undefined
+      for (const [runtime, members] of [...groups].sort(([a], [b]) => (a === 'node' ? -1 : b === 'node' ? 1 : a.localeCompare(b)))) {
+        if (runtime === 'node' && nodeMajor.major === undefined) {
+          for (const v of members) blocked.set(v.id, { reason: 'UNSUPPORTED_RUNTIME', detail: `The project asks for Node ${nodeMajor.wanted}; the Sandbox has Node ${probe!.ok ? probe!.value.nodeMajors.join(', ') : '?'}.` })
+          continue
+        }
+        const plan: SandboxPlan = {
+          nodeMajor: nodeMajor.major ?? 24,
+          ...(runtime !== 'node' ? { runtime } : {}),
+          registries: runtime === 'node' ? (opts.registries?.length ? [...opts.registries] : [...DEFAULT_REGISTRIES]) : [...RUNTIME_REGISTRIES[runtime]],
+          steps: [...(runtime === 'node' ? (opts.installSteps?.(ctx) ?? []) : []), ...members.flatMap((v) => v.sandboxSteps?.(ctx) ?? [])],
+        }
+        const planHash = await hashObject({ plan: plan as unknown as Record<string, unknown> })
+        archive ??= opts.archive ? await opts.archive() : undefined
+        if (!archive?.ok) {
+          const why = archive && !archive.ok ? archive.error.message : 'no source archive available'
+          for (const v of members) blocked.set(v.id, { reason: 'TOOL_CRASHED', detail: `The source could not be downloaded for the Sandbox: ${why}` })
+          continue
+        }
         const run = await opts.sandbox!.run(plan, planHash, { headSha: ctx.pr.headSha, archive: archive.value })
-        if (!run.ok) for (const v of needSandbox) blocked.set(v.id, { reason: 'TOOL_CRASHED', detail: `The Sandbox failed: ${run.error.message}` })
+        if (!run.ok) for (const v of members) blocked.set(v.id, { reason: 'TOOL_CRASHED', detail: `The Sandbox failed: ${run.error.message}` })
         else if (run.value.planHash !== planHash || run.value.headSha !== ctx.pr.headSha) {
-          for (const v of needSandbox) blocked.set(v.id, { reason: 'SANDBOX_OUTPUT_INVALID', detail: 'The Sandbox result did not match this run (plan or head commit).' })
+          for (const v of members) blocked.set(v.id, { reason: 'SANDBOX_OUTPUT_INVALID', detail: 'The Sandbox result did not match this run (plan or head commit).' })
         } else {
           for (const r of run.value.results) sandboxResults.set(r.id, r)
-          sandboxInfo = { planHash, imageDigest: run.value.imageDigest, ran: true }
+          sandboxInfo ??= { planHash, imageDigest: run.value.imageDigest, ran: true }
         }
       }
     }

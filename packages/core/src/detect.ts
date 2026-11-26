@@ -24,12 +24,12 @@ export const ProjectInfo = z.looseObject({
   /** Directory relative to the repository root ('' for the root). */
   path: z.string(),
   name: z.string().optional(),
-  language: z.enum(['TypeScript', 'JavaScript', 'unknown']),
+  language: z.enum(['TypeScript', 'JavaScript', 'Java', 'Kotlin', 'Python', 'Go', 'unknown']),
   /** "best-effort" when no supported stack was recognised: checks are generic, never framework-specific. */
   support: z.enum(['supported', 'best-effort']),
   frameworks: z.array(DetectedVersion.extend({ name: z.string(), checks: z.boolean() })),
   typescript: DetectedVersion.optional(),
-  packageManager: z.enum(['npm', 'pnpm', 'yarn', 'unknown']),
+  packageManager: z.enum(['npm', 'pnpm', 'yarn', 'maven', 'gradle', 'pip', 'go', 'unknown']),
   lockfile: z.string().optional(),
   /** Node major requested by .nvmrc, .node-version, or engines.node, else inferred from the Angular version. */
   nodeMajor: z.number().int().optional(),
@@ -39,6 +39,15 @@ export const ProjectInfo = z.looseObject({
     eslint: z.string().optional(),
     tslint: z.string().optional(),
     angularJson: z.string().optional(),
+    /** Java and Kotlin: the build file (pom.xml, or build.gradle(.kts) with a Gradle wrapper). */
+    maven: z.string().optional(),
+    gradle: z.string().optional(),
+    gradleWrapper: z.string().optional(),
+    /** Python: pyproject.toml / setup.py / requirements.txt, and a ruff config if any. */
+    python: z.string().optional(),
+    ruff: z.string().optional(),
+    /** Go: go.mod. */
+    gomod: z.string().optional(),
   }),
   /** Dependency names declared in package.json (dependencies and devDependencies). */
   dependencies: z.array(z.string()),
@@ -212,14 +221,66 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
     })
   }
 
-  if (unowned.length > 0) {
-    projects.push({ path: '', language: 'unknown', support: 'best-effort', frameworks: [], packageManager: 'unknown', configs: {}, dependencies: [], changedFiles: unowned })
+  // Java, Kotlin, Python and Go projects (language-specific checks), for files no JavaScript project owns.
+  const others = otherProjects(paths, unowned)
+  for (const p of others.projects) projects.push(p)
+  const leftover = others.leftover
+  if (leftover.length > 0) {
+    projects.push({ path: '', language: 'unknown', support: 'best-effort', frameworks: [], packageManager: 'unknown', configs: {}, dependencies: [], changedFiles: leftover })
     notes.push(
-      `${unowned.length} changed file(s) are outside any recognised JavaScript/TypeScript project: best-effort review (unsupported technology), no framework-specific checks.`,
+      `${leftover.length} changed file(s) are outside any recognised project (JavaScript/TypeScript, Java/Kotlin, Python, Go): best-effort review, no language-specific checks.`,
     )
   }
   notes.push(...files.notes())
   return { projects: projects.sort((a, b) => a.path.localeCompare(b.path)), notes }
+}
+
+const PY_MARKERS = ['pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt']
+const RUFF_CONFIGS = ['ruff.toml', '.ruff.toml']
+
+/**
+ * Java/Kotlin (pom.xml, or build.gradle(.kts) next to a gradlew), Python (pyproject.toml, setup.py, setup.cfg,
+ * requirements.txt) and Go (go.mod) projects: each changed file belongs to the deepest marker directory above it.
+ */
+export function otherProjects(paths: ReadonlySet<string>, changed: readonly string[]): { projects: ProjectInfo[]; leftover: string[] } {
+  const markers = new Map<string, ProjectInfo>()
+  const find = (dir: string): ProjectInfo | undefined => {
+    if (markers.has(dir)) return markers.get(dir)
+    const has = (f: string) => paths.has(join(dir, f))
+    let found: ProjectInfo | undefined
+    const base = { path: dir, support: 'supported' as const, frameworks: [], dependencies: [], changedFiles: [] as string[] }
+    if (has('pom.xml')) found = { ...base, language: 'Java', packageManager: 'maven', configs: { maven: join(dir, 'pom.xml') } }
+    else if (has('build.gradle') || has('build.gradle.kts')) {
+      const gradle = join(dir, has('build.gradle.kts') ? 'build.gradle.kts' : 'build.gradle')
+      // The wrapper may sit in a parent (multi-project builds); look upward for it.
+      let wrapper: string | undefined
+      for (let d: string | undefined = dir; d !== undefined && !wrapper; d = d === '' ? undefined : dirOf(d)) if (paths.has(join(d, 'gradlew'))) wrapper = join(d, 'gradlew')
+      found = { ...base, language: has('build.gradle.kts') ? 'Kotlin' : 'Java', packageManager: 'gradle', configs: { gradle, ...(wrapper ? { gradleWrapper: wrapper } : {}) } }
+    } else if (has('go.mod')) found = { ...base, language: 'Go', packageManager: 'go', configs: { gomod: join(dir, 'go.mod') } }
+    else {
+      const py = PY_MARKERS.find(has)
+      if (py) {
+        const ruff = RUFF_CONFIGS.find(has)
+        found = { ...base, language: 'Python', packageManager: 'pip', configs: { python: join(dir, py), ...(ruff ? { ruff: join(dir, ruff) } : {}) } }
+      }
+    }
+    markers.set(dir, found as ProjectInfo)
+    return found
+  }
+  const byDir = new Map<string, ProjectInfo>()
+  const leftover: string[] = []
+  for (const path of changed) {
+    let owner: ProjectInfo | undefined
+    for (let d: string | undefined = dirOf(path); d !== undefined && !owner; d = d === '' ? undefined : dirOf(d)) owner = find(d)
+    if (!owner) {
+      leftover.push(path)
+      continue
+    }
+    const p = byDir.get(owner.path) ?? { ...owner, changedFiles: [] }
+    p.changedFiles.push(path)
+    byDir.set(owner.path, p)
+  }
+  return { projects: [...byDir.values()], leftover }
 }
 
 /** The frameworks entry for `name` in a project, if any. */
