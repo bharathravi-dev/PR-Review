@@ -1,4 +1,4 @@
-import { ok, type GitHubWriter, type InlineComment, type PrRef, type Result } from '@pr-reviewer/core'
+import { err, ok, type GitHubWriter, type InlineComment, type PrRef, type RepoRef, type Result } from '@pr-reviewer/core'
 import type { GitHubClient } from './client.js'
 
 const repoPath = (ref: PrRef) => `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`
@@ -75,6 +75,24 @@ export class GitHubPrWriter implements GitHubWriter {
   async replyToReviewComment(ref: PrRef, commentId: number, body: string): Promise<Result<{ id: number; url: string }>> {
     const res = await this.client.send<{ id: number; html_url: string }>('POST', `${repoPath(ref)}/pulls/${ref.number}/comments/${commentId}/replies`, { body })
     return res.ok ? ok({ id: res.value.id, url: res.value.html_url }) : res
+  }
+
+  async commitFile(repo: RepoRef, change: { branch: string; path: string; content: string; message: string; expectedHead: string }): Promise<Result<{ commitSha: string; url?: string | undefined }>> {
+    const base = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`
+    // Never overwrite work pushed after the review: the branch must still be at the reviewed commit.
+    const branch = await this.client.json<{ commit: { sha: string } }>(`${base}/branches/${encodeURIComponent(change.branch)}`)
+    if (!branch.ok) return branch
+    if (branch.value.data.commit.sha !== change.expectedHead) return err('head_moved', 'The branch moved since the review; review it again, then commit the fix.')
+    const path = change.path.split('/').map(encodeURIComponent).join('/')
+    const current = await this.client.json<{ sha: string }>(`${base}/contents/${path}?ref=${encodeURIComponent(change.branch)}`)
+    if (!current.ok) return current
+    const res = await this.client.send<{ commit: { sha: string; html_url?: string } }>('PUT', `${base}/contents/${path}`, {
+      message: change.message,
+      content: Buffer.from(change.content, 'utf8').toString('base64'),
+      sha: current.value.data.sha,
+      branch: change.branch,
+    })
+    return res.ok ? ok({ commitSha: res.value.commit.sha, url: res.value.commit.html_url }) : res
   }
 
   async updateIssueComment(ref: PrRef, id: number, body: string): Promise<Result<{ id: number; url: string }>> {

@@ -19,6 +19,7 @@ import {
   listOllamaModels,
   ollamaOrigin,
   ollamaProblem,
+  applyFixStandalone,
   type Edits,
   type StandaloneResult,
   type StandaloneSettings,
@@ -801,7 +802,7 @@ function reportView(pr: string, r: Report): HTMLElement[] {
         render()
         announce(`${sel.size} of ${r.findings.length} included`)
       } }), h('span', { class: 'sr-only' }, `Include in post: ${f.severity} ${f.title}, ${where(f)}`)),
-      h('div', { class: 'body' }, h('div', { class: 'badges' }, h('span', { class: `badge ${SEV_TONE[f.severity] ?? ''}` }, f.severity), on ? '' : h('span', { class: 'badge' }, label)), h('h2', {}, f.title), h('p', { class: 'meta' }, link, ` · ${f.sourceFamily === 'AI' ? 'AI' : (f.provenance.tool ?? f.provenance.validator)} · ${words(f.confidence)}`), h('p', {}, f.description), f.recommendation || f.suggestion ? h('details', {}, h('summary', {}, `Recommendation for ${f.title}`), f.recommendation ? h('p', {}, f.recommendation) : '', f.suggestion ? h('pre', { class: 'mono' }, f.suggestion) : '') : ''),
+      h('div', { class: 'body' }, h('div', { class: 'badges' }, h('span', { class: `badge ${SEV_TONE[f.severity] ?? ''}` }, f.severity), on ? '' : h('span', { class: 'badge' }, label)), h('h2', {}, f.title), h('p', { class: 'meta' }, link, ` · ${f.sourceFamily === 'AI' ? 'AI' : (f.provenance.tool ?? f.provenance.validator)} · ${words(f.confidence)}`), h('p', {}, f.description), f.recommendation || f.suggestion ? h('details', {}, h('summary', {}, `Recommendation for ${f.title}`), f.recommendation ? h('p', {}, f.recommendation) : '', f.suggestion ? h('pre', { class: 'mono' }, f.suggestion) : '', f.suggestion && live && !outdated ? commitFixButton(pr, f) : '') : ''),
     )
   }
   const chip = (s: string, n: number) => h('button', { type: 'button', class: `chip${state.filter.has(s) ? ' on' : ''}`, 'aria-pressed': state.filter.has(s) ? 'true' : 'false', onclick: () => (state.filter.has(s) ? state.filter.delete(s) : state.filter.add(s), render()) }, state.filter.has(s) ? '✓ ' : '', `${n} ${words(s)}`)
@@ -833,6 +834,35 @@ function reportView(pr: string, r: Report): HTMLElement[] {
     pre.length ? h('details', { class: 'pre' }, h('summary', {}, `${pre.length} pre-existing · Show`), h('ul', { class: 'findings' }, visible(pre).map(card))) : '',
     h('div', { class: 'card' }, h('button', { class: 'btn primary full', type: 'button', 'aria-disabled': blocked ? 'true' : undefined, 'aria-describedby': blocked ? 'post-why' : undefined, onclick: () => !blocked && go('post') }, 'Post to GitHub'), blocked ? h('p', { id: 'post-why' }, blocked) : h('p', { class: 'muted' }, `${sel.size} of ${r.findings.length} included. Nothing is posted until you press Post.`), h('button', { class: 'btn full', type: 'button', onclick: () => void review() }, 'Review again')),
   ].filter(Boolean) as HTMLElement[]
+}
+
+/** "Commit this change" (roadmap item 16): a second press commits the suggestion to the PR branch. */
+function commitFixButton(pr: string, f: Finding): HTMLElement | '' {
+  const live = state.results.get(pr)
+  if (!live || !f.fingerprint || f.location.anchorKind !== 'LINE') return ''
+  const btn = h('button', { class: 'btn small', type: 'button' }, 'Commit this change') as HTMLButtonElement
+  let armed = false
+  btn.addEventListener('click', async () => {
+    if (!armed) {
+      armed = true
+      btn.textContent = 'Press again to commit to the PR branch'
+      return
+    }
+    btn.disabled = true
+    btn.textContent = 'Committing…'
+    try {
+      const done = live.runId && state.conn ? await createClient(state.conn, net).apply(live.runId, f.fingerprint!) : await applyFixStandalone(live.standalone!, state.settings!, f.fingerprint!, net)
+      btn.textContent = `Committed ${done.commitSha.slice(0, 7)}`
+      announce(`Committed the fix (${done.commitSha.slice(0, 7)}). The PR has a new commit; review it again.`)
+      state.head.set(pr, done.commitSha)
+    } catch (e) {
+      btn.disabled = false
+      armed = false
+      btn.textContent = 'Commit this change'
+      announce(`Not committed: ${state.conn ? connectionProblem(state.conn, e) : (e as Error).message}`, true)
+    }
+  })
+  return btn
 }
 
 // ── Post ───────────────────────────────────────────────────────────────────

@@ -284,6 +284,18 @@ export class GitLabWriter implements GitHubWriter {
     return ok({ id: note.value.id, url: `${webUrl(ref)}#note_${note.value.id}` })
   }
 
+  async commitFile(repo: RepoRef, change: { branch: string; path: string; content: string; message: string; expectedHead: string }): Promise<Result<{ commitSha: string; url?: string | undefined }>> {
+    const branch = await this.#c.json<{ commit: { id: string } }>(`/projects/${pid(repo)}/repository/branches/${encodeURIComponent(change.branch)}`)
+    if (!branch.ok) return branch
+    if (branch.value.commit.id !== change.expectedHead) return err('head_moved', 'The branch moved since the review; review it again, then commit the fix.')
+    const r = await this.#c.json<{ id: string; web_url?: string }>(`/projects/${pid(repo)}/repository/commits`, 'POST', {
+      branch: change.branch,
+      commit_message: change.message,
+      actions: [{ action: 'update', file_path: change.path, content: change.content, last_commit_id: change.expectedHead }],
+    })
+    return r.ok ? ok({ commitSha: r.value.id, url: r.value.web_url }) : r
+  }
+
   async createIssueComment(ref: PrRef, body: string): Promise<Result<{ id: number; url: string }>> {
     const r = await this.#c.json<Note>(`${mrPath(ref)}/notes`, 'POST', { body })
     return r.ok ? ok({ id: r.value.id, url: `${webUrl(ref)}#note_${r.value.id}` }) : r

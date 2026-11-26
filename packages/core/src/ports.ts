@@ -130,6 +130,11 @@ export interface GitHubWriter {
     review: { commitId: string; /** Omitted for a pending (draft) review only the author sees (FR-20a). */ event?: 'COMMENT' | 'REQUEST_CHANGES' | 'APPROVE' | undefined; body: string; comments: readonly InlineComment[] },
   ): Promise<Result<{ id: number; url: string }>>
   createIssueComment(ref: PrRef, body: string): Promise<Result<{ id: number; url: string }>>
+  /**
+   * Commits new content for one file to a branch (optional; "Apply fix", roadmap item 16). `expectedHead` is the
+   * branch tip the change was made against; the commit fails rather than overwrite anything newer.
+   */
+  commitFile?(repo: RepoRef, change: { branch: string; path: string; content: string; message: string; expectedHead: string }): Promise<Result<{ commitSha: string; url?: string | undefined }>>
   /** Replies in a review thread (optional; commands in the PR thread use it, roadmap item 6). */
   replyToReviewComment?(ref: PrRef, commentId: number, body: string): Promise<Result<{ id: number; url: string }>>
   updateIssueComment(ref: PrRef, id: number, body: string): Promise<Result<{ id: number; url: string }>>

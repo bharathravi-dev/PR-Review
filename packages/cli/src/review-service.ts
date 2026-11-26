@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
+  applyFix,
   CreateRunRequest,
   PublishRequest,
   SERVICE_SCHEMA_VERSION,
@@ -91,7 +92,7 @@ export const SECURITY_HEADERS = {
 export const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 const MAX_BODY = 64 * 1024
-const RUN_PATH = /^\/v1\/runs\/([0-9a-f-]{36})\/(events|report|publish|hunks)$/
+const RUN_PATH = /^\/v1\/runs\/([0-9a-f-]{36})\/(events|report|publish|hunks|apply)$/
 
 /** Limits of `GET /v1/runs/:id/hunks` (review page v2): context lines around a finding, lines per file and per run. */
 const HUNK_CONTEXT = 3
@@ -430,6 +431,16 @@ export function createReviewService(opts: ServiceOptions) {
       return send(200, run.report), true
     }
     if (m[2] === 'publish' && method === 'POST') return send(200, await handlePublish(p, run, await readJson(req))), true
+    // "Apply fix" (roadmap item 16): commit one finding's suggested change to the PR branch.
+    if (m[2] === 'apply' && method === 'POST') {
+      if (run.status !== 'done' || !run.report || !run.context) throw new HttpError(409, 'run_not_finished', 'The review has not finished yet.')
+      const body = (await readJson(req)) as { fingerprint?: unknown }
+      if (typeof body?.fingerprint !== 'string' || !/^[0-9a-f]{16,64}$/.test(body.fingerprint)) throw new HttpError(400, 'invalid_request', 'Send {"fingerprint": "<finding fingerprint>"}.')
+      const done = await applyFix(run.ref, run.report, run.context, body.fingerprint, { reader: run.github.reader, writer: run.github.writer })
+      if (!done.ok) throw new HttpError(done.error.code === 'head_moved' ? 409 : done.error.code === 'no_suggestion' || done.error.code === 'no_change' ? 400 : 502, done.error.code, done.error.message)
+      log(`  ${formatPrRef(run.ref)}: committed a suggested fix (${done.value.commitSha.slice(0, 7)})\n`)
+      return send(200, { schemaVersion: SERVICE_SCHEMA_VERSION, ...done.value }), true
+    }
     if (m[2] === 'hunks' && method === 'GET') {
       if (run.status === 'running') return send(202, { status: 'running' }), true
       if (!run.report) throw new HttpError(500, 'run_failed', run.error ?? 'The review failed.')

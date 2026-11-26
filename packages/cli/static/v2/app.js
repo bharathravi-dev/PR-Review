@@ -89,6 +89,34 @@ function announce(text, assertive = false) {
 }
 
 /** Toasts never take focus; info ones leave after 8 s of visible time, errors stay until closed. */
+/** "Commit this change" (roadmap item 16): asks once more, then commits the suggestion to the PR branch. */
+function applyFixButton(f) {
+  if (!state.run?.id || state.run.status !== 'done' || !f.fingerprint || f.location?.anchorKind !== 'LINE') return ''
+  const btn = h('button', { type: 'button', class: 'btn small' }, 'Commit this change')
+  let armed = false
+  btn.addEventListener('click', async () => {
+    if (!armed) {
+      armed = true
+      btn.textContent = `Commit to ${state.report?.run?.repo?.fullName ?? 'the PR'} now?`
+      btn.classList.add('primary')
+      return
+    }
+    btn.disabled = true
+    btn.textContent = 'Committing…'
+    const r = await api(`/v1/runs/${state.run.id}/apply`, { method: 'POST', body: { fingerprint: f.fingerprint } }).catch((e) => ({ ok: false, data: { error: { message: e.message } } }))
+    if (!r.ok) {
+      btn.disabled = false
+      armed = false
+      btn.classList.remove('primary')
+      btn.textContent = 'Commit this change'
+      return toast(errorText(r), { kind: 'error' })
+    }
+    btn.textContent = `Committed ${r.data.commitSha.slice(0, 7)}`
+    toast(`Committed the fix (${r.data.commitSha.slice(0, 7)}). The PR has a new commit; review it again to check.`, { action: { label: 'Review again', run: () => startReview(prName()) } })
+  })
+  return btn
+}
+
 function toast(text, { action, kind = 'info' } = {}) {
   const box = $('toasts')
   const close = () => el.remove()
@@ -837,7 +865,7 @@ function findingThread(f, list) {
           md(e.description ?? f.description),
           f.impact ? h('div', { class: 'why' }, h('strong', {}, 'Why it matters. '), f.impact) : '',
           (e.recommendation ?? f.recommendation) ? h('div', {}, h('strong', {}, 'Recommendation. '), md(e.recommendation ?? f.recommendation)) : '',
-          f.suggestion ? h('div', { class: 'suggestion' }, h('div', { class: 'file-head' }, h('span', {}, 'Suggested change'), h('span', { class: 'muted' }, 'posts as a committable suggestion')), h('pre', { class: 'mono' }, f.suggestion)) : '',
+          f.suggestion ? h('div', { class: 'suggestion' }, h('div', { class: 'file-head' }, h('span', {}, 'Suggested change'), h('span', { class: 'muted' }, 'posts as a committable suggestion')), h('pre', { class: 'mono' }, f.suggestion), applyFixButton(f)) : '',
         ),
     h(
       'div',

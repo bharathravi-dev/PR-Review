@@ -3,6 +3,7 @@
 // SKIPPED (NO_SANDBOX) by the engine itself. Isomorphic: no chrome.* APIs, so it is tested under Node.
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import {
+  applyFix,
   hunksFromContext,
   parsePrRef,
   planPublish,
@@ -274,4 +275,12 @@ export function ollamaOrigin(typed: string | undefined): string | undefined {
   const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost'
   if (!(url.protocol === 'https:' || (url.protocol === 'http:' && loopback)) || url.username || url.password) return undefined
   return url.origin
+}
+
+/** "Commit this change" in Standalone mode: commits a finding's suggestion with the user's own GitHub sign-in. */
+export async function applyFixStandalone(r: StandaloneResult, settings: StandaloneSettings, fingerprint: string, fetchImpl: typeof fetch): Promise<{ commitSha: string; url?: string | undefined }> {
+  if (!r.context) throw new Error('The PR could not be loaded, so there is nothing to commit to.')
+  const done = await applyFix(r.ref, r.report, r.context, fingerprint, githubFor(settings, fetchImpl))
+  if (!done.ok) throw new Error(done.error.message)
+  return done.value
 }

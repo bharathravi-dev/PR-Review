@@ -174,6 +174,7 @@ export function createClient(c: Connection, fetchImpl: typeof fetch) {
     },
     preview: (id: string, choice: { include?: string[] | undefined; edits?: Edits }) =>
       json<{ preview: RemotePreview; digest: string }>(`/v1/runs/${id}/publish`, { method: 'POST', body: JSON.stringify({ event: 'COMMENT', ...(choice.include ? { include: choice.include } : {}), ...(choice.edits && Object.keys(choice.edits).length ? { edits: choice.edits } : {}), dryRun: true }) }),
+    apply: (id: string, fingerprint: string) => json<{ commitSha: string; url?: string }>(`/v1/runs/${id}/apply`, { method: 'POST', body: JSON.stringify({ fingerprint }) }),
     publish: (id: string, choice: { include?: string[] | undefined; edits?: Edits }, digest: string) =>
       json<{ record: PublishRecord }>(`/v1/runs/${id}/publish`, { method: 'POST', body: JSON.stringify({ event: 'COMMENT', ...(choice.include ? { include: choice.include } : {}), ...(choice.edits && Object.keys(choice.edits).length ? { edits: choice.edits } : {}), previewDigest: digest }) }).then((r) => r.record),
   }
