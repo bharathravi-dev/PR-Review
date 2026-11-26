@@ -96,6 +96,11 @@ export interface GitHubReader {
   linkedIssues?(ref: PrRef): Promise<Result<LinkedIssue[]>>
   /** The authenticated user — the Reviewer Identity. */
   viewer(): Promise<Result<{ id: number; login: string }>>
+  /**
+   * Paths changed between two commits (base...head) and how they relate: `ahead` when head descends from base.
+   * Optional; incremental reviews need it (roadmap item 4).
+   */
+  changedPathsBetween?(repo: RepoRef, base: string, head: string): Promise<Result<{ status: string; paths: string[] }>>
   /** Current head SHA of the PR, re-read immediately before publishing (AD-23). */
   getHeadSha(ref: PrRef): Promise<Result<string>>
   /** Reviews, inline review comments, and issue comments on the PR, for marker-based self-recognition (AD-11). */

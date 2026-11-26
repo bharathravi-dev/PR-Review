@@ -1,4 +1,5 @@
 import { quietFindings } from './noise.js'
+import { lastReviewedHead } from './publish.js'
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
 import { parsePatch } from './diff.js'
@@ -66,6 +67,8 @@ export interface ReviewSettings {
   relatedFiles?: boolean | undefined
   /** true keeps the AI's style-only remarks (left out by default, roadmap item 3). */
   styleFindings?: boolean | undefined
+  /** false makes the AI re-check every file on a later review, not only files changed since the last one. */
+  incremental?: boolean | undefined
 }
 
 export interface ReviewInput {
@@ -260,6 +263,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   const aiFindings: Finding[] = []
   let ai: Report['ai']
   let walkthrough: Walkthrough | undefined
+  let incremental: Report['incremental']
   const redacted = redactContext(ctx, scan)
   if (!redacted.ok) {
     record({ layer: 'AI_REVIEW', validator: 'ai.review', status: 'SKIPPED', reason: 'SECRET_SCAN_UNAVAILABLE', detail: redacted.error.message, durationMs: 0 })
@@ -269,7 +273,25 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       : [{ name: ports.provider?.id ?? 'anthropic', provider: ports.provider, unavailableReason: ports.providerUnavailableReason ?? 'No AI Provider is configured.', model: input.review?.model }]
     const first = candidates.find((c) => c.provider)
     if (first) emit('STAGE_STARTED', { stage: 'review', provider: first.name, ...(first.model ? { model: first.model } : {}) })
-    const outcome = await runAiReview(redacted.value, candidates, {
+    // Incremental (roadmap item 4): after an earlier review of this PR, the AI re-checks only files changed since then.
+    let aiCtx = redacted.value
+    if (input.review?.incremental !== false && input.reviewerId !== undefined && ports.github.changedPathsBetween) {
+      const published = await ports.github.listPublished(input.ref)
+      const since = published.ok ? lastReviewedHead(published.value, input.reviewerId) : undefined
+      if (since && since !== ctx.headSha) {
+        const diff = await ports.github.changedPathsBetween(input.ref, since, ctx.headSha)
+        if (diff.ok && diff.value.status === 'ahead') {
+          const touched = new Set(diff.value.paths)
+          const recheck = aiCtx.files.filter((f) => touched.has(f.path) || (f.previousPath !== undefined && touched.has(f.previousPath)))
+          if (recheck.length < aiCtx.files.length) {
+            incremental = { since, files: recheck.length, unchanged: aiCtx.files.filter((f) => !recheck.includes(f)).map((f) => f.path) }
+            aiCtx = { ...aiCtx, files: recheck } as typeof aiCtx
+            limitations.push(`Incremental review: the AI re-checked the ${recheck.length} file(s) changed since ${since.slice(0, 7)}; findings in the other ${incremental.unchanged.length} file(s) are carried over, not re-checked. Run with --full (or ai.incremental: false) to re-check everything.`)
+          }
+        } else if (diff.ok) limitations.push(`Full review: the PR was rewritten since the last review (${since.slice(0, 7)} is not an ancestor of the head).`)
+      }
+    }
+    const outcome = await runAiReview(aiCtx, candidates, {
       onProgress: (part, parts) => emit('STAGE_PROGRESS', { stage: 'review', part, parts }),
       deterministicFindings: scan.findings,
       rules: input.review?.rules ?? [],
@@ -329,6 +351,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     ...(learnings.length ? { learnings: learnings.map((l) => ({ ...l, text: redactText(l.text, scan.values) })) } : {}),
     ...(related.length ? { relatedFiles: related.map((r) => ({ path: r.path, relation: r.relation, excerpt: r.excerpt })) } : {}),
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
+    ...(incremental ? { incremental } : {}),
   })
   return { report, context: ctx }
 }
@@ -450,6 +473,7 @@ async function assemble(a: {
   learnings?: Learning[]
   relatedFiles?: Array<{ path: string; relation: string; excerpt: boolean }>
   sandbox?: { planHash: string; imageDigest: string; ran: boolean }
+  incremental?: Report['incremental']
 }): Promise<Report> {
   const { input, ctx } = a
   const gate = evaluateGate(a.layers, a.findings, {
@@ -500,6 +524,7 @@ async function assemble(a: {
     ...(a.walkthrough ? { walkthrough: a.walkthrough } : {}),
     ...(a.learnings?.length ? { learnings: a.learnings } : {}),
     ...(a.relatedFiles?.length ? { relatedFiles: a.relatedFiles } : {}),
+    ...(a.incremental ? { incremental: a.incremental } : {}),
     ...(a.repo?.guidance.length ? { guidanceFiles: a.repo.guidance } : {}),
     ...(a.sandbox ? { sandbox: a.sandbox } : {}),
     audit: {

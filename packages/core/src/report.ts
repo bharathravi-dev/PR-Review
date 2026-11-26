@@ -84,6 +84,8 @@ export const Report = z.looseObject({
   learnings: z
     .array(z.object({ kind: z.enum(['REMEMBER', 'DISMISSED']), text: z.string(), by: z.string(), pr: z.number().int(), url: z.string().optional() }))
     .optional(),
+  /** An incremental review: the AI re-checked only files changed since `since`; `unchanged` it did not re-check. */
+  incremental: z.object({ since: z.string(), files: z.number().int(), unchanged: z.array(z.string()) }).optional(),
   /** Unchanged files shown to the AI for context, and why each was picked. */
   relatedFiles: z.array(z.object({ path: z.string(), relation: z.string(), excerpt: z.boolean() })).optional(),
   /** Repository guidance files the review read at the base commit. */

@@ -298,6 +298,7 @@ ai:
   learn: true                 # false: ignore 👎, /dismiss, and /remember feedback from earlier reviews
   relatedFiles: true          # false: show the AI only the changed files, not their imports, callers, tests
   styleFindings: false        # true: keep the AI's style-only remarks (left out by default; repeats are always folded)
+  incremental: true           # false: on later reviews re-check every file, not only those changed since the last review
 limits:                       # apply to API-key providers that have pricing
   maxCostPerRunUsd: 1
   maxCostPerMonthUsd: 20

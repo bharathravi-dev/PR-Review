@@ -94,6 +94,15 @@ export class GitHubPrReader implements GitHubReader {
     return ok(Array.isArray(res.value.data) ? res.value.data.filter((e) => e.type === 'file').map((e) => e.name) : [])
   }
 
+  async changedPathsBetween(repo: RepoRef, base: string, head: string): Promise<Result<{ status: string; paths: string[] }>> {
+    const res = await this.client.json<{ status: string; files?: Array<{ filename: string; previous_filename?: string }> }>(`/repos/${enc(repo.owner)}/${enc(repo.repo)}/compare/${enc(base)}...${enc(head)}?per_page=300`)
+    if (!res.ok) return res
+    const files = res.value.data.files ?? []
+    // GitHub lists at most 300 files here; with more, the caller can't tell what changed and reviews in full.
+    if (files.length >= 300) return ok({ status: 'too_many_files', paths: [] })
+    return ok({ status: res.value.data.status, paths: files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename])) })
+  }
+
   async listCheckResults(repo: RepoRef, sha: string): Promise<Result<CheckResult[]>> {
     const repoPath = `/repos/${enc(repo.owner)}/${enc(repo.repo)}`
     const [runs, status] = await Promise.all([

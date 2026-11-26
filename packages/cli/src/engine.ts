@@ -228,6 +228,8 @@ export interface ExecuteReviewOptions {
   channel?: Channel | undefined
   /** Replaces the container Sandbox (Auto-Review splits it into its own job); null means none. */
   sandbox?: SandboxPort | null | undefined
+  /** Re-check every file with the AI, even after an earlier review (`review --full`). */
+  full?: boolean | undefined
   /** Skip the AI step (Auto-Review `prepare` only plans the Sandbox). */
   noAi?: boolean | undefined
 }
@@ -267,6 +269,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
         learn: o.config.settings.ai?.learn,
         relatedFiles: o.config.settings.ai?.relatedFiles,
         styleFindings: o.config.settings.ai?.styleFindings,
+        incremental: o.full ? false : o.config.settings.ai?.incremental,
       },
       reviewerId: o.github.viewer?.id,
       costLimits: o.config.settings.limits,

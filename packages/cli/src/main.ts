@@ -76,6 +76,7 @@ review options:
   --model <id>       Model override for that provider
   --warnings-ok      Exit 0 instead of 1 for PASSED_WITH_WARNINGS
   --post             Post the review to the PR (shows a preview and asks first)
+  --full             Re-check every file with the AI (later reviews re-check only what changed)
   --yes              Post without asking (required when not in an interactive terminal)
   --event <e>        COMMENT (default) or REQUEST_CHANGES (needs publish.allowRequestChanges)
 
@@ -286,6 +287,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
         host: { type: 'string' },
         profile: { type: 'string' },
         post: { type: 'boolean' },
+        full: { type: 'boolean' },
         yes: { type: 'boolean' },
         event: { type: 'string' },
       },
@@ -324,6 +326,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   }
 
   const { report, context } = await executeReview({
+    full: parsed.values.full === true,
     config,
     deps,
     secrets,

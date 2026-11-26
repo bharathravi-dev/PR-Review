@@ -13,7 +13,7 @@ export const DEFAULT_MAX_INLINE = 30
 /** What this reviewer already published on the PR, read only from own markers (AD-11). */
 export interface PriorPublication {
   /** Inline comments still on the PR, by fingerprint. */
-  inline: Array<{ fingerprint: string; title: string; url?: string | undefined; commentId?: number | undefined }>
+  inline: Array<{ fingerprint: string; title: string; url?: string | undefined; commentId?: number | undefined; path?: string | undefined }>
   /** 16-hex fingerprint prefixes from the latest own summary (Findings listed only there). */
   summaryPrefixes: string[]
 }
@@ -31,7 +31,7 @@ export function readPrior(items: PublishedItems, rid: number, fpv: number): Prio
     if (!m || m.kind !== 'inline' || m.fpv !== fpv || m.fp === '-') continue
     const first = c.body.split('\n')[0] ?? ''
     const title = first.replace(/^\*\*[^*]*\*\*\s*—\s*/, '').trim() || 'Earlier finding'
-    if (!inline.some((x) => x.fingerprint === m.fp)) inline.push({ fingerprint: m.fp, title, commentId: c.id, ...(c.url ? { url: c.url } : {}) })
+    if (!inline.some((x) => x.fingerprint === m.fp)) inline.push({ fingerprint: m.fp, title, commentId: c.id, ...(c.url ? { url: c.url } : {}), ...(c.path ? { path: c.path } : {}) })
   }
   const summaries = items.issueComments
     .map((c) => ({ c, m: ownMarker(c, rid) }))
@@ -39,6 +39,15 @@ export function readPrior(items: PublishedItems, rid: number, fpv: number): Prio
     .sort((a, b) => a.c.id - b.c.id)
   const latest = summaries[summaries.length - 1]?.m
   return { inline, summaryPrefixes: latest?.fps ?? [] }
+}
+
+/** The head commit of the reviewer's latest own review on the PR, if any (incremental reviews start there). */
+export function lastReviewedHead(items: PublishedItems, rid: number): string | undefined {
+  const own = items.reviews.flatMap((r) => {
+    const m = ownMarker(r, rid)
+    return m && m.kind === 'review' && m.head && m.head !== '-' ? [{ id: r.id, head: m.head }] : []
+  })
+  return own.sort((a, b) => b.id - a.id)[0]?.head
 }
 
 export type ReviewedState = 'CURRENT' | 'OUTDATED' | 'NONE'
@@ -281,9 +290,11 @@ export function renderPublish(report: Report, plan: PublishPlan): PublishPreview
   }
 
   const currentFps = report.findings.flatMap(fpsOf)
+  // An incremental review did not re-check files unchanged since the last review: their findings are not resolved.
+  const unchecked = new Set(report.incremental?.unchanged ?? [])
   const resolved: PublishPreview['resolved'] = [
-    ...plan.prior.inline.filter((p) => !currentFps.includes(p.fingerprint)).map((p) => ({ fingerprint: p.fingerprint, title: clean(p.title), url: p.url, commentId: p.commentId })),
-    ...plan.prior.summaryPrefixes
+    ...plan.prior.inline.filter((p) => !currentFps.includes(p.fingerprint) && !(p.path && unchecked.has(p.path))).map((p) => ({ fingerprint: p.fingerprint, title: clean(p.title), url: p.url, commentId: p.commentId })),
+    ...(report.incremental ? [] : plan.prior.summaryPrefixes)
       .filter((prefix) => !currentFps.some((fp) => fp.startsWith(prefix)))
       .map((prefix) => ({ fingerprint: prefix, title: 'An earlier summary-only finding' })),
   ]

@@ -11,7 +11,7 @@ merges; approving is opt-in and gated; any AI model (key, subscription, or local
 | 1 | License file and CI (`pnpm check` on pushes and PRs) | Public repo needs a license; contributors need CI | done |
 | 2 | `pr-reviewer ship`: review → fix with your coding agent → push → wait for CI → re-review, until clean; then mark ready | The author's loop, like Claude Code's ship; never merges | done |
 | 3 | Less noise: merge findings repeated across files; keep style-only AI findings out | Buyers judge reviewers on false positives | done |
-| 4 | Incremental reviews (only what changed since the last reviewed commit) and the result as a merge check | Copilot and CodeRabbit both do this | planned |
+| 4 | Incremental reviews (only what changed since the last reviewed commit) and the result as a merge check | Copilot and CodeRabbit both do this | done (merge check: `publish.commitStatus`, and ship's `pr-reviewer/ship` status) |
 | 5 | Adaptive effort: quick pass for small, low-risk PRs; full review for risky ones | Faster and cheaper; fixes local-model slowness | planned |
 | 6 | Replies in the PR thread: `@pr-reviewer why`, `fix`, `ignore`, `review` | Conversation is expected | planned |
 | 7 | GitHub App: install once, every PR reviewed on push (webhooks, in the Web App) | How every competitor is adopted | planned |
