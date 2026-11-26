@@ -198,9 +198,16 @@ export async function testAiKey(p: StandaloneSettings['provider'], fetchImpl: ty
 /** GitHub's device flow (OAuth app client ID configured at build time). Never sees a password; the user approves on github.com. */
 export async function startDeviceFlow(clientId: string, fetchImpl: typeof fetch, host = 'github.com'): Promise<{ deviceCode: string; userCode: string; verificationUri: string; expiresAt: number; interval: number }> {
   const r = await fetchImpl(`https://${host}/login/device/code`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ client_id: clientId, scope: 'repo' }) })
-  if (!r.ok) throw new Error(`GitHub refused to start sign-in (${r.status}).`)
-  const d = (await r.json()) as { device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number }
-  return { deviceCode: d.device_code, userCode: d.user_code, verificationUri: d.verification_uri, expiresAt: Date.now() + d.expires_in * 1000, interval: d.interval }
+  const d = (await r.json().catch(() => ({}))) as { device_code?: string; user_code?: string; verification_uri?: string; expires_in?: number; interval?: number; error?: string }
+  if (!r.ok || !d.device_code) throw new Error(deviceStartProblem(d.error, r.status))
+  return { deviceCode: d.device_code, userCode: d.user_code!, verificationUri: d.verification_uri!, expiresAt: Date.now() + (d.expires_in ?? 900) * 1000, interval: d.interval ?? 5 }
+}
+
+/** GitHub's reason for not starting device sign-in, in words the person setting up the app can act on. */
+export function deviceStartProblem(error: string | undefined, status: number): string {
+  if (error === 'device_flow_disabled') return 'Sign in with GitHub is not switched on for this OAuth app yet. In the app’s settings on GitHub, tick “Enable Device Flow” and save, then try again. Or use a token instead.'
+  if (error === 'incorrect_client_credentials' || status === 404) return 'GitHub does not know this OAuth app’s client ID. Check githubClientId in packages/extension/oauth.json, rebuild, and reload the extension. Or use a token instead.'
+  return `GitHub refused to start sign-in (${error ?? status}). Try again, or use a token instead.`
 }
 
 export type DevicePoll = { status: 'pending' } | { status: 'slow_down'; interval: number } | { status: 'approved'; token: string } | { status: 'expired' } | { status: 'denied' } | { status: 'error'; message: string }

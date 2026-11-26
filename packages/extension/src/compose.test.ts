@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ENGINE_VERSION, prFromUrl, runStandaloneReview } from './compose.js'
+import { deviceStartProblem } from './compose.js'
 
 const GH = 'https://api.github.com/repos/octo/app'
 const LEAKED = ['AK', 'IA', 'QWERTYUIOPASDFGH'].join('')
@@ -63,5 +64,13 @@ describe('extension Standalone engine (Story 7.1)', () => {
   it('records the same engine version as the CLI', () => {
     const cli = JSON.parse(readFileSync(new URL('../../cli/package.json', import.meta.url), 'utf8')) as { version: string }
     expect(ENGINE_VERSION).toBe(cli.version)
+  })
+})
+
+describe('device sign-in problems', () => {
+  it('says how to fix an OAuth app without device flow or with a wrong client ID', () => {
+    expect(deviceStartProblem('device_flow_disabled', 400)).toContain('Enable Device Flow')
+    expect(deviceStartProblem('incorrect_client_credentials', 400)).toContain('oauth.json')
+    expect(deviceStartProblem(undefined, 503)).toContain('(503)')
   })
 })
