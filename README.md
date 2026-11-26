@@ -164,6 +164,12 @@ waits for CI, and reviews again, for up to three rounds (`--rounds`, `--min-seve
 when the agent changes nothing, or when the rounds run out, and lists what is still open. It never merges and never
 force-pushes; `--post` posts the final review and sets a `pr-reviewer/ship` commit status that branch rules can require.
 
+**Talk to it on the PR: `pr-reviewer respond <PR>`.** People with push access can comment `@pr-reviewer review`
+(review again), and in reply to one of its comments `@pr-reviewer why` (explain it with the code), `@pr-reviewer fix`
+(a committable suggestion for those lines), `@pr-reviewer ignore [why]` (dismiss), or `@pr-reviewer remember <note>`
+(for future reviews). `respond` answers each command once; run it by hand or on a schedule. Code is shown to the AI
+only after secret scanning, and comment text is treated as data, never as instructions.
+
 **From your coding agent (MCP).** `pr-reviewer mcp` is an MCP server on stdio with two read-only tools:
 `review_pr` (runs a review and returns the findings, each with a fix prompt) and `open_findings` (your posted
 findings on a PR that are not yet fixed or dismissed). It uses your normal config and credentials, and never

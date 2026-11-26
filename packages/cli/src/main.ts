@@ -27,6 +27,7 @@ import { autoCommand } from './auto.js'
 import { benchCommand } from './bench.js'
 import { fixCommand } from './fix.js'
 import { shipCommand } from './ship.js'
+import { respondCommand } from './respond.js'
 import { learningsCommand } from './learnings.js'
 import { mcpCommand } from './mcp.js'
 import { collectStats, formatStats } from './stats.js'
@@ -55,6 +56,7 @@ Commands:
   bench <dataset>    Measure review quality on PRs with known issues (precision, recall, F1)
   fix <PR>           Have your Claude Code or Codex fix your open findings in this checkout
   ship <PR>          Review, fix with your coding agent, push, wait for CI, and repeat until ready (never merges)
+  respond <PR>       Answer @pr-reviewer commands on the PR (review, why, fix, ignore, remember, help)
   learnings <repo>   What reviews learned from feedback on earlier comments (👎, /dismiss, /remember)
   mcp                Run as an MCP server on stdio for coding agents (review_pr, open_findings; never posts)
   web                Run the self-hosted Web App for a team (configured by environment variables; see the README)
@@ -184,6 +186,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'web') return webCommand(rest, io, deps)
   if (first === 'learnings') return learningsCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'mcp') return mcpCommand(io, deps, secrets, () => resolveConfig(io, deps, undefined, {}))
+  if (first === 'respond') return respondCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'ship') return shipCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'fix') return fixCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'bench') return benchCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))

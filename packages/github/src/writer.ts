@@ -72,6 +72,11 @@ export class GitHubPrWriter implements GitHubWriter {
     return res.ok ? ok({ id: res.value.id, url: res.value.html_url }) : res
   }
 
+  async replyToReviewComment(ref: PrRef, commentId: number, body: string): Promise<Result<{ id: number; url: string }>> {
+    const res = await this.client.send<{ id: number; html_url: string }>('POST', `${repoPath(ref)}/pulls/${ref.number}/comments/${commentId}/replies`, { body })
+    return res.ok ? ok({ id: res.value.id, url: res.value.html_url }) : res
+  }
+
   async updateIssueComment(ref: PrRef, id: number, body: string): Promise<Result<{ id: number; url: string }>> {
     const res = await this.client.send<{ id: number; html_url: string }>('PATCH', `${repoPath(ref)}/issues/comments/${id}`, { body })
     return res.ok ? ok({ id: res.value.id, url: res.value.html_url }) : res

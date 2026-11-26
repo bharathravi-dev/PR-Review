@@ -6,14 +6,17 @@ import { buttonLabel, prKey, type PrState } from './state.js'
 const HOST_ID = 'pr-reviewer-review-button'
 const CSS = `
 :host { all: initial; display: inline-flex; margin-left: 8px; vertical-align: middle; }
-button { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-width: 24px; padding: 0 10px; border-radius: 8px; font: 550 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; cursor: pointer; white-space: nowrap; background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); }
+button { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 28px; min-width: 24px; padding: 0 10px; border-radius: 8px; font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; cursor: pointer; white-space: nowrap; background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); }
 button.outdated { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
-button:focus-visible { outline: 2px solid #1c2128; outline-offset: 2px; box-shadow: 0 0 0 2px #ffffff; }
-.mark { width: 12px; height: 12px; border-radius: 4px; background: linear-gradient(135deg, var(--accent-text), var(--ok)); }
+button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button.outdated:hover { background: var(--warn-bg); border-color: var(--warn); }
+button:focus-visible { outline: 2px solid var(--ring-outer); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ring-inner); }
+.mark { width: 14px; height: 14px; border-radius: 4px; background: #090A1A; color: #FF7B02; display: inline-grid; place-items: center; font: 800 7px/1 system-ui, sans-serif; letter-spacing: -0.02em; }
+.mark::before { content: "PR"; }
 .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.light { --accent: #2f5bd3; --accent-text: #ffffff; --ok: #1d7a46; --warn: #8a5a00; --warn-bg: #fdf1d6; }
-.dark { --accent: #7c9cf5; --accent-text: #0f1216; --ok: #6fd39a; --warn: #f0c35a; --warn-bg: #352a12; }
+.light { --accent: #FF7B02; --accent-hover: #E66A00; --accent-text: #111827; --ok: #1d7a46; --warn: #8a5a00; --warn-bg: #fdf1d6; --ring-outer: #111827; --ring-inner: #FFFFFF; }
+.dark { --accent: #FF7B02; --accent-hover: #E66A00; --accent-text: #090A1A; --ok: #28A08C; --warn: #f0c35a; --warn-bg: #352a12; --ring-outer: #FFFFFF; --ring-inner: #090A1A; }
 @media (forced-colors: active) { button { border: 1px solid ButtonText; } button:focus-visible { outline-color: Highlight; } }
 `
 

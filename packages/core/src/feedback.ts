@@ -9,7 +9,7 @@ export interface Dismissal {
   byPrAuthor: boolean
 }
 
-const DISMISS_REPLY = /^\s*\/dismiss\b/i
+const DISMISS_REPLY = /^\s*(?:\/dismiss|(?:@|\/)pr-reviewer\s+(?:dismiss|ignore))\b/i
 
 export type FindingSource = 'AI' | 'TOOL' | 'UNKNOWN'
 

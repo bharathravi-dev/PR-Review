@@ -30,8 +30,8 @@ export const MAX_LEARNING_CHARS = 300
 const MAX_REACTION_LOOKUPS = 20
 const MAX_PERMISSION_LOOKUPS = 10
 
-const REMEMBER = /^\s*\/remember\b[:\s]*([\s\S]*)$/i
-const DISMISS = /^\s*\/dismiss\b[:\s]*([\s\S]*)$/i
+const REMEMBER = /^\s*(?:\/remember|(?:@|\/)pr-reviewer\s+remember)\b[:\s]*([\s\S]*)$/i
+const DISMISS = /^\s*(?:\/dismiss|(?:@|\/)pr-reviewer\s+(?:dismiss|ignore))\b[:\s]*([\s\S]*)$/i
 const FORGET = /^\s*\/forget\b/i
 const HEADING = /^\*\*([A-Z]+) · ([^*]+)\*\* — (.+)$/m
 
