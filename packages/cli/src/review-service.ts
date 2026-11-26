@@ -97,6 +97,7 @@ export function loadAssets(mode: 'local' | 'web'): Record<string, { type: string
   return {
     '/': { type: 'text/html; charset=utf-8', body: Buffer.from(read('index.html').toString('utf8').replace('content="local"', `content="${mode}"`)) },
     '/app.js': { type: 'text/javascript; charset=utf-8', body: read('app.js') },
+    '/findings-view.js': { type: 'text/javascript; charset=utf-8', body: read('findings-view.js') },
     '/app.css': { type: 'text/css; charset=utf-8', body: read('app.css') },
   }
 }

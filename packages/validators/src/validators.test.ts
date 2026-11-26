@@ -219,4 +219,29 @@ describe('Sandbox tools (Story 4.6)', () => {
     const junk = await tslintValidator.run({ ...t, sandbox: new Map([step('install:.'), step('lint.tslint:.', { exitCode: 2, stdout: 'not json' })]) }, ports)
     expect(junk.layers[0]).toMatchObject({ status: 'ERROR', reason: 'SANDBOX_OUTPUT_INVALID' })
   })
+
+  it('keeps style-only lint rules at MINOR whatever the configured severity (Story 9.1)', async () => {
+    const msg = (ruleId: string, line: number) => ({ ruleId, severity: 2, message: ruleId, line, endLine: line })
+    const eslintOut = JSON.stringify([{ filePath: '/work/src/a.ts', messages: [msg('semi', 1), msg('@stylistic/indent', 2), msg('@typescript-eslint/quotes', 3), msg('prettier/prettier', 4), msg('no-unused-vars', 5), msg('@typescript-eslint/no-floating-promises', 6), msg('eqeqeq', 7)] }])
+    const c = ctx([added('src/a.ts', 'x')], [project()], { sandbox: new Map([step('install:.'), step('install:tools'), step('lint.eslint:.', { exitCode: 1, stdout: eslintOut })]) })
+    const sev = (fs: Array<{ ruleId: string; severity: string }>) => Object.fromEntries(fs.map((f) => [f.ruleId, f.severity]))
+    expect(sev((await eslintValidator.run(c, ports)).findings)).toEqual({
+      'eslint/semi': 'MINOR',
+      'eslint/@stylistic/indent': 'MINOR',
+      'eslint/@typescript-eslint/quotes': 'MINOR',
+      'eslint/prettier/prettier': 'MINOR',
+      'eslint/no-unused-vars': 'MAJOR',
+      'eslint/@typescript-eslint/no-floating-promises': 'MAJOR',
+      'eslint/eqeqeq': 'MAJOR',
+    })
+
+    // The rules from the classic-page screenshot (kb-igot/sunbird-cb-orgportal#796), all configured as errors.
+    const rules = ['no-consecutive-blank-lines', 'trailing-comma', 'prefer-const', 'brace-style', 'one-line', 'prefer-template', 'align', 'object-shorthand-properties-first', 'no-increment-decrement', 'no-console', 'no-floating-promises']
+    const tslintOut = JSON.stringify(rules.map((ruleName, i) => ({ name: '/work/src/a.ts', ruleName, ruleSeverity: 'ERROR', failure: ruleName, startPosition: { line: i } })))
+    const t = ctx([added('src/a.ts', 'x')], [project({ configs: { tsconfig: 'tsconfig.json', tslint: 'tslint.json' } })], { sandbox: new Map([step('install:.'), step('lint.tslint:.', { exitCode: 2, stdout: tslintOut })]) })
+    const ts = sev((await tslintValidator.run(t, ports)).findings)
+    for (const r of rules.slice(0, 9)) expect(ts[`tslint/${r}`]).toBe('MINOR')
+    expect(ts['tslint/no-console']).toBe('MAJOR')
+    expect(ts['tslint/no-floating-promises']).toBe('MAJOR')
+  })
 })

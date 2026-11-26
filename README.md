@@ -112,6 +112,9 @@ recommended route for automatic reviews.
   review.
 - **Low noise by default**: INFO-level notes stay in the summary (`publish.minInlineSeverity`), inline
   comments are capped (`publish.maxInlineComments`), and fixed findings have their threads resolved.
+  Style-only lint rules (formatting, whitespace, quotes, commas, ordering, naming) are MINOR at most,
+  whatever severity the repository configured. On the review page, new findings come first and
+  pre-existing ones are grouped after them, unticked, so they reach the post only if you tick them.
 - **Your team's existing guidance is used**: `REVIEW.md`, `AGENTS.md`, `CLAUDE.md`,
   `.github/copilot-instructions.md`, `.cursor/BUGBOT.md`, `.gemini/styleguide.md`, and `.coderabbit.yaml`
   are read from the base branch, so a PR cannot change how it is reviewed.

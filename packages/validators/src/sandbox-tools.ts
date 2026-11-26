@@ -1,6 +1,7 @@
 // Repository tools run in the Sandbox (AD-5, AD-7, Story 4.6): install, tsc, ESLint, TSLint. These Validators only
 // declare commands; the output is parsed here, on the host, as untrusted input.
 import type { Finding, LayerOutcome, ProjectInfo, SandboxStep, SandboxStepResult, Validator, ValidatorContext } from '@pr-reviewer/core'
+import { isStylisticRule } from './lint-style.js'
 import { finding, joinPath, relTo } from './util.js'
 
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
@@ -305,7 +306,7 @@ export const eslintValidator: Validator = {
             finding({
               ruleId: m.fatal || !m.ruleId ? 'eslint/parse-error' : `eslint/${m.ruleId}`,
               category: m.fatal ? 'BUILD' : 'STYLE',
-              severity: m.severity === 2 ? 'MAJOR' : 'MINOR',
+              severity: m.severity === 2 && !(m.ruleId && isStylisticRule('eslint', m.ruleId)) ? 'MAJOR' : 'MINOR',
               confidence: 'HIGH',
               title: m.ruleId ? `${m.message} (${m.ruleId})` : m.message,
               description: `ESLint${mode === 'default' ? ` (${r.name})` : ''} reports: ${m.message}`,
@@ -393,7 +394,7 @@ export const tslintValidator: Validator = {
           finding({
             ruleId: `tslint/${m.ruleName}`,
             category: 'STYLE',
-            severity: (m.ruleSeverity ?? 'error').toLowerCase() === 'error' ? 'MAJOR' : 'MINOR',
+            severity: (m.ruleSeverity ?? 'error').toLowerCase() === 'error' && !isStylisticRule('tslint', m.ruleName) ? 'MAJOR' : 'MINOR',
             confidence: 'HIGH',
             title: `${m.failure} (${m.ruleName})`,
             description: `TSLint reports: ${m.failure}`,

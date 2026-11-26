@@ -149,6 +149,11 @@ describe('local review page (Story 8.1)', () => {
     expect(page.status).toBe(200)
     expect(page.headers.get('content-security-policy')).toContain("script-src 'self'")
     expect(await page.text()).toContain('<script type="module" src="/app.js">')
+    // app.js imports the findings view module; it must be served as JavaScript (Story 9.1).
+    expect(await (await fetch(`${s.url}/app.js`)).text()).toContain("from '/findings-view.js'")
+    const view = await fetch(`${s.url}/findings-view.js`)
+    expect(view.status).toBe(200)
+    expect(view.headers.get('content-type')).toContain('text/javascript')
 
     expect((await call('/v1/session', { headers: { authorization: '' } })).status).toBe(401)
     expect((await call('/v1/session', { headers: { authorization: 'Bearer wrong-token-0123456789abc' } })).status).toBe(401)

@@ -1,5 +1,6 @@
 // Local review page for `pr-reviewer serve`. A client of ReviewService v1 (AD-16).
 // Every string from GitHub, the PR, or the AI is inserted with textContent, never as HTML.
+import { defaultSelection, findingsSummary, groupFindings, selectAllFingerprints } from '/findings-view.js'
 
 const TOKEN_KEY = 'pr-reviewer-token'
 const $ = (id) => document.getElementById(id)
@@ -396,7 +397,8 @@ async function showRun(id) {
   state.report = rep.data
   state.edits = {}
   state.preview = null
-  state.selected = new Set(rep.data.findings.filter((f) => f.fingerprint && !f.dismissed).map((f) => f.fingerprint))
+  // New findings are ticked; dismissed and pre-existing ones are not (Story 9.1).
+  state.selected = defaultSelection(rep.data.findings)
   $('progress').hidden = true
   renderReport()
   renderPublish()
@@ -520,14 +522,23 @@ function renderReport() {
       : '',
   )
 
-  const counts = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'].map((s) => [s, r.findings.filter((f) => f.severity === s).length]).filter(([, n]) => n)
+  const { fresh, pre } = groupFindings(r.findings)
+  const preGroup = pre.length
+    ? h(
+        'details',
+        { class: 'pre-group', id: 'pre-group' },
+        h('summary', {}, `${pre.length} pre-existing`, h('span', { class: 'muted' }, ' · not included unless you tick them · Show')),
+        h('p', { class: 'muted' }, 'Problems in code this PR did not introduce. They never fail the review; tick one to mention it in the summary.'),
+        h('div', { class: 'findings' }, pre.map(renderFinding)),
+      )
+    : ''
   const findings = h(
     'div',
     { class: 'card' },
     h(
       'div',
       { class: 'findings-bar' },
-      h('h2', {}, `Findings (${r.findings.length})`, counts.length ? h('span', { class: 'muted' }, ` · ${counts.map(([s, n]) => `${n} ${words(s)}`).join(', ')}`) : ''),
+      h('h2', {}, 'Findings', r.findings.length ? h('span', { class: 'muted' }, ` · ${findingsSummary(r.findings)}`) : ''),
       r.findings.length
         ? h(
             'div',
@@ -537,7 +548,9 @@ function renderReport() {
           )
         : '',
     ),
-    r.findings.length ? h('div', { class: 'findings', id: 'finding-list' }, r.findings.map(renderFinding)) : h('p', { class: 'muted' }, 'No findings.'),
+    r.findings.length
+      ? h('div', { id: 'finding-list' }, fresh.length ? h('div', { class: 'findings' }, fresh.map(renderFinding)) : h('p', { class: 'muted' }, 'No new findings.'), preGroup)
+      : h('p', { class: 'muted' }, 'No findings.'),
   )
 
   const extras = []
@@ -616,16 +629,14 @@ function editor(f) {
 }
 
 function selectAll(on) {
-  for (const f of state.report.findings) {
-    if (!f.fingerprint) continue
-    if (on) state.selected.add(f.fingerprint)
-    else state.selected.delete(f.fingerprint)
-  }
+  // "Select all" ticks new findings only; pre-existing ones are ticked one by one (Story 9.1). "Select none" clears everything.
+  state.selected = on ? new Set(selectAllFingerprints(state.report.findings)) : new Set()
   for (const el of document.querySelectorAll('#finding-list .finding')) {
     const box = el.querySelector('input[type="checkbox"]')
     if (box.disabled) continue
-    box.checked = on
-    el.classList.toggle('off', !on)
+    const ticked = state.selected.has(el.dataset.fp)
+    box.checked = ticked
+    el.classList.toggle('off', !ticked)
   }
   selectionChanged()
 }
