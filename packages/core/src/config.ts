@@ -83,7 +83,7 @@ export const Settings = z.strictObject({
    * learn: false stops using the repository's feedback on earlier comments (👎, /dismiss, /remember);
    * relatedFiles: false stops showing the AI unchanged code the change imports, its callers, and its tests.
    */
-  ai: z.strictObject({ toolResults: z.boolean().optional(), verify: z.boolean().optional(), learn: z.boolean().optional(), relatedFiles: z.boolean().optional(), styleFindings: z.boolean().optional(), incremental: z.boolean().optional(), effort: z.enum(['adaptive', 'light', 'standard', 'deep']).optional(), codebaseSearch: z.boolean().optional(), crossRepo: z.boolean().optional() }).optional(),
+  ai: z.strictObject({ toolResults: z.boolean().optional(), verify: z.boolean().optional(), verifyProvider: z.string().optional(), verifyModel: z.string().optional(), learn: z.boolean().optional(), relatedFiles: z.boolean().optional(), styleFindings: z.boolean().optional(), incremental: z.boolean().optional(), effort: z.enum(['adaptive', 'light', 'standard', 'deep']).optional(), codebaseSearch: z.boolean().optional(), crossRepo: z.boolean().optional() }).optional(),
   cache: z.strictObject({ enabled: z.boolean().optional(), maxMB: z.number().int().positive().optional() }).optional(),
   /** Review Rules sources: Markdown file paths (relative to the config file) or https:// URLs (AD-13). */
   reviewRules: z.array(z.string()).optional(),

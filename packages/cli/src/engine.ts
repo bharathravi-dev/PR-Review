@@ -260,6 +260,30 @@ export async function buildProviderChain(
   return out
 }
 
+/** Builds an optional second-opinion verifier provider when `ai.verifyProvider` is configured. */
+export async function buildVerifyCandidate(
+  config: ResolvedConfig,
+  deps: CliDeps,
+  secrets: Secret[],
+): Promise<{ candidate?: ProviderCandidate | undefined; warning?: string | undefined }> {
+  const name = config.settings.ai?.verifyProvider
+  if (!name) return {}
+  const model = config.settings.ai?.verifyModel
+  const built = await buildProvider(config, name, model, deps, secrets)
+  const entry = providerEntry(config, name)
+  if (!built.ok) {
+    return { warning: `Configured verifyProvider "${name}" could not be used (${built.error.message}); verification will use the primary provider.` }
+  }
+  return {
+    candidate: {
+      name,
+      provider: built.value,
+      model: model ?? entry?.model,
+      pricing: entry?.pricing,
+    },
+  }
+}
+
 export interface ExecuteReviewOptions {
   config: ResolvedConfig
   deps: CliDeps
@@ -294,6 +318,8 @@ export interface ExecuteReviewOptions {
 /** Runs the Review Engine for one PR exactly as the `review` command does. */
 export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: Report; context?: PrContext }> {
   const chain = o.noAi ? [] : await buildProviderChain(o.config, o.provider, o.model, o.deps, o.secrets)
+  const verifier = o.noAi ? {} : await buildVerifyCandidate(o.config, o.deps, o.secrets)
+  if (verifier.warning) o.onWarning?.(verifier.warning)
   const name = providerName(o.config, o.provider)
   const dir = stateDir(o.deps)
   for (const c of chain) {
@@ -346,6 +372,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       scanSecrets: secretScanner,
       tickets: createTickets(o.deps.env, o.deps.fetch, o.secrets),
       providers: chain,
+      verifyProvider: verifier.candidate,
       ledger: tracked ? fileLedger(dir) : undefined,
       validators,
       installSteps,

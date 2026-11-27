@@ -49,6 +49,8 @@ export interface EnginePorts {
   installSteps?: ((ctx: ValidatorContext) => SandboxStep[]) | undefined
   /** Milliseconds since the epoch. */
   now: () => number
+  /** Optional second-opinion provider candidate used strictly for the verification pass. */
+  verifyProvider?: ProviderCandidate | undefined
   /** Jira and Linear tickets by key (roadmap item 11); absent when none is configured. */
   tickets?: ((keys: readonly string[]) => Promise<Ticket[]>) | undefined
   /** Optional parser check for AI code suggestions (returns true when patched code introduces no syntax errors). */
@@ -368,6 +370,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       limits: input.costLimits,
       ledger: ports.ledger,
       verify: effort.level !== 'light' && verify === true,
+      verifyProvider: ports.verifyProvider,
       syntaxCheck: ports.syntaxCheck,
     })
     record(outcome.layer)

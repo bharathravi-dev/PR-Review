@@ -8,6 +8,7 @@ describe('parseUserConfig', () => {
       version: 1,
       github: { host: 'ghe.example.com' },
       providers: { work: { type: 'openai-compatible', baseUrl: 'https://llm.internal/v1', model: 'm', credential: 'provider:work' } },
+      ai: { verifyProvider: 'openai', verifyModel: 'gpt-4o' },
       profiles: { ci: { defaultProvider: 'work' } },
     })
     expect(r.ok).toBe(true)

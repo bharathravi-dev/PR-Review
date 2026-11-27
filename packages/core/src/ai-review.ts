@@ -601,7 +601,14 @@ export async function runAiReview(
     let kept = findings
     let unverified = 0
     if (opts.verify && findings.length > 0) {
-      const vp = opts.verifyProvider?.provider ? opts.verifyProvider : { name: c.name, provider: p, model: res.value.model, pricing: c.pricing }
+      const requestedVp = opts.verifyProvider?.provider ? opts.verifyProvider : undefined
+      const vpAllowed =
+        requestedVp?.provider &&
+        (!opts.channel || !requestedVp.provider.channels || requestedVp.provider.channels.includes(opts.channel))
+      if (requestedVp && !vpAllowed) {
+        notes.push(`Configured verifyProvider "${requestedVp.name}" is not allowed in the ${opts.channel} channel; verifying with "${c.name}" instead.`)
+      }
+      const vp = vpAllowed && requestedVp ? requestedVp : { name: c.name, provider: p, model: res.value.model, pricing: c.pricing }
       const vBilling = vp.provider!.billing ?? 'METERED'
       const skippedPrWide: Finding[] = []
       const verifyBatches: Array<{ req: ReviewRequest; batch: Finding[] }> = []

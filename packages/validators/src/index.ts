@@ -11,6 +11,7 @@ export { localSyntaxValidator, preservesValidSyntax } from './syntax-local.js'
 export { LOCAL_STANDARD_RULES, localStandardsValidator } from './local-standards.js'
 export { localTestsValidator, matchesTestForSource } from './test-coverage.js'
 export { sonarApiValidator } from './sonar.js'
+export { workflowSecurityValidator } from './workflow-security.js'
 
 import type { Validator } from '@pr-reviewer/core'
 import { ciResultsValidator } from './ci.js'
@@ -24,10 +25,12 @@ import { sonarApiValidator } from './sonar.js'
 import { localSyntaxValidator } from './syntax-local.js'
 import { eslintValidator, tscValidator, tslintValidator } from './sandbox-tools.js'
 import { localTestsValidator } from './test-coverage.js'
+import { workflowSecurityValidator } from './workflow-security.js'
 
 /** The built-in Validator registry (AD-5). The secret scan runs separately because `redact` needs its values. */
 export const BUILT_IN_VALIDATORS: readonly Validator[] = [
   configChangesValidator,
+  workflowSecurityValidator,
   securityPatternsValidator,
   localSyntaxValidator,
   localStandardsValidator,
