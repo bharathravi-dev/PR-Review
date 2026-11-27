@@ -162,7 +162,7 @@ export function createTerminalProgress(io: CliIo, opts: { isTTY: boolean; silent
 
 export function renderPostRunBanner(
   io: CliIo,
-  opts: { actionableFixCount: number; codeFixCount: number; canPost: boolean; canOpenBrowser: boolean },
+  opts: { actionableFixCount: number; codeFixCount: number; canPost: boolean; canApplyLocally: boolean; canOpenBrowser: boolean },
 ): void {
   io.stderr('\n──── What next? ────\n')
   if (opts.actionableFixCount > 0) {
@@ -173,6 +173,7 @@ export function renderPostRunBanner(
     io.stderr('  [v] Step through findings & pick which to post\n')
   }
   io.stderr('  [f] View / save Recommended Fix Bundle\n')
+  if (opts.canApplyLocally) io.stderr('  [a] Apply suggested fixes locally (with preview, never commits)\n')
   if (opts.canOpenBrowser) io.stderr('  [o] Open interactive review page in browser\n')
   io.stderr('  [q] Done (exit)\n')
 }

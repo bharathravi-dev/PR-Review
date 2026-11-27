@@ -45,11 +45,12 @@ describe('terminal UI progress and post-run menu', () => {
 
   it('prints interactive action choices including Recommended Fix Bundle', () => {
     let err = ''
-    renderPostRunBanner({ stdout: () => undefined, stderr: (t) => (err += t) }, { actionableFixCount: 4, codeFixCount: 2, canPost: true, canOpenBrowser: true })
+    renderPostRunBanner({ stdout: () => undefined, stderr: (t) => (err += t) }, { actionableFixCount: 4, codeFixCount: 2, canPost: true, canApplyLocally: true, canOpenBrowser: true })
     expect(err).toContain('Recommended Fix Bundle: 4 actionable finding(s) (2 with direct code suggestions)')
     expect(err).toContain('[p] Post review to GitHub')
     expect(err).toContain('[v] Step through findings')
     expect(err).toContain('[f] View / save Recommended Fix Bundle')
+    expect(err).toContain('[a] Apply suggested fixes locally')
     expect(err).toContain('[o] Open interactive review page')
   })
 })

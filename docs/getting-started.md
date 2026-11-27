@@ -143,7 +143,7 @@ pr-reviewer review <owner>/<repo>#<number>
    - `SYNTAX` (`syntax.local`) — in-process syntax checks (zero Docker) for TS/JS, JSON/JSONC, YAML, and `.properties` duplicate keys.
    - `STATIC_ANALYSIS` (`standards.local`) — in-process local code standards & bug patterns (zero Docker) for TS/JS, Java/Kotlin, Python, and Go.
    - `DEPENDENCIES` (`deps.audit`) — checks added/upgraded dependencies against OSV vulnerabilities (npm, Maven `pom.xml`, PyPI `requirements*.txt`, Go `go.mod`).
-   - `COMPILE` (`ts.tsc`) & `LINT` (`lint.eslint` / `lint.tslint`) — runs inside Docker/Podman if JS/TS is touched and a container runtime is available; if no container runtime is found, the CLI asks `[y/N]` before falling back to host execution (or skips if declined / `--no-local-tools`).
+   - `COMPILE` (`ts.tsc`, `java.compile`, `go.vet`) & `LINT` (`lint.eslint`, `lint.tslint`, `python.lint`) — runs inside Docker/Podman when JS/TS, Java/Kotlin, Python, or Go projects are touched; if no container runtime is found, the CLI asks `[y/N]` before falling back to host execution (or skips if declined / `--no-local-tools`).
    - `SECURITY` (`repo.build-config-changes`, `security.patterns`) — flags risky build/CI changes and multi-language OWASP security patterns.
    - `SECRETS` (`secrets.builtin`) — scans added lines and strips secrets before any AI call or output.
    - `AI_REVIEW` (`ai.review`) — runs your configured Pro/cloud/local model grounded with `<language_standards>`, related callers/tests, guidance files, learnings, and deterministic tool evidence.
@@ -187,6 +187,7 @@ When you run `pr-reviewer review <pr>` in an interactive terminal without `--pos
 - `[p]` **Post review to GitHub** (prints exact preview and confirms `[y/N]`)
 - `[v]` **Step through findings** one by one and pick which to post
 - `[f]` **View / save Recommended Fix Bundle** (`fix-bundle.md`)
+- `[a]` **Apply suggested fixes locally** (inside `--local` reviews: writes accepted code replacement blocks directly to local files with preview, never auto-commits)
 - `[o]` **Open in browser UI** — launches the local review page directly on the finished review
 - `[q]` **Quit**
 
@@ -263,6 +264,7 @@ Shows open PRs (with whether you have already reviewed their latest commit) so y
 
 | Command | What it does |
 |---|---|
+| `pr-reviewer hook install` | Installs a managed git `pre-push` hook running `pr-reviewer review --local` (`uninstall` / `status` also available) |
 | `pr-reviewer respond <PR>` | Answers pending `@pr-reviewer ...` commands left as PR comments (supports `--dry-run`) |
 | `pr-reviewer stats` | Shows addressed vs. dismissed vs. still-open rates for posted findings (`--repo`, `--since YYYY-MM-DD`, `--json`) |
 | `pr-reviewer learnings <owner/repo>` | Lists conventions learned from team feedback (`/remember`, `/dismiss`, 👎) |

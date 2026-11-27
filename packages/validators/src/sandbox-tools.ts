@@ -2,7 +2,7 @@
 // declare commands; the output is parsed here, on the host, as untrusted input.
 import type { Finding, LayerOutcome, ProjectInfo, SandboxStep, SandboxStepResult, Validator, ValidatorContext } from '@pr-reviewer/core'
 import { isStylisticRule } from './lint-style.js'
-import { finding, joinPath, relTo } from './util.js'
+import { finding, joinPath, normalizePosix, relTo, stepProblem, tail } from './util.js'
 
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
 const MAX_FILES = 500
@@ -123,32 +123,6 @@ function installNote(ctx: ValidatorContext, project: ProjectInfo): string {
   return r && r.stderr.includes('LOCKFILE_RELAXED') ? ' The lockfile is out of date with package.json, so dependencies were installed without freezing it; results may differ from a fresh install.' : ''
 }
 
-function tail(text: string, max = 300): string {
-  const t = text.trim()
-  return t.length > max ? `…${t.slice(-max)}` : t
-}
-
-/** POSIX path normalisation (resolves ./ and ../). */
-function normalize(path: string): string {
-  const out: string[] = []
-  for (const part of path.split('/')) {
-    if (part === '' || part === '.') continue
-    if (part === '..') out.pop()
-    else out.push(part)
-  }
-  return out.join('/')
-}
-
-/** Turns a step result into a crash outcome, or undefined when the tool produced usable output. */
-function stepProblem(r: SandboxStepResult | undefined, okCodes: readonly number[]): string | undefined {
-  if (!r) return 'the step did not run'
-  if (r.skipped) return r.skipped
-  if (r.timedOut) return 'it timed out'
-  if (r.exitCode === 127) return tail(r.stderr) || 'the tool is not installed'
-  if (r.exitCode === null || !okCodes.includes(r.exitCode)) return `exit ${r.exitCode}: ${tail(r.stderr || r.stdout)}`
-  return undefined
-}
-
 // ── tsc ─────────────────────────────────────────────────────────────────
 
 function tsProjects(ctx: ValidatorContext) {
@@ -230,7 +204,7 @@ export function parseTsc(stdout: string, projectDir: string): Array<{ path: stri
   const out: Array<{ path: string; line: number; code: string; message: string }> = []
   for (const line of stdout.split('\n')) {
     const m = /^(.+?)\((\d+),\d+\): error (TS\d+): (.*)$/.exec(line)
-    if (m) out.push({ path: normalize(joinPath(projectDir, m[1]!)), line: Number(m[2]), code: m[3]!, message: m[4]! })
+    if (m) out.push({ path: normalizePosix(joinPath(projectDir, m[1]!)), line: Number(m[2]), code: m[3]!, message: m[4]! })
     else if (/^\s+\S/.test(line) && out.length) out[out.length - 1]!.message += `\n${line.trim()}`
   }
   return out
@@ -298,7 +272,7 @@ export const eslintValidator: Validator = {
       }
       let count = 0
       for (const file of report) {
-        const path = normalize(file.filePath.replace(/^\/work\/?/, ''))
+        const path = normalizePosix(file.filePath.replace(/^\/work\/?/, ''))
         for (const m of file.messages ?? []) {
           count++
           const line = m.line && m.line > 0 ? m.line : undefined
@@ -389,7 +363,7 @@ export const tslintValidator: Validator = {
         continue
       }
       for (const m of report) {
-        const path = normalize(m.name.startsWith('/work/') ? m.name.slice(6) : joinPath(project.path, m.name))
+        const path = normalizePosix(m.name.startsWith('/work/') ? m.name.slice(6) : joinPath(project.path, m.name))
         const line = m.startPosition.line + 1
         findings.push(
           finding({

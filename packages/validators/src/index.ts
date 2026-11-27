@@ -6,6 +6,7 @@ export { configChangesValidator } from './config-changes.js'
 export { SECURITY_RULES, securityPatternsValidator } from './security-patterns.js'
 export { dependencyAuditValidator, lockedPackages } from './dependencies.js'
 export { DEFAULT_RULESETS, eslintValidator, installSteps, parseTsc, tscValidator, tslintValidator } from './sandbox-tools.js'
+export { goVetValidator, javaCompileValidator, parseGoVetOutput, parseJavaBuildOutput, parseRuffOutput, pythonValidator } from './polyglot-tools.js'
 export { localSyntaxValidator } from './syntax-local.js'
 export { LOCAL_STANDARD_RULES, localStandardsValidator } from './local-standards.js'
 
@@ -16,6 +17,7 @@ import { securityPatternsValidator } from './security-patterns.js'
 import { dependencyAuditValidator } from './dependencies.js'
 import { angularValidator, reactValidator } from './framework.js'
 import { localStandardsValidator } from './local-standards.js'
+import { goVetValidator, javaCompileValidator, pythonValidator } from './polyglot-tools.js'
 import { localSyntaxValidator } from './syntax-local.js'
 import { eslintValidator, tscValidator, tslintValidator } from './sandbox-tools.js'
 
@@ -32,4 +34,7 @@ export const BUILT_IN_VALIDATORS: readonly Validator[] = [
   tscValidator,
   eslintValidator,
   tslintValidator,
+  javaCompileValidator,
+  pythonValidator,
+  goVetValidator,
 ]

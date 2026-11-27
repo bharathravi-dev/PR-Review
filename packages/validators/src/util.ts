@@ -1,4 +1,4 @@
-import { parsePatch, type ChangedFile, type Finding, type PrContext } from '@pr-reviewer/core'
+import { parsePatch, type ChangedFile, type Finding, type PrContext, type SandboxStepResult } from '@pr-reviewer/core'
 
 /** Lines a file adds (head line numbers), from its patch. */
 export function addedLines(file: ChangedFile): Map<number, string> {
@@ -26,4 +26,30 @@ export function isTestFile(path: string): boolean {
 
 export function isCommentLine(text: string): boolean {
   return /^\s*(\/\/|#|\*|\/\*|--)/.test(text)
+}
+
+export function tail(text: string, max = 300): string {
+  const t = text.trim()
+  return t.length > max ? `…${t.slice(-max)}` : t
+}
+
+/** POSIX path normalisation (resolves ./ and ../). */
+export function normalizePosix(path: string): string {
+  const out: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return out.join('/')
+}
+
+/** Turns a step result into a crash outcome, or undefined when the tool produced usable output. */
+export function stepProblem(r: SandboxStepResult | undefined, okCodes: readonly number[]): string | undefined {
+  if (!r) return 'the step did not run'
+  if (r.skipped) return r.skipped
+  if (r.timedOut) return 'it timed out'
+  if (r.exitCode === 127) return tail(r.stderr) || 'the tool is not installed'
+  if (r.exitCode === null || !okCodes.includes(r.exitCode)) return `exit ${r.exitCode}: ${tail(r.stderr || r.stdout)}`
+  return undefined
 }

@@ -25,6 +25,8 @@ import {
   type Secret,
 } from '@pr-reviewer/core'
 import { createTerminalProgress, renderPostRunBanner } from './terminal-ui.js'
+import { hookCommand } from './hook.js'
+import { applySuggestionsLocally, localApplicableSuggestions } from './local-apply.js'
 import { createCredentialResolver, runProcess } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
 import type { CliDeps, CliIo } from './deps.js'
@@ -64,6 +66,7 @@ Commands:
   bench <dataset>    Measure review quality on PRs with known issues (precision, recall, F1)
   fix <PR>           Have your Claude Code or Codex fix your open findings in this checkout
   ship <PR>          Review, fix with your coding agent, push, wait for CI, and repeat until ready (never merges)
+  hook <cmd>         Install, inspect, or remove a local git pre-push review hook (install|uninstall|status)
   respond <PR>       Answer @pr-reviewer commands on the PR (review, why, fix, ignore, remember, help)
   app                Run the GitHub App: review every PR on push and answer @pr-reviewer (env-configured; docs/github-app.md)
   learnings <repo>   What reviews learned from feedback on earlier comments (👎, /dismiss, /remember)
@@ -204,6 +207,7 @@ async function run(argv: readonly string[], io: CliIo, deps: CliDeps, secrets: S
   if (first === 'fix') return fixCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'bench') return benchCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
   if (first === 'init') return initCommand(rest, io, deps, secrets, (m) => usageError(io, m))
+  if (first === 'hook') return hookCommand(rest, io, deps, (m) => usageError(io, m))
   if (first === 'auto') return autoCommand(rest, io, deps, secrets, (profile) => resolveConfig(io, deps, profile, {}), (m) => usageError(io, m))
 
   const kind = first.startsWith('-') ? 'option' : 'command'
@@ -532,11 +536,12 @@ async function interactivePostMenu(o: {
 }): Promise<number> {
   const { report, context, local, ref, github, config, event, reviewCode, fixBundle, io, deps, secrets, outDir } = o
   const canPost = Boolean(!local && context && github.viewer)
+  const canApplyLocally = local && localApplicableSuggestions(report).length > 0
   const canOpenBrowser = Boolean(!local && context)
-  const validChoices = [canPost ? 'p' : '', canPost ? 'v' : '', 'f', canOpenBrowser ? 'o' : '', 'q'].filter(Boolean).join('/')
+  const validChoices = [canPost ? 'p' : '', canPost ? 'v' : '', 'f', canApplyLocally ? 'a' : '', canOpenBrowser ? 'o' : '', 'q'].filter(Boolean).join('/')
   let invalid = 0
   while (invalid < 3) {
-    renderPostRunBanner(io, { actionableFixCount: fixBundle.totalActionable, codeFixCount: fixBundle.withCodeSuggestions, canPost, canOpenBrowser })
+    renderPostRunBanner(io, { actionableFixCount: fixBundle.totalActionable, codeFixCount: fixBundle.withCodeSuggestions, canPost, canApplyLocally, canOpenBrowser })
     const choice = (await deps.prompt(`Choose [${validChoices}]: `)).trim().toLowerCase()
     if (!choice || choice === 'q' || choice === 'quit') return reviewCode
     if (choice === 'p' && canPost) {
@@ -580,6 +585,10 @@ async function interactivePostMenu(o: {
           io.stderr('Saved fix-bundle.md\n')
         }
       }
+      continue
+    }
+    if (choice === 'a' && canApplyLocally) {
+      await applySuggestionsLocally({ report, cwd: deps.cwd ?? process.cwd(), io, deps })
       continue
     }
     if (choice === 'o' && canOpenBrowser) {
