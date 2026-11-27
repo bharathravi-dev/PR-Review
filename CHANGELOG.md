@@ -15,6 +15,10 @@
 - **Go (`go.vet`):** `go mod download` + `go vet ./...` inside the `go` sandbox runtime.
 - **Git pre-push hook (`pr-reviewer hook`):** `install`, `uninstall`, and `status` commands running `pr-reviewer review --local` before pushing.
 - **Direct Local Fix Application:** Apply line-anchored suggestions from Recommended Fix Bundle safely to the working tree (`[a]` in `--local` interactive mode) with diff preview and path-traversal protection (never auto-commits).
+- **CI/CD & Container Security + Cross-Model Verification (`ci.workflows`, `ai.verifyProvider`):** Deterministic security checks on changed `.github/workflows/*.yml` and `Dockerfile`/`Containerfile` files (zero sandbox needed), plus optional second-opinion `ai.verifyProvider` and `ai.verifyModel` configuration.
+- **Learned Rules Export & Per-Rule Analytics (`learnings --propose`, `stats`):** Format `/remember` and `/dismiss` feedback into idempotent rules with `--propose [--write <file>]`, and track addressed/dismissed rates per rule and category (`byRule`, `byCategory`).
+- **Opt-In Sandboxed Unit Test Execution (`tests.sandbox`, `tests.go`):** Run project test suites inside the locked-down container via `validators.enable` (`tests.sandbox`, `tests.go`), parsing failing test files/lines into `TESTS` findings.
+- **Benchmark Anti-Hallucination & Precision Reporting (`pr-reviewer bench`):** Track `groundedDropsTotal` / `verificationDropsTotal` and false-positive rate in `bench` and `scripts/bench-report.mjs`, with offline hallucination-trap regression tests.
 
 ### Interactive Terminal UX, RAG Grounding, & Sandbox Fallback
 - **Animated 7-stage CLI progress spinner:** Live TTY spinner with elapsed seconds, multi-part AI progress (`part X/Y`), and retrieved AI RAG context summary.
