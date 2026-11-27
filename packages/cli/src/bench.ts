@@ -93,6 +93,8 @@ export interface CaseResult {
   matchedGold: number
   matchedComments: number
   bySeverity: Record<string, { gold: number; found: number }>
+  groundedDrops?: number | undefined
+  verificationDrops?: number | undefined
   tokens: number
   costUsd: number
   ms: number
@@ -200,6 +202,7 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
         filter: { type: 'string' },
         limit: { type: 'string' },
         concurrency: { type: 'string' },
+        effort: { type: 'string' },
         verify: { type: 'boolean' },
         'no-tool-results': { type: 'boolean' },
         'no-related-files': { type: 'boolean' },
@@ -214,6 +217,8 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
   if (!Number.isInteger(runs) || runs < 1 || runs > 10) return usage('--runs must be 1 to 10')
   const concurrency = Number(parsed.values.concurrency ?? 1)
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) return usage('--concurrency must be 1 to 8')
+  const effortFlag = parsed.values.effort
+  if (effortFlag && !['adaptive', 'light', 'standard', 'deep'].includes(effortFlag)) return usage('--effort must be adaptive, light, standard, or deep')
   const limit = parsed.values.limit === undefined ? undefined : Number(parsed.values.limit)
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) return usage('--limit must be a positive whole number')
   let dataset: BenchDataset
@@ -237,6 +242,7 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
   const ai = {
     ...resolved.settings.ai,
     learn: false,
+    ...(effortFlag ? { effort: effortFlag as 'adaptive' | 'light' | 'standard' | 'deep' } : {}),
     ...(parsed.values.verify ? { verify: true } : {}),
     ...(parsed.values['no-tool-results'] ? { toolResults: false } : {}),
     ...(parsed.values['no-related-files'] ? { relatedFiles: false } : {}),
@@ -269,8 +275,10 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
       const costUsd = done.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0)
       if (report.layers.some((l) => l.layer === 'AI_REVIEW' && (l.status === 'ERROR' || l.status === 'SKIPPED'))) return { ...failed('AI review did not run'), tokens, costUsd }
       const scored = await scoreCase(postedComments(report.findings, inlineSeverityFloor(report, config)), c.issues, judge)
+      const groundedDrops = report.ai?.droppedFindings.grounding ?? 0
+      const verificationDrops = report.ai?.droppedFindings.verification ?? 0
       io.stderr(`  run ${run}/${runs} ${c.pr}: ${scored.matchedGold}/${scored.gold} found, ${scored.comments} comment(s)\n`)
-      return { pr: c.pr, ...scored, tokens, costUsd, ms: Date.now() - started }
+      return { pr: c.pr, ...scored, groundedDrops, verificationDrops, tokens, costUsd, ms: Date.now() - started }
     } catch (e) {
       io.stderr(`  run ${run}/${runs} ${c.pr}: failed (${(e as Error).message})\n`)
       return failed((e as Error).message)
@@ -285,6 +293,8 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
   const ok = flat.filter((c) => !c.error)
   const severities = SEVERITIES.filter((s) => ok.some((c) => c.bySeverity[s])).concat(ok.some((c) => c.bySeverity.UNRATED) ? ['UNRATED' as never] : [])
   const avg = (pick: (c: CaseResult) => number) => (ok.length ? ok.reduce((n, c) => n + pick(c), 0) / ok.length : 0)
+  const groundedDropsTotal = ok.reduce((n, c) => n + (c.groundedDrops ?? 0), 0)
+  const verificationDropsTotal = ok.reduce((n, c) => n + (c.verificationDrops ?? 0), 0)
   const summary = {
     dataset: { name: dataset.name, version: dataset.version ?? null, source: dataset.source ?? null, cases: cases.length, filter: parsed.values.filter ?? null },
     runs,
@@ -301,6 +311,8 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
     ),
     commentsPerPr: avg((c) => c.comments),
     zeroCommentShare: ok.length ? ok.filter((c) => c.comments === 0).length / ok.length : 0,
+    groundedDropsTotal,
+    verificationDropsTotal,
     tokensPerPr: avg((c) => c.tokens),
     usdPerPr: avg((c) => c.costUsd),
     seconds: { p50: percentile(ok.map((c) => c.ms), 50) / 1000, p95: percentile(ok.map((c) => c.ms), 95) / 1000 },
@@ -314,7 +326,7 @@ export async function benchCommand(args: string[], io: CliIo, deps: CliDeps, sec
       `Benchmark ${dataset.name}${dataset.version ? ` v${dataset.version}` : ''}: ${cases.length} PR(s) × ${runs} run(s)${ai.verify ? ', with verification' : ''}${ai.toolResults === false ? ', without tool results' : ''}${ai.relatedFiles === false ? ', without related files' : ''}; matching ±${LINE_WINDOW} lines${judge ? ` + judge ${parsed.values.judge}` : ' (line match only: add --judge for root-cause matching)'}`,
       ...(sameFamily ? ['  note: the judge uses the same provider type as the reviewer, which may favour it; prefer a different model family'] : []),
       `  precision ${fmt(per.map((m) => m.precision))}   recall ${fmt(per.map((m) => m.recall))}   F1 ${fmt(per.map((m) => m.f1))}`,
-      `  recall by severity: ${severities.map((s) => `${s.toLowerCase()} ${(summary.recallBySeverity[s]! * 100).toFixed(0)}%`).join(', ') || 'n/a'}`,
+      `  recall by severity: ${severities.map((s) => `${s.toLowerCase()} ${(summary.recallBySeverity[s]! * 100).toFixed(0)}%`).join(', ') || 'n/a'}   guard drops: ${groundedDropsTotal} grounding, ${verificationDropsTotal} verification`,
       `  per PR: ${summary.commentsPerPr.toFixed(1)} comments (${(summary.zeroCommentShare * 100).toFixed(0)}% with none), ${Math.round(summary.tokensPerPr)} tokens${money}, p50 ${summary.seconds.p50.toFixed(1)} s, p95 ${summary.seconds.p95.toFixed(1)} s${summary.failedCases ? `; ${summary.failedCases} case run(s) failed and are excluded` : ''}`,
       '',
     ].join('\n'),

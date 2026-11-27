@@ -11,8 +11,9 @@ const UNTRUSTED_EXPR = /\$\{\{\s*github\.event\.(?:issue|pull_request|comment|re
 function scanWorkflow(path: string, text: string): Finding[] {
   const out: Finding[] = []
   const lines = text.split(/\r?\n/)
-  const usesPrTarget = /(?:^|\n)\s*pull_request_target\b/.test(text)
-  const checksOutPrHead = /actions\/checkout/.test(text) && /github\.event\.pull_request\.head\.(ref|sha)/.test(text)
+  const uncommented = lines.filter((l) => !l.trim().startsWith('#')).join('\n')
+  const usesPrTarget = /\bpull_request_target\b/.test(uncommented)
+  const checksOutPrHead = /actions\/checkout/.test(uncommented) && /github\.event\.pull_request\.head\.(ref|sha)/.test(uncommented)
   if (usesPrTarget && checksOutPrHead) {
     const lineIdx = lines.findIndex((l) => /pull_request_target/.test(l))
     out.push(

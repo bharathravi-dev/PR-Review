@@ -26,10 +26,9 @@ A full run reviews 50 PRs (about 75k tokens each with Claude); `--projects cal_d
 
 ## Results
 
-| Run | Reviewer | Dataset | Precision | Recall | F1 | Comments/PR | Time p50 |
-|---|---|---|---|---|---|---|---|
-| baseline (2026-11-25) | claude-code | golden (cal.com only), 10 PRs × 1 | 26% | 78% | 39% | 6.9 | 78 s |
+| Run | Reviewer | Dataset | Precision | FP Rate | Recall | F1 | Comments/PR | Guard Drops | Time p50 | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline (2026-11-25) | claude-code | golden (cal.com), 10 PRs × 1 | 26% | 74% | 78% | 39% | 6.9 | — | 78 s | Complete run; predates noise & verification updates |
+| verify-cal_dot_com (2026-11-25) | claude-code (verify) | golden (cal.com), 10 PRs × 1 | 43% | 57% | 100% | 60% | 3.5 | — | 101 s | Incomplete (`failedCases: 8` due to quota/errors; not comparable as a full run) |
 
-This baseline predates noise reduction (folded repeats, no style-only remarks), adaptive effort and the verification
-pass on risky changes, which target precision. A full 50-PR run with the current engine is the next step; until then,
-these numbers are a lower bound on precision, not a published result.
+A full 50-PR run (`--effort standard`, with quote/hunk grounding, `standard` verification, `<language_standards>`, `tests.local`, and `sonar.api`) requires live GitHub + LLM access (`pr-reviewer bench bench/data/golden-50.json --judge openai --out bench/results/v0.1.2.json`). Offline hallucination-trap regression scoring is verified continuously in `packages/cli/src/bench-hallucination.test.ts`.
