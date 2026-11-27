@@ -28,7 +28,7 @@ import { AnthropicProvider, DEFAULT_OLLAMA_BASE_URL, listOllamaModels, OllamaPro
 import { BUILT_IN_VALIDATORS, scanSecrets } from '@pr-reviewer/validators'
 
 /** Engine version recorded in Reports; kept in lockstep with @pr-reviewer/cli (a test checks it). */
-export const ENGINE_VERSION = '0.1.1'
+export const ENGINE_VERSION = '0.1.2'
 
 export interface StandaloneSettings {
   githubToken: string
