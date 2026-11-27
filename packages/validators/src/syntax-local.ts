@@ -19,6 +19,39 @@ function scriptKind(path: string): ts.ScriptKind {
   return ts.ScriptKind.TS
 }
 
+function tsJsParseErrorCount(path: string, text: string): number {
+  const sf = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind(path))
+  return ((sf as unknown as { parseDiagnostics?: readonly ts.DiagnosticWithLocation[] }).parseDiagnostics ?? []).length
+}
+
+/**
+ * Returns true if `patchedText` introduces no additional syntax errors compared to `originalText`
+ * (or parses with zero errors when `originalText` is omitted). Unsupported extensions pass through as true.
+ */
+export function preservesValidSyntax(path: string, patchedText: string, originalText?: string): boolean {
+  const count = (text: string): number => {
+    if (TS_JS.test(path)) return tsJsParseErrorCount(path, text)
+    if (JSON_FILE.test(path)) {
+      if (JSONC_NAMES.test(path)) {
+        const jf = ts.parseJsonText(path, text)
+        return ((jf as unknown as { parseDiagnostics?: readonly ts.DiagnosticWithLocation[] }).parseDiagnostics ?? []).length
+      }
+      try {
+        JSON.parse(text)
+        return 0
+      } catch {
+        return 1
+      }
+    }
+    if (YAML_FILE.test(path)) return validateYamlSyntax(text).ok ? 0 : 1
+    return 0
+  }
+  const patchedErrors = count(patchedText)
+  if (patchedErrors === 0) return true
+  const baselineErrors = originalText !== undefined ? count(originalText) : 0
+  return patchedErrors <= baselineErrors
+}
+
 function checkTsJsSyntax(path: string, text: string): Finding[] {
   const sf = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind(path))
   const diags = (sf as unknown as { parseDiagnostics?: readonly ts.DiagnosticWithLocation[] }).parseDiagnostics ?? []

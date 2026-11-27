@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { guardWalkthroughSummary } from './ai-grounding.js'
 import type { Finding, LayerResult } from './findings.js'
 import { evaluateGate } from './report.js'
 
@@ -56,5 +57,26 @@ describe('evaluateGate', () => {
 
   it('reports CANCELLED when the run was superseded', () => {
     expect(evaluateGate(ok, [], { cancelled: true }).result).toBe('CANCELLED')
+  })
+})
+
+describe('guardWalkthroughSummary', () => {
+  it('flags walkthrough prose that contradicts layer execution or active findings', () => {
+    const out = guardWalkthroughSummary('Everything compiles cleanly, all tests pass, no issues found, reviewed every file.', {
+      layers: [layer('COMPILE', 'SKIPPED', 'NO_SANDBOX')],
+      findings: [finding({})],
+      fileCoverage: { loaded: 10, fullText: 8, diffOnly: 2, omittedTotalLimit: 2, patchTruncated: 0, binary: 0, filesCapReached: false },
+    })
+    expect(out.warnings).toHaveLength(4)
+    expect(out.summary).toContain('Accuracy check:')
+  })
+
+  it('leaves accurate summaries untouched when checks actually ran and passed', () => {
+    const out = guardWalkthroughSummary('Refactor builds cleanly and tests pass.', {
+      layers: [layer('COMPILE', 'PASSED'), layer('TESTS', 'PASSED')],
+      findings: [],
+    })
+    expect(out.warnings).toEqual([])
+    expect(out.summary).toBe('Refactor builds cleanly and tests pass.')
   })
 })
