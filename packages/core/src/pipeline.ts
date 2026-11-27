@@ -2,16 +2,17 @@ import { chooseEffort, effortRule, type EffortSetting } from './effort.js'
 import { quietFindings } from './noise.js'
 import { changedSymbols, findUsages } from './usages.js'
 import { ticketKeys, type Ticket } from './tickets.js'
-import { lastReviewedHead } from './publish.js'
+import { lastReviewedHead, readPrior } from './publish.js'
 import { runAiReview, type CostLimits, type ProviderCandidate, type ReviewProvider, type UsageLedger, type Walkthrough } from './ai-review.js'
 import { hashObject, uuidv7 } from './canonical.js'
+import { guardWalkthroughSummary, type SuggestionSyntaxChecker } from './ai-grounding.js'
 import { parsePatch } from './diff.js'
 import { detectProjects, type ProjectInfo } from './detect.js'
 import { runEventEmitter, type EventSink } from './events.js'
 import { createFileAccessor } from './files.js'
 import { filterPaths, parseRepoConfig, REPO_CONFIG_PATH, REPO_RULES_DIR, type RepoSettings } from './repo-config.js'
 import { parseRulesChecklist } from './rules.js'
-import { executeValidators, type AdvisoryPort, type CachePort, type SandboxPort, type SandboxStep, type Validator, type ValidatorContext } from './validator.js'
+import { executeValidators, type AdvisoryPort, type CachePort, type SandboxPort, type SandboxStep, type SonarPort, type Validator, type ValidatorContext } from './validator.js'
 import { applyDismissals, ownInlineComments, readDismissals } from './feedback.js'
 import { readLearnings, type Learning } from './learnings.js'
 import { findRelatedFiles, type RelatedFile } from './related.js'
@@ -50,6 +51,10 @@ export interface EnginePorts {
   now: () => number
   /** Jira and Linear tickets by key (roadmap item 11); absent when none is configured. */
   tickets?: ((keys: readonly string[]) => Promise<Ticket[]>) | undefined
+  /** Optional parser check for AI code suggestions (returns true when patched code introduces no syntax errors). */
+  syntaxCheck?: SuggestionSyntaxChecker | undefined
+  /** Direct SonarQube / SonarCloud REST API port. */
+  sonar?: SonarPort | undefined
 }
 
 /** At most this many linked issues, each cut to this many characters, reach the AI. */
@@ -214,7 +219,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   const executed = await executeValidators(
     ports.validators ?? [],
     { pr: ctx, files, projects: detected.projects, checks: checks.ok ? checks.value : [], repoSettings, sandbox: new Map() },
-    { advisories: ports.advisories, now: ports.now },
+    { advisories: ports.advisories, sonar: ports.sonar, now: ports.now },
     {
       sandbox: ports.sandbox,
       cache: ports.cache,
@@ -244,11 +249,11 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   }
   record(scan.layer)
 
-  // Adaptive effort: light skips verification and asks for clear defects only; deep turns verification on and asks for
-  // extra care. Related code stays at every level: small changes break callers too.
+  // Adaptive effort: light skips verification and asks for clear defects only; standard and deep run
+  // verification when findings exist (unless explicitly disabled with ai.verify: false).
   const setting = input.review?.effort ?? 'adaptive'
   const effort = setting === 'adaptive' ? chooseEffort(ctx, [...scan.findings, ...executed.findings]) : { level: setting, reasons: ['set in configuration'] }
-  const verify = input.review?.verify ?? (effort.level === 'deep' ? true : undefined)
+  const verify = input.review?.verify ?? (effort.level === 'deep' || effort.level === 'standard' ? true : undefined)
 
   // Unchanged code next to the change, for the AI. It is scanned like the PR itself, so its secrets never reach the AI.
   let related: RelatedFile[] = []
@@ -328,9 +333,14 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
           const touched = new Set(diff.value.paths)
           const recheck = aiCtx.files.filter((f) => touched.has(f.path) || (f.previousPath !== undefined && touched.has(f.previousPath)))
           if (recheck.length < aiCtx.files.length) {
-            incremental = { since, files: recheck.length, unchanged: aiCtx.files.filter((f) => !recheck.includes(f)).map((f) => f.path) }
+            const unchangedPaths = aiCtx.files.filter((f) => !recheck.includes(f)).map((f) => f.path)
+            const unchangedSet = new Set(unchangedPaths)
+            const priorOnUnchanged = published.ok
+              ? readPrior(published.value, input.reviewerId, FPV).inline.filter((c) => c.path && unchangedSet.has(c.path)).length
+              : 0
+            incremental = { since, files: recheck.length, unchanged: unchangedPaths }
             aiCtx = { ...aiCtx, files: recheck } as typeof aiCtx
-            limitations.push(`Incremental review: the AI re-checked the ${recheck.length} file(s) changed since ${since.slice(0, 7)}; findings in the other ${incremental.unchanged.length} file(s) are carried over, not re-checked. Run with --full (or ai.incremental: false) to re-check everything.`)
+            limitations.push(`Incremental review: the AI re-checked the ${recheck.length} file(s) changed since ${since.slice(0, 7)}; findings in the other ${incremental.unchanged.length} file(s) are carried over (${priorOnUnchanged} prior inline comment(s) still on PR), not re-checked. Run with --full (or ai.incremental: false) to re-check everything.`)
           }
         } else if (diff.ok) limitations.push(`Full review: the PR was rewritten since the last review (${since.slice(0, 7)} is not an ancestor of the head).`)
       }
@@ -358,6 +368,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       limits: input.costLimits,
       ledger: ports.ledger,
       verify: effort.level !== 'light' && verify === true,
+      syntaxCheck: ports.syntaxCheck,
     })
     record(outcome.layer)
     aiFindings.push(...outcome.findings)
@@ -387,6 +398,20 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   emit('STAGE_FINISHED', { stage: 'dedupe' })
   emit('FINDING_COUNT', { count: deduped.length, dismissed: deduped.filter((f) => f.dismissed).length })
   const safeLayers = layers.map((l) => ({ ...l, ...(l.detail ? { detail: redactText(l.detail, scan.values) } : {}) }))
+  const fileCoverage: NonNullable<Report['fileCoverage']> = {
+    loaded: ctx.files.length,
+    fullText: ctx.files.filter((f) => f.head?.text !== undefined).length,
+    diffOnly: ctx.files.filter((f) => f.head?.text === undefined && !f.binary && f.status !== 'removed').length,
+    omittedTotalLimit: ctx.files.filter((f) => f.head?.omitted === 'total_limit').length,
+    patchTruncated: ctx.files.filter((f) => f.patchTruncated).length,
+    binary: ctx.files.filter((f) => f.binary).length,
+    filesCapReached: ctx.truncated.some((n) => /first \d+ changed files were loaded/i.test(n)),
+  }
+  if (walkthrough) {
+    const guarded = guardWalkthroughSummary(walkthrough.summary, { layers: safeLayers, findings: deduped, fileCoverage })
+    walkthrough = { ...walkthrough, summary: redactText(guarded.summary, scan.values) }
+    limitations.push(...guarded.warnings)
+  }
   const safeLimitations = limitations.map((n) => redactText(n, scan.values))
   const report = await finish({
     ctx: { ...ctx, title: redactText(ctx.title, scan.values) },
@@ -403,15 +428,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
     ...(incremental ? { incremental } : {}),
     effort,
-    fileCoverage: {
-      loaded: ctx.files.length,
-      fullText: ctx.files.filter((f) => f.head?.text !== undefined).length,
-      diffOnly: ctx.files.filter((f) => f.head?.text === undefined && !f.binary && f.status !== 'removed').length,
-      omittedTotalLimit: ctx.files.filter((f) => f.head?.omitted === 'total_limit').length,
-      patchTruncated: ctx.files.filter((f) => f.patchTruncated).length,
-      binary: ctx.files.filter((f) => f.binary).length,
-      filesCapReached: ctx.truncated.some((n) => /first \d+ changed files were loaded/i.test(n)),
-    },
+    fileCoverage,
     ...(aiAttempted
       ? {
           ragContext: {

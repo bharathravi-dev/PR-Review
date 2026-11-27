@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { dependencyAuditValidator, parsedDependencies } from './dependencies.js'
 import { localStandardsValidator } from './local-standards.js'
 import { securityPatternsValidator } from './security-patterns.js'
-import { localSyntaxValidator } from './syntax-local.js'
+import { localSyntaxValidator, preservesValidSyntax } from './syntax-local.js'
 
 function fileWith(path: string, headText: string, patch?: string) {
   const lines = headText.split('\n')
@@ -193,5 +193,15 @@ describe('multi-ecosystem dependency CVE audit', () => {
     const r = await dependencyAuditValidator.run(makeCtx([{ ...fileWith('pom.xml', headPom), status: 'modified' }], { files }), { now: () => 0, advisories })
     expect(queries).toEqual([{ ecosystem: 'Maven', name: 'org.apache.logging.log4j:log4j-core', version: '2.14.1' }])
     expect(r.findings[0]).toMatchObject({ ruleId: 'deps/GHSA-jfh8-c2jp-5v3q', severity: 'CRITICAL', category: 'DEPENDENCY' })
+  })
+})
+
+describe('preservesValidSyntax', () => {
+  it('detects newly introduced TypeScript syntax errors while tolerating pre-existing ones outside the patch', () => {
+    const clean = 'const x = 1\nconst y = 2\n'
+    expect(preservesValidSyntax('src/a.ts', 'const x = 1\nconst y = 3\n', clean)).toBe(true)
+    expect(preservesValidSyntax('src/a.ts', 'const x = 1\nconst y = (;\n', clean)).toBe(false)
+    const alreadyBroken = 'const x = (;\nconst y = 2\n'
+    expect(preservesValidSyntax('src/a.ts', 'const x = (;\nconst y = 3\n', alreadyBroken)).toBe(true)
   })
 })

@@ -110,6 +110,31 @@ export interface AdvisoryPort {
   query(packages: Array<{ ecosystem: AdvisoryEcosystem; name: string; version: string }>): Promise<Result<Array<{ name: string; version: string; advisories: Advisory[] }>>>
 }
 
+// ── SonarQube API port ──────────────────────────────────────────────────
+
+export interface SonarIssue {
+  key: string
+  rule: string
+  severity: string
+  message: string
+  component: string
+  line?: number | undefined
+  type?: string | undefined
+}
+
+export interface SonarReport {
+  qualityGateStatus: 'OK' | 'WARN' | 'ERROR' | 'NONE'
+  conditions?: Array<{ metricKey: string; status: string; actualValue?: string; errorThreshold?: string }> | undefined
+  issues: SonarIssue[]
+  url?: string | undefined
+}
+
+export interface SonarPort {
+  readonly hostUrl: string
+  readonly defaultProjectKey?: string | undefined
+  fetchPullRequest(opts: { projectKey: string; pullRequest: number; branch?: string }): Promise<Result<SonarReport>>
+}
+
 // ── Cache port (AD-26) ──────────────────────────────────────────────────
 
 /** Values are untrusted and re-parsed with their schema on read. */
@@ -133,6 +158,7 @@ export interface ValidatorContext {
 
 export interface ValidatorPorts {
   advisories?: AdvisoryPort | undefined
+  sonar?: SonarPort | undefined
   now: () => number
 }
 

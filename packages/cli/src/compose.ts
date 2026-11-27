@@ -1,14 +1,14 @@
 // Composition root for the CLI Channel (AD-2, AD-16): the only CLI file that imports adapters.
-import { redactText, Secret as SecretValue, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type Ticket, type Validator } from '@pr-reviewer/core'
+import { redactText, Secret as SecretValue, type AdvisoryPort, type CredentialResolver, type GitHubReader, type GitHubWriter, type PrContext, type ReviewProvider, type SandboxPort, type Secret, type SecretScanner, type SonarPort, type Ticket, type Validator } from '@pr-reviewer/core'
 import { OsvAdvisories } from '@pr-reviewer/advisories'
 import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials'
-import { AutomationClient, AzureDevOpsReader, AzureDevOpsWriter, BitbucketReader, BitbucketWriter, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, createTicketPort, gitlabApiUrl } from '@pr-reviewer/github'
+import { AutomationClient, AzureDevOpsReader, AzureDevOpsWriter, BitbucketReader, BitbucketWriter, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, createSonarPort, createTicketPort, gitlabApiUrl } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
 import { ContainerSandbox, FallbackSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
-import { BUILT_IN_VALIDATORS, installSteps, scanSecrets } from '@pr-reviewer/validators'
+import { BUILT_IN_VALIDATORS, installSteps, preservesValidSyntax, scanSecrets } from '@pr-reviewer/validators'
 
-export { apiUrlForHost, envNamesFor, findClaudeCode, findCodex, runFixAgent, runProcess }
+export { apiUrlForHost, envNamesFor, findClaudeCode, findCodex, preservesValidSyntax, runFixAgent, runProcess }
 export type { ProcessRunner }
 export type { AutomationClient }
 
@@ -90,6 +90,16 @@ export function createSandbox(opts: { runtime?: string | undefined; allowLocalFa
 
 export function createAdvisories(opts: { url?: string | undefined; fetch: typeof fetch }): AdvisoryPort {
   return new OsvAdvisories(opts)
+}
+
+/** Direct SonarQube / SonarCloud REST API client when SONAR_HOST_URL is configured. */
+export function createSonar(env: Readonly<Record<string, string | undefined>>, fetchImpl: typeof fetch, secrets: Secret[]): SonarPort | undefined {
+  const hostUrl = env.SONAR_HOST_URL?.trim()
+  if (!hostUrl) return undefined
+  const token = env.SONAR_TOKEN?.trim()
+  if (token) secrets.push(new SecretValue(token))
+  const projectKey = env.SONAR_PROJECT_KEY?.trim()
+  return createSonarPort({ hostUrl, token, projectKey, fetch: fetchImpl })
 }
 
 /** Removes secrets from one file's text with the same scanner the review uses (replies in the PR thread). */

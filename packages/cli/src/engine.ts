@@ -46,11 +46,13 @@ import {
   createAzureDevOps,
   createBitbucket,
   createGitLab,
+  createSonar,
   createTickets,
   createOllamaProvider,
   createOpenAiProvider,
   findClaudeCode,
   findCodex,
+  preservesValidSyntax,
   secretScanner,
 } from './compose.js'
 import { userConfigPath } from './config-file.js'
@@ -359,7 +361,9 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
                   ((o.channel ?? 'CLI') === 'CLI' && settings.sandbox?.localFallback === 'allow' ? async () => true : undefined),
               }),
       advisories: settings.advisories?.enabled === false ? undefined : createAdvisories({ url: settings.advisories?.url, fetch: o.deps.fetch }),
+      sonar: createSonar(o.deps.env, o.deps.fetch, o.secrets),
       cache: settings.cache?.enabled === false ? undefined : fileCache(cacheDir(o.deps), settings.cache?.maxMB),
+      syntaxCheck: preservesValidSyntax,
       now: () => Date.now(),
     },
   )

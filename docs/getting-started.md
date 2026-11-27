@@ -373,3 +373,11 @@ pr-reviewer serve --open
 # 6. Answer any @pr-reviewer comment commands left on the PR
 pr-reviewer respond owner/repo#123
 ```
+
+---
+
+### Accuracy, Per-File Tests, and Direct SonarQube Checks
+
+- **Per-file unit test check (`tests.local`):** Automatically maps changed non-trivial source files against matching test files in the PR and repository `HEAD` tree, flagging missing unit tests without guessing when the tree cannot be read.
+- **Direct SonarQube / SonarCloud API (`sonar.api`):** Set `SONAR_HOST_URL` and `SONAR_TOKEN` (plus optional `SONAR_PROJECT_KEY`, otherwise read from `sonar-project.properties`) to pull quality gate status and PR issues directly alongside CI checks.
+- **Anti-hallucination guards:** Line-anchored AI findings validate quoted code against loaded `HEAD` lines/diff hunks, committable suggestions are syntax-checked and hunk-verified before rendering, `standard` and `deep` reviews verify findings automatically, and AI summary prose is checked against actual layer statuses and active finding counts.

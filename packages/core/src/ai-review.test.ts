@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, buildVerifyRequest, planReviewRequests, runAiReview, VERIFY_JSON_SCHEMA, type ReviewProvider, type ReviewRequest } from './ai-review.js'
+import { AI_REVIEW_JSON_SCHEMA, buildReviewRequest, buildVerifyRequest, planReviewRequests, runAiReview, VERIFY_JSON_SCHEMA, type ProviderCandidate, type ReviewProvider, type ReviewRequest } from './ai-review.js'
 import type { Finding, LayerResult } from './findings.js'
 import { redactContext } from './redact.js'
 import { err, ok } from './result.js'
@@ -126,6 +126,58 @@ describe('runAiReview', () => {
     expect(r.usage).toEqual({ inputTokens: 10, outputTokens: 5 })
   })
 
+  it('drops line findings outside diff hunks when head text is omitted and drops fabricated evidenceQuote claims', async () => {
+    const base = context()
+    const diffOnlyCtx = redactContext(
+      {
+        ...base,
+        files: [
+          {
+            path: 'src/large.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            patchTruncated: false,
+            patch: '@@ -10,2 +10,3 @@\n const a = 1\n+const danger = eval(userInput)\n const b = 2',
+            head: { omitted: 'total_limit' },
+          },
+          {
+            path: 'src/opaque.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            patchTruncated: true,
+            head: { omitted: 'total_limit' },
+          },
+          base.files[0]!,
+        ],
+      },
+      { completed: true, values: [] },
+    )
+    if (!diffOnlyCtx.ok) throw new Error('setup')
+
+    const provider = recordingProvider({
+      findings: [
+        // Real hunk + verbatim quote: kept
+        finding({ path: 'src/large.ts', startLine: 11, endLine: 11, evidenceQuote: 'eval(userInput)' }),
+        // Outside diff hunk on diffOnly file: dropped
+        finding({ path: 'src/large.ts', startLine: 500, endLine: 500, evidenceQuote: 'eval(userInput)' }),
+        // No head.text and no patch: downgraded to FILE instead of fabricated line number
+        finding({ path: 'src/opaque.ts', startLine: 42, endLine: 42 }),
+        // Real line on full-text file, but fabricated evidenceQuote: dropped
+        finding({ path: 'src/cache.ts', startLine: 2, endLine: 2, evidenceQuote: 'completelyInventedSymbol()' }),
+      ],
+    })
+    const out = await runAiReview(diffOnlyCtx.value, provider)
+    expect(out.dropped).toBe(2)
+    expect(out.findings.map((f) => [f.location.path, f.location.anchorKind, f.location.startLine])).toEqual([
+      ['src/large.ts', 'LINE', 11],
+      ['src/opaque.ts', 'FILE', undefined],
+    ])
+  })
+
   it('passes when the model reports nothing', async () => {
     const r = await runAiReview(redacted(), recordingProvider({ findings: [] }))
     expect(r.layer.status).toBe('PASSED')
@@ -227,6 +279,50 @@ describe('walkthrough, suggestions, and repository guidance (competitive feature
     expect(old.layer.status).toBe('PASSED')
     expect(old.walkthrough).toBeUndefined()
   })
+
+  it('strips AI suggestions that break syntax, duplicate unchanged lines, or span outside the diff hunk', async () => {
+    const ctxWithPreExisting = redactContext(
+      {
+        ...context(),
+        files: [
+          {
+            path: 'src/cache.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            patchTruncated: false,
+            patch: '@@ -1,3 +1,3 @@\n const key = "k"\n+export const get = (k: string) => store[k]\n // end',
+            head: { text: 'const key = "k"\nexport const get = (k: string) => store[k]\n// end\nexport const extra = 1' },
+          },
+        ],
+      },
+      { completed: true, values: [] },
+    )
+    if (!ctxWithPreExisting.ok) throw new Error('setup')
+
+    const provider = recordingProvider({
+      findings: [
+        // Duplicate/no-op replacement
+        finding({ title: 'No-op', startLine: 2, endLine: 2, suggestion: 'export const get = (k: string) => store[k]' }),
+        // Broken syntax caught by syntaxCheck callback
+        finding({ title: 'Bad syntax', startLine: 2, endLine: 2, suggestion: 'export const get = (k: =>' }),
+        // Line 4 exists in head.text, but sits outside hunk (1..3)
+        finding({ title: 'Outside hunk', startLine: 4, endLine: 4, suggestion: 'export const extra = 2' }),
+        // Valid suggestion inside hunk passing syntaxCheck
+        finding({ title: 'Valid fix', startLine: 2, endLine: 2, suggestion: 'export const get = (k: string) => Object.hasOwn(store, k) ? store[k] : undefined' }),
+      ],
+    })
+    const out = await runAiReview(ctxWithPreExisting.value, provider, {
+      syntaxCheck: (_path, patched) => !patched.includes('(k: =>'),
+    })
+    expect(out.findings.map((f) => [f.title, Boolean(f.suggestion)])).toEqual([
+      ['No-op', false],
+      ['Bad syntax', false],
+      ['Outside hunk', false],
+      ['Valid fix', true],
+    ])
+  })
 })
 
 describe('tool results in the prompt', () => {
@@ -249,6 +345,7 @@ describe('tool results in the prompt', () => {
     expect(lines[0]).toBe('- [MAJOR] tsc/TS2345 src/cache.ts:3 Type error 3')
     expect(lines[1]).toBe('- [MINOR] tsc/TS2345 src/cache.ts:2 Type error 2')
     expect(pr).toContain('(13 more not shown)')
+    expect(pr).toContain('Remaining counts: tsc/TS2345×13')
     expect(pr).not.toContain('[pre-existing]')
     expect(req.system).toContain('never contradict a failed check')
     expect(buildReviewRequest(redacted()).prompt).not.toContain('<tool_results>')
@@ -380,23 +477,47 @@ describe('small context windows (local models)', () => {
     expect(plan.notes.join(' ')).toContain('saw only the diff')
   })
 
-  it('reviews a large PR in parts and merges the findings into one result', async () => {
+  it('reviews a large PR in parts, verifies part-scoped findings, and merges into one result', async () => {
     const ctx = big(30, 20_000)
-    const calls: ReviewRequest[] = []
+    const reviewCalls: ReviewRequest[] = []
+    const verifyCalls: ReviewRequest[] = []
     const provider: ReviewProvider = {
       id: 'ollama',
       maxPromptTokens: 28_672,
       complete: async (req) => {
-        calls.push(req)
+        if (req.system.startsWith('You verify')) {
+          verifyCalls.push(req)
+          return ok({ output: { verdicts: [{ id: 0, verdict: 'KEEP', severity: null, reason: 'confirmed in hunk' }] }, provider: 'ollama', model: 'qwen3:8b', usage: { inputTokens: 20, outputTokens: 4 } })
+        }
+        reviewCalls.push(req)
         const path = /<file path="([^"]+)"/.exec(req.prompt)![1]!
         return ok({ output: { summary: 'Refactor.', files: [], effort: 2, issues: [], findings: [{ category: 'CORRECTNESS', severity: 'MAJOR', confidence: 'HIGH', title: `Bug in ${path}`, description: 'd', impact: null, recommendation: null, path, startLine: 1, endLine: 1 }] }, provider: 'ollama', model: 'qwen3:8b', usage: { inputTokens: 100, outputTokens: 10 } })
       },
     }
     const out = await runAiReview(ctx, provider, { verify: true })
-    expect(calls.length).toBeGreaterThan(1)
+    expect(reviewCalls.length).toBeGreaterThan(1)
+    expect(verifyCalls.length).toBe(reviewCalls.length)
     expect(out.layer.status).not.toBe('ERROR')
-    expect(out.findings).toHaveLength(calls.length)
-    expect(out.usage).toEqual({ inputTokens: 100 * calls.length, outputTokens: 10 * calls.length })
-    expect(out.notes.join(' ')).toContain('verification pass was skipped')
+    expect(out.findings).toHaveLength(reviewCalls.length)
+    expect(out.usage).toEqual({ inputTokens: 100 * reviewCalls.length, outputTokens: 10 * reviewCalls.length })
+  })
+
+  it('supports a separate second-opinion provider for verification', async () => {
+    const primary = recordingProvider({ findings: [finding({ title: 'Suspect race' }), finding({ title: 'Nit', severity: 'MINOR' })] })
+    const verifierCalls: ReviewRequest[] = []
+    const verifier: ProviderCandidate = {
+      name: 'verifier-model',
+      provider: {
+        id: 'verifier-model',
+        complete: async (req) => {
+          verifierCalls.push(req)
+          return ok({ output: { verdicts: [{ id: 0, verdict: 'KEEP', severity: null, reason: 'confirmed' }, { id: 1, verdict: 'DROP', severity: null, reason: 'noise' }] }, provider: 'verifier-model', model: 'v2' })
+        },
+      },
+    }
+    const out = await runAiReview(redacted(), primary, { verify: true, verifyProvider: verifier })
+    expect(verifierCalls).toHaveLength(1)
+    expect(out.findings.map((f) => f.title)).toEqual(['Suspect race'])
+    expect(out.attempts[1]).toMatchObject({ provider: 'verifier-model', model: 'v2', stage: 'verify', outcome: 'SUCCEEDED' })
   })
 })
