@@ -10,6 +10,7 @@ Everything in `release/v0.1.2-prep` is verified, version-aligned (`0.1.2` across
 # Push each branch to origin
 git push -u origin feat/interactive-cli-rag-validation
 git push -u origin feat/polyglot-validators-hooks
+git push -u origin feat/anti-hallucination-accuracy
 git push -u origin release/v0.1.2-prep
 ```
 
