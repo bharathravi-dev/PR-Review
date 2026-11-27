@@ -360,6 +360,7 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       reviewerId: o.github.viewer?.id,
       costLimits: o.config.settings.limits,
       disabledValidators: o.config.settings.validators?.disable,
+      enabledValidators: o.config.settings.validators?.enable,
       sandboxRegistries: o.config.settings.sandbox?.registries,
       configSources: o.config.sources,
       limitations: rules.warnings,

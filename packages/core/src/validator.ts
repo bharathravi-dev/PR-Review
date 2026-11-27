@@ -217,6 +217,8 @@ export interface ExecuteOptions {
   cacheNamespace?: string | undefined
   /** Validators the user config turned off. */
   disabled?: readonly string[] | undefined
+  /** Optional validators enabled in user config (merged with repo config's validators.enable). */
+  enabled?: readonly string[] | undefined
   /** Hosts dependency installs may reach (AD-7; default registry.npmjs.org). */
   registries?: readonly string[] | undefined
   /** Downloads the head source archive for the Sandbox (trusted code, AD-6); called only when a Sandbox runs. */
@@ -254,7 +256,7 @@ export async function executeValidators(validators: readonly Validator[], ctx: V
     for (const layer of v.layers) record({ layer, validator: v.id, status, ...(reason ? { reason } : {}), detail, durationMs: 0 })
   }
 
-  const enabled = new Set(ctx.repoSettings.validators?.enable ?? [])
+  const enabled = new Set([...(ctx.repoSettings.validators?.enable ?? []), ...(opts.enabled ?? [])])
   const active: Validator[] = []
   for (const v of validators) {
     if (opts.disabled?.includes(v.id)) {

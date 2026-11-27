@@ -11,6 +11,7 @@ export { localSyntaxValidator, preservesValidSyntax } from './syntax-local.js'
 export { LOCAL_STANDARD_RULES, localStandardsValidator } from './local-standards.js'
 export { localTestsValidator, matchesTestForSource } from './test-coverage.js'
 export { sonarApiValidator } from './sonar.js'
+export { goTestsValidator, parseGoTestFailures, parseNodeTestFailures, sandboxTestsValidator } from './sandbox-tests.js'
 export { workflowSecurityValidator } from './workflow-security.js'
 
 import type { Validator } from '@pr-reviewer/core'
@@ -21,6 +22,7 @@ import { dependencyAuditValidator } from './dependencies.js'
 import { angularValidator, reactValidator } from './framework.js'
 import { localStandardsValidator } from './local-standards.js'
 import { goVetValidator, javaCompileValidator, pythonValidator } from './polyglot-tools.js'
+import { goTestsValidator, sandboxTestsValidator } from './sandbox-tests.js'
 import { sonarApiValidator } from './sonar.js'
 import { localSyntaxValidator } from './syntax-local.js'
 import { eslintValidator, tscValidator, tslintValidator } from './sandbox-tools.js'
@@ -35,6 +37,8 @@ export const BUILT_IN_VALIDATORS: readonly Validator[] = [
   localSyntaxValidator,
   localStandardsValidator,
   localTestsValidator,
+  sandboxTestsValidator,
+  goTestsValidator,
   sonarApiValidator,
   ciResultsValidator,
   angularValidator,

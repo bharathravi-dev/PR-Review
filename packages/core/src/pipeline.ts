@@ -107,6 +107,8 @@ export interface ReviewInput {
   costLimits?: CostLimits | undefined
   /** Validator ids the user turned off. */
   disabledValidators?: readonly string[] | undefined
+  /** Optional validator ids enabled by user configuration (e.g. tests.sandbox). */
+  enabledValidators?: readonly string[] | undefined
   /** Hosts Sandbox installs may reach (user config only; AD-7). */
   sandboxRegistries?: readonly string[] | undefined
   /** Run id to use (a remote engine assigns it before the run starts); defaults to a new UUIDv7. */
@@ -227,6 +229,7 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       cache: ports.cache,
       cacheNamespace: await hashObject({ rid: input.reviewerId ?? null, repoId: ctx.repoId ?? null, repo: `${input.ref.owner}/${input.ref.repo}`.toLowerCase() }),
       disabled: input.disabledValidators,
+      enabled: input.enabledValidators,
       archive: () => ports.github.downloadArchive(repoRef, ctx.headSha),
       installSteps: ports.installSteps,
       registries: input.sandboxRegistries,

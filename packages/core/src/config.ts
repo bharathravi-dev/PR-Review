@@ -72,8 +72,8 @@ export const Settings = z.strictObject({
     .optional(),
   /** Known-vulnerability lookups for added dependencies (FR-4). */
   advisories: z.strictObject({ enabled: z.boolean().optional(), url: z.string().optional() }).optional(),
-  /** Validators to turn off by id (e.g. framework.angular). */
-  validators: z.strictObject({ disable: z.array(z.string()).optional() }).optional(),
+  /** Validators to enable or turn off by id (e.g. tests.sandbox, framework.angular). */
+  validators: z.strictObject({ enable: z.array(z.string()).optional(), disable: z.array(z.string()).optional() }).optional(),
   /** Auto-Review settings (AD-14); used by the automation repository's copy of this file. */
   autoReview: AutoReviewSettings.optional(),
   /** Local result cache (AD-26). */
