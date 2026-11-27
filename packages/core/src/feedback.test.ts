@@ -86,6 +86,8 @@ describe('feedbackStats', () => {
     expect(st).toMatchObject({ posted: 3, resolved: 1, dismissed: 1, open: 1, summaryOnly: 2 })
     expect(st.bySeverity).toEqual({ MAJOR: { posted: 2, resolved: 1, dismissed: 0, open: 1 }, CRITICAL: { posted: 1, resolved: 0, dismissed: 1, open: 0 } })
     expect(st.bySource).toEqual({ UNKNOWN: { posted: 1, resolved: 1, dismissed: 0, open: 0 }, TOOL: { posted: 1, resolved: 0, dismissed: 1, open: 0 }, AI: { posted: 1, resolved: 0, dismissed: 0, open: 1 } })
+    expect(st.byCategory).toEqual({ correctness: { posted: 2, resolved: 1, dismissed: 0, open: 1 }, security: { posted: 1, resolved: 0, dismissed: 1, open: 0 } })
+    expect(st.byRule).toEqual({ 'secret/aws': { posted: 1, resolved: 0, dismissed: 1, open: 0 }, 'ai/correctness': { posted: 1, resolved: 0, dismissed: 0, open: 1 } })
     const both = combineFeedback([st, st])
     expect(both).toMatchObject({ posted: 6, resolved: 2, summaryOnly: 4 })
     expect(both.bySource.AI).toEqual({ posted: 2, resolved: 0, dismissed: 0, open: 2 })

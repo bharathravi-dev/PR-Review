@@ -19,20 +19,37 @@ export interface OwnInlineComment {
   outdated: boolean
   /** Read back from the comment's heading ("**MAJOR · correctness** — …"); undefined for older formats. */
   severity?: Severity | undefined
+  /** Read back from the comment's heading category ("correctness", "security", etc.). */
+  category?: string | undefined
+  /** Read back from the comment's footer ("rule `id`"). */
+  ruleId?: string | undefined
   /** Read back from the comment's "Source:" line. */
   source: FindingSource
 }
 
-const HEADING = /^\*\*(BLOCKER|CRITICAL|MAJOR|MINOR|INFO) · /
+const HEADING = /^\*\*(BLOCKER|CRITICAL|MAJOR|MINOR|INFO) · ([^*\n]+?)\*\*/
+const RULE_TAG = /rule `([^`\n]+)`/
 const SOURCE = /<sub>Source: (AI\b)?/
 
-/** Own inline comments (AD-11) with the fingerprint their marker carries, and the severity and source they show. */
+/** Own inline comments (AD-11) with the fingerprint their marker carries, and the severity, category, rule, and source they show. */
 export function ownInlineComments(items: PublishedItems, rid: number, fpv: number): OwnInlineComment[] {
   return items.reviewComments.flatMap((c) => {
     const m = ownMarker(c, rid)
     if (!m || m.kind !== 'inline' || m.fpv !== fpv || m.fp === '-') return []
     const src = SOURCE.exec(c.body)
-    return [{ id: c.id, fingerprint: m.fp, outdated: c.outdated === true, severity: HEADING.exec(c.body)?.[1] as Severity | undefined, source: src ? (src[1] ? 'AI' : 'TOOL') : 'UNKNOWN' }]
+    const h = HEADING.exec(c.body)
+    const ruleId = RULE_TAG.exec(c.body)?.[1]?.trim()
+    return [
+      {
+        id: c.id,
+        fingerprint: m.fp,
+        outdated: c.outdated === true,
+        severity: h?.[1] as Severity | undefined,
+        category: h?.[2]?.trim().toLowerCase(),
+        ...(ruleId ? { ruleId } : {}),
+        source: src ? (src[1] ? 'AI' : 'TOOL') : 'UNKNOWN',
+      },
+    ]
   })
 }
 
@@ -89,6 +106,10 @@ export interface FeedbackStats extends Outcomes {
   bySeverity: Record<string, Outcomes>
   /** Outcomes by where the finding came from: the AI review or a deterministic tool. */
   bySource: Record<string, Outcomes>
+  /** Outcomes grouped by finding category (`correctness`, `security`, etc.). */
+  byCategory?: Record<string, Outcomes> | undefined
+  /** Outcomes grouped by rule id (`ai/correctness`, `secret/aws`, etc.). */
+  byRule?: Record<string, Outcomes> | undefined
   /** Inline Findings posted by the reviewer. */
   posted: number
   /** Posted Findings whose code changed afterwards (GitHub marks the comment outdated). */
@@ -115,11 +136,16 @@ export function feedbackStats(
   const total = none()
   const bySeverity: Record<string, Outcomes> = {}
   const bySource: Record<string, Outcomes> = {}
+  const byCategory: Record<string, Outcomes> = {}
+  const byRule: Record<string, Outcomes> = {}
   for (const c of inline) {
     if (seen.has(c.fingerprint)) continue
     seen.add(c.fingerprint)
     const outcome: keyof Outcomes = dismissals.has(c.fingerprint) ? 'dismissed' : c.outdated ? 'resolved' : 'open'
-    for (const o of [total, (bySeverity[c.severity ?? 'UNRATED'] ??= none()), (bySource[c.source] ??= none())]) {
+    const buckets: Outcomes[] = [total, (bySeverity[c.severity ?? 'UNRATED'] ??= none()), (bySource[c.source] ??= none())]
+    if (c.category) buckets.push((byCategory[c.category] ??= none()))
+    if (c.ruleId) buckets.push((byRule[c.ruleId] ??= none()))
+    for (const o of buckets) {
       o.posted++
       o[outcome]++
     }
@@ -128,7 +154,7 @@ export function feedbackStats(
     .map((c) => ({ c, m: ownMarker(c, rid) }))
     .filter((x) => x.m?.kind === 'summary' && x.m.fpv === fpv)
     .sort((a, b) => a.c.id - b.c.id)
-  return { ...total, bySeverity, bySource, summaryOnly: summaries[summaries.length - 1]?.m?.fps?.length ?? 0 }
+  return { ...total, bySeverity, bySource, byCategory, byRule, summaryOnly: summaries[summaries.length - 1]?.m?.fps?.length ?? 0 }
 }
 
 const none = (): Outcomes => ({ posted: 0, resolved: 0, dismissed: 0, open: 0 })
@@ -142,12 +168,14 @@ function add(into: Outcomes, o: Outcomes): void {
 
 /** Adds up per-PR feedback (for `stats` and the Web App). */
 export function combineFeedback(all: readonly FeedbackStats[]): FeedbackStats {
-  const out: FeedbackStats = { ...none(), bySeverity: {}, bySource: {}, summaryOnly: 0 }
+  const out: FeedbackStats = { ...none(), bySeverity: {}, bySource: {}, byCategory: {}, byRule: {}, summaryOnly: 0 }
   for (const s of all) {
     add(out, s)
     out.summaryOnly += s.summaryOnly
     for (const [k, o] of Object.entries(s.bySeverity)) add((out.bySeverity[k] ??= none()), o)
     for (const [k, o] of Object.entries(s.bySource)) add((out.bySource[k] ??= none()), o)
+    for (const [k, o] of Object.entries(s.byCategory ?? {})) add((out.byCategory![k] ??= none()), o)
+    for (const [k, o] of Object.entries(s.byRule ?? {})) add((out.byRule![k] ??= none()), o)
   }
   return out
 }

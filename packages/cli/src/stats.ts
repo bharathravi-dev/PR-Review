@@ -61,6 +61,11 @@ export function formatStats(s: StatsResult): string {
     lines.push('', 'Addressed rate by severity and source:')
     for (const k of SEVERITY_ORDER) if (t.bySeverity[k]) lines.push(line(k.toLowerCase(), t.bySeverity[k]))
     for (const [k, o] of Object.entries(t.bySource)) lines.push(line(SOURCE_LABEL[k] ?? k, o))
+    const rules = Object.entries(t.byRule ?? {}).sort((a, b) => b[1].posted - a[1].posted)
+    if (rules.length) {
+      lines.push('', 'Addressed rate by rule:')
+      for (const [k, o] of rules.slice(0, 15)) lines.push(line(k.length > 28 ? `${k.slice(0, 27)}…` : k, o))
+    }
   }
   lines.push('', 'Addressed (resolved) means the code at the comment changed afterwards; PRs still in progress lower it. Computed from GitHub only; nothing is sent anywhere.')
   return `${lines.join('\n')}\n`

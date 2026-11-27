@@ -162,3 +162,56 @@ export async function readLearnings(github: GitHubReader, repo: RepoRef, rid: nu
   const trusted = (who: { id?: number | undefined; login: string }) => who.id === rid || (viewerLogin !== undefined && who.login === viewerLogin) || pushers.has(who.login)
   return ok({ learnings: collectLearnings(comments, rid, fpv, trusted, thumbsDown), notes })
 }
+
+export interface ProposedRulesResult {
+  markdown: string
+  addedCount: number
+  skippedExisting: number
+}
+
+/**
+ * Formats repository learnings (`/remember` and `/dismiss`) into a Markdown section suitable for
+ * `.github/REVIEW.md` or `AGENTS.md`, skipping entries already present in `existingText`.
+ */
+export function proposeRulesMarkdown(
+  repo: string,
+  learnings: readonly Learning[],
+  existingText = '',
+): ProposedRulesResult {
+  const normalizedExisting = existingText.toLowerCase()
+  const remember: Learning[] = []
+  const dismiss: Learning[] = []
+  let skippedExisting = 0
+
+  for (const l of learnings) {
+    const body = l.text.trim()
+    if (!body) continue
+    if (normalizedExisting && normalizedExisting.includes(body.toLowerCase())) {
+      skippedExisting++
+      continue
+    }
+    if (l.kind === 'REMEMBER') remember.push(l)
+    else dismiss.push(l)
+  }
+
+  const lines: string[] = []
+  if (remember.length + dismiss.length === 0) {
+    return { markdown: '', addedCount: 0, skippedExisting }
+  }
+  lines.push(`## Learned Review Rules (${repo})`, '')
+  if (remember.length) {
+    lines.push('### Conventions to enforce')
+    for (const l of remember) lines.push(`- ${l.text} _(from #${l.pr} by @${l.by})_`)
+    lines.push('')
+  }
+  if (dismiss.length) {
+    lines.push('### Patterns to ignore / suppress')
+    for (const l of dismiss) lines.push(`- ${l.text} _(from #${l.pr} by @${l.by})_`)
+    lines.push('')
+  }
+  return {
+    markdown: `${lines.join('\n').trimEnd()}\n`,
+    addedCount: remember.length + dismiss.length,
+    skippedExisting,
+  }
+}

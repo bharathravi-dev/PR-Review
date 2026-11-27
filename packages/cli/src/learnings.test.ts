@@ -109,4 +109,38 @@ describe('learning from feedback, end to end', () => {
     expect(json.learnings).toHaveLength(1)
     expect((await run(['learnings'])).code).toBe(64)
   })
+
+  it('pr-reviewer learnings --propose formats and writes rules into AGENTS.md or .github/REVIEW.md without duplicating', async () => {
+    const proposed = await run(['learnings', 'octo/app', '--propose'])
+    expect(proposed.code).toBe(0)
+    expect(proposed.out).toContain('## Learned Review Rules (octo/app)')
+    expect(proposed.out).toContain('Our http client retries with jitter; do not flag missing backoff.')
+
+    const targetDir = mkdtempSync(join(tmpdir(), 'prr-rules-'))
+    dirs.push(targetDir)
+    const home = mkdtempSync(join(tmpdir(), 'prr-home-'))
+    dirs.push(home)
+    const env = { GITHUB_TOKEN: TOKEN, ANTHROPIC_API_KEY: AI_KEY, PR_REVIEWER_CONFIG: join(home, 'nonexistent.yml'), HOME: home }
+    let out = ''
+    const code1 = await main(['learnings', 'octo/app', '--propose', '--write', '.github/REVIEW.md'], { stdout: (t) => (out += t), stderr: () => {} }, {
+      env,
+      cwd: targetDir,
+      fetch: fakeFetch([]),
+      homedir: home,
+      credentials: new DefaultCredentialResolver({ env, keychain: async () => undefined, ghToken: async () => undefined }),
+    })
+    expect(code1).toBe(0)
+    expect(out).toContain('Added 1 rule(s)')
+
+    let out2 = ''
+    const code2 = await main(['learnings', 'octo/app', '--propose', '--write', '.github/REVIEW.md'], { stdout: (t) => (out2 += t), stderr: () => {} }, {
+      env,
+      cwd: targetDir,
+      fetch: fakeFetch([]),
+      homedir: home,
+      credentials: new DefaultCredentialResolver({ env, keychain: async () => undefined, ghToken: async () => undefined }),
+    })
+    expect(code2).toBe(0)
+    expect(out2).toContain('already present')
+  })
 })
