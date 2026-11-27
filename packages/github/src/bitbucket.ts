@@ -139,7 +139,12 @@ export class BitbucketReader implements GitHubReader {
 
   async downloadArchive(repo: RepoRef, sha: string): Promise<Result<Uint8Array>> {
     const r = await this.#c.request('GET', `https://bitbucket.org/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/get/${encodeURIComponent(sha)}.tar.gz`)
-    return r.ok ? ok(new Uint8Array(await r.value.arrayBuffer())) : r
+    if (!r.ok) return r
+    const len = Number(r.value.headers.get('content-length') ?? 0)
+    if (len > 500 * 1024 * 1024) return err('archive_too_large', `Repository archive is too large (${Math.round(len / 1_048_576)} MB; max 500 MB).`)
+    const bytes = new Uint8Array(await r.value.arrayBuffer())
+    if (bytes.byteLength > 500 * 1024 * 1024) return err('archive_too_large', `Repository archive exceeds 500 MB limit.`)
+    return ok(bytes)
   }
 
   async listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>> {

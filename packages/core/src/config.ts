@@ -63,7 +63,9 @@ export const Settings = z.strictObject({
     .strictObject({
       enabled: z.boolean().optional(),
       /** "docker" or "podman" (default: whichever responds). */
-      runtime: z.string().optional(),
+      runtime: z.enum(['docker', 'podman']).optional(),
+      /** When no container runtime is found: "ask" (interactive TTY prompt, default), "allow", or "never". */
+      localFallback: z.enum(['ask', 'allow', 'never']).optional(),
       /** Hosts dependency installs may reach (default: registry.npmjs.org). */
       registries: z.array(z.string().regex(/^[a-z0-9.-]+$/i)).optional(),
     })

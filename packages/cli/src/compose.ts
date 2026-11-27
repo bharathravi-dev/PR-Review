@@ -5,7 +5,7 @@ import { DefaultCredentialResolver, envNamesFor } from '@pr-reviewer/credentials
 import { AutomationClient, AzureDevOpsReader, AzureDevOpsWriter, BitbucketReader, BitbucketWriter, GitHubClient, GitHubPrReader, GitHubPrWriter, GitLabReader, GitLabWriter, apiUrlForHost, createTicketPort, gitlabApiUrl } from '@pr-reviewer/github'
 import { ClaudeCodeProvider, CodexProvider, findClaudeCode, findCodex, runFixAgent, runProcess, type ProcessRunner } from '@pr-reviewer/providers-cli'
 import { AnthropicProvider, OllamaProvider, OpenAiCompatibleProvider } from '@pr-reviewer/providers-http'
-import { ContainerSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
+import { ContainerSandbox, FallbackSandbox, NODE_IMAGES } from '@pr-reviewer/sandbox'
 import { BUILT_IN_VALIDATORS, installSteps, scanSecrets } from '@pr-reviewer/validators'
 
 export { apiUrlForHost, envNamesFor, findClaudeCode, findCodex, runFixAgent, runProcess }
@@ -82,8 +82,10 @@ export const secretScanner: SecretScanner = scanSecrets
 export const validators: readonly Validator[] = BUILT_IN_VALIDATORS
 export { installSteps }
 
-export function createSandbox(opts: { runtime?: string | undefined }): SandboxPort {
-  return new ContainerSandbox({ command: opts.runtime })
+export function createSandbox(opts: { runtime?: string | undefined; allowLocalFallback?: ((reason: string) => Promise<boolean>) | undefined }): SandboxPort {
+  const primary = new ContainerSandbox({ command: opts.runtime })
+  if (!opts.allowLocalFallback) return primary
+  return new FallbackSandbox({ primary, allowFallback: opts.allowLocalFallback })
 }
 
 export function createAdvisories(opts: { url?: string | undefined; fetch: typeof fetch }): AdvisoryPort {

@@ -84,8 +84,8 @@ export const SandboxRunResultSchema = z.object({
 })
 
 export interface SandboxPort {
-  /** Whether a container runtime is usable, which Node majors have pinned images, and whether install egress can be limited. */
-  probe(): Promise<Result<{ runtime: string; nodeMajors: number[]; egressControl: boolean }>>
+  /** Whether a container runtime (or user-approved host fallback) is usable, and which Node majors it carries. */
+  probe(): Promise<Result<{ runtime: string; nodeMajors: number[]; egressControl: boolean; hostFallback?: boolean | undefined }>>
   /** Runs the plan on the head source archive; never sees a Credential (AD-7). */
   run(plan: SandboxPlan, planHash: string, source: { headSha: string; archive: Uint8Array }): Promise<Result<SandboxRunResult>>
 }
@@ -204,7 +204,7 @@ export interface ExecuteOutcome {
   layers: LayerResult[]
   findings: Finding[]
   notes: string[]
-  sandbox?: { planHash: string; imageDigest: string; ran: boolean } | undefined
+  sandbox?: { planHash: string; imageDigest: string; ran: boolean; hostFallback?: boolean | undefined } | undefined
 }
 
 const usable = (r: Applicability): r is { applicable: true } => r.applicable
@@ -265,14 +265,17 @@ export async function executeValidators(validators: readonly Validator[], ctx: V
   const needSandbox = active.filter((v) => v.needsSandbox && !cached.has(v.id))
   const blocked = new Map<string, { reason: z.infer<typeof ReasonCode>; detail: string }>()
   let sandboxInfo: ExecuteOutcome['sandbox']
+  let skipCacheForHostFallback = false
   if (needSandbox.length > 0) {
     const probe = opts.sandbox ? await opts.sandbox.probe() : undefined
     const nodeMajor = pickNodeMajor(ctx.projects, probe?.ok ? probe.value.nodeMajors : [])
     let block: { reason: z.infer<typeof ReasonCode>; detail: string } | undefined
     if (!opts.sandbox || !probe?.ok) {
       block = { reason: 'NO_SANDBOX', detail: `No Sandbox: ${probe && !probe.ok ? probe.error.message : 'Docker or Podman was not found'}. Build, compile, and lint checks were not run.` }
-    } else if (!probe.value.egressControl) {
+    } else if (!probe.value.egressControl && !probe.value.hostFallback) {
       block = { reason: 'NO_EGRESS_CONTROL', detail: 'Install could not be limited to the package registry, so it was not run.' }
+    } else if (probe.value.hostFallback) {
+      skipCacheForHostFallback = true
     }
     if (block) for (const v of needSandbox) blocked.set(v.id, block)
     else {
@@ -304,7 +307,7 @@ export async function executeValidators(validators: readonly Validator[], ctx: V
           for (const v of members) blocked.set(v.id, { reason: 'SANDBOX_OUTPUT_INVALID', detail: 'The Sandbox result did not match this run (plan or head commit).' })
         } else {
           for (const r of run.value.results) sandboxResults.set(r.id, r)
-          sandboxInfo ??= { planHash, imageDigest: run.value.imageDigest, ran: true }
+          sandboxInfo ??= { planHash, imageDigest: run.value.imageDigest, ran: true, ...(skipCacheForHostFallback ? { hostFallback: true } : {}) }
         }
       }
     }
@@ -341,7 +344,7 @@ export async function executeValidators(validators: readonly Validator[], ctx: V
         }
         absorb(v, parsed.data, Math.max(0, Math.round(now() - started)))
         const key = keys.get(v.id)
-        if (key && opts.cache && parsed.data.layers.every((l) => l.status !== 'ERROR' && l.status !== 'TIMEOUT')) {
+        if (key && opts.cache && !(v.needsSandbox && skipCacheForHostFallback) && parsed.data.layers.every((l) => l.status !== 'ERROR' && l.status !== 'TIMEOUT')) {
           await opts.cache.set(key, parsed.data).catch(() => notes.push(`The result of ${v.id} could not be cached.`))
         }
       } catch (e) {

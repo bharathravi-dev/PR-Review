@@ -4,10 +4,12 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
+  buildFixBundle,
   DEFAULT_CONTEXT_LIMITS,
   EXIT_CODES,
   fetchContext,
   parseRepoRef,
+  renderFixBundleMarkdown,
   renderMarkdown,
   formatPrRef,
   parsePrRef,
@@ -18,9 +20,11 @@ import {
   type PrContext,
   type PrRef,
   type PublishPreview,
+  type Report,
   type ResolvedConfig,
   type Secret,
 } from '@pr-reviewer/core'
+import { createTerminalProgress, renderPostRunBanner } from './terminal-ui.js'
 import { createCredentialResolver, runProcess } from './compose.js'
 import { loadUserConfig, userConfigPath } from './config-file.js'
 import type { CliDeps, CliIo } from './deps.js'
@@ -77,7 +81,7 @@ Options:
   --profile <name>   Use a named profile from the user config
 
 review options:
-  --out <dir>        Also write report.md and report.json to <dir>
+  --out <dir>        Also write report.md, report.json, and fix-bundle.md to <dir>
   --json             Print the Report as JSON instead of Markdown
   --provider <name>  AI provider: a name from the user config, or anthropic, openai, claude-code, codex
   --model <id>       Model override for that provider
@@ -88,6 +92,8 @@ review options:
   --effort <level>   adaptive (default), light, standard, or deep
   --yes              Post without asking (required when not in an interactive terminal)
   --event <e>        COMMENT (default) or REQUEST_CHANGES (needs publish.allowRequestChanges)
+  --allow-local-tools Run repo tools locally without prompting if Docker/Podman sandbox is unavailable
+  --no-local-tools   Never fall back to host tools when Docker/Podman sandbox is unavailable
 
 Exit codes: 0 PASSED, 1 PASSED_WITH_WARNINGS, 2 FAILED, 3 INCOMPLETE, 4 ERROR, 5 CANCELLED,
 6 post failed or blocked, 64 usage, 78 config.
@@ -304,6 +310,8 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
         base: { type: 'string' },
         yes: { type: 'boolean' },
         event: { type: 'string' },
+        'allow-local-tools': { type: 'boolean' },
+        'no-local-tools': { type: 'boolean' },
       },
     })
   } catch (e) {
@@ -315,6 +323,7 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   if (!local && parsed.values.base) return usageError(io, '--base only applies with --local')
   if (!local && (!input || extra.length > 0)) return usageError(io, 'review needs exactly one PR reference (or --local for the changes in this checkout)')
   if (parsed.values.effort !== undefined && !['adaptive', 'light', 'standard', 'deep'].includes(parsed.values.effort)) return usageError(io, '--effort must be adaptive, light, standard, or deep')
+  if (parsed.values['allow-local-tools'] && parsed.values['no-local-tools']) return usageError(io, 'Pass only one of --allow-local-tools or --no-local-tools')
 
   const config = resolveConfig(io, deps, parsed.values.profile, { host: parsed.values.host, apiUrl: parsed.values['api-url'] })
   if (typeof config === 'number') return config
@@ -356,60 +365,139 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
     return EXIT_CODES.error
   }
 
-  const { report, context } = await executeReview({
-    full: parsed.values.full === true,
-    effort: parsed.values.effort as 'adaptive' | 'light' | 'standard' | 'deep' | undefined,
-    config,
-    deps,
-    secrets,
-    ref: ref.value,
-    github,
-    provider: parsed.values.provider,
-    model: parsed.values.model,
-    onWarning: (w) => io.stderr(`warning: ${w}\n`),
-    onNotice: (t) => io.stderr(`${t}\n`),
-    beforeRun: () => io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`),
-    onLayer: (l) => io.stderr(`  ${l.status.padEnd(14)} ${l.layer} (${l.validator})${l.reason ? ` ${l.reason}` : ''}\n`),
-  })
+  const progress = createTerminalProgress(io, { isTTY: deps.isTTY, silent: parsed.values.json === true })
+  const fallbackPolicy = parsed.values['no-local-tools']
+    ? 'never'
+    : parsed.values['allow-local-tools']
+      ? 'allow'
+      : (config.settings.sandbox?.localFallback ?? 'ask')
+
+  const allowLocalFallback =
+    fallbackPolicy === 'never'
+      ? undefined
+      : fallbackPolicy === 'allow'
+        ? async () => {
+            progress.pause()
+            if (!parsed.values.json) io.stderr('  ! No container sandbox found; running repo compile/lint tools locally (--allow-local-tools / config).\n')
+            progress.resume()
+            return true
+          }
+        : deps.isTTY && !parsed.values.yes
+          ? async (reason: string) => {
+              progress.pause()
+              try {
+                const ans = (await deps.prompt(`\nNo container sandbox available (${reason}).\nRun repository compile/lint tools locally on your machine? [y/N] `)).trim().toLowerCase()
+                return ans === 'y' || ans === 'yes'
+              } finally {
+                progress.resume()
+              }
+            }
+          : undefined
+
+  let report: Report
+  let context: PrContext | undefined
+  try {
+    const out = await executeReview({
+      full: parsed.values.full === true,
+      effort: parsed.values.effort as 'adaptive' | 'light' | 'standard' | 'deep' | undefined,
+      config,
+      deps,
+      secrets,
+      ref: ref.value,
+      github,
+      provider: parsed.values.provider,
+      model: parsed.values.model,
+      allowLocalFallback,
+      onWarning: (w) => {
+        progress.pause()
+        if (!parsed.values.json) io.stderr(`warning: ${w}\n`)
+        progress.resume()
+      },
+      onNotice: (t) => {
+        progress.pause()
+        if (!parsed.values.json) io.stderr(`${t}\n`)
+        progress.resume()
+      },
+      beforeRun: () => {
+        if (!parsed.values.json) io.stderr(`Reviewing ${formatPrRef(ref.value)}…\n`)
+        progress.start()
+      },
+      onLayer: progress.onLayer,
+      onEvent: progress.onEvent,
+    })
+    report = out.report
+    context = out.context
+  } finally {
+    progress.stop()
+  }
 
   const markdown = renderMarkdown(report)
+  const fixBundle = buildFixBundle(report)
   if (parsed.values.out) {
     mkdirSync(parsed.values.out, { recursive: true })
     writeFileSync(join(parsed.values.out, 'report.md'), redactText(markdown, secrets))
     writeFileSync(join(parsed.values.out, 'report.json'), redactText(`${JSON.stringify(report, null, 2)}\n`, secrets))
-    io.stderr(`Saved ${join(parsed.values.out, 'report.md')} and report.json\n`)
+    writeFileSync(join(parsed.values.out, 'fix-bundle.md'), redactText(renderFixBundleMarkdown(fixBundle, formatPrRef(ref.value)), secrets))
+    if (!parsed.values.json) io.stderr(`Saved ${join(parsed.values.out, 'report.md')}, report.json, and fix-bundle.md\n`)
   }
   io.stdout(parsed.values.json ? `${JSON.stringify(report, null, 2)}\n` : markdown)
 
   const code = STATUS_EXIT[report.overallStatus]
   const reviewCode = code === EXIT_CODES.passedWithWarnings && parsed.values['warnings-ok'] ? EXIT_CODES.passed : code
-  if (!post) return reviewCode
+  if (post) {
+    return publishReviewFlow({ report, context, ref: ref.value, github, config, event: event as 'COMMENT' | 'REQUEST_CHANGES', yes: parsed.values.yes === true, reviewCode, io, deps })
+  }
+  if (!deps.isTTY || parsed.values.json || parsed.values.yes || report.overallStatus === 'ERROR' || report.overallStatus === 'CANCELLED') {
+    return reviewCode
+  }
 
+  return interactivePostMenu({ report, context, local, ref: ref.value, github, config, event: event as 'COMMENT' | 'REQUEST_CHANGES', reviewCode, fixBundle, io, deps, secrets, outDir: parsed.values.out })
+}
+
+async function publishReviewFlow(o: {
+  report: Report
+  context: PrContext | undefined
+  ref: PrRef
+  github: GitHubConnection
+  config: ResolvedConfig
+  event: 'COMMENT' | 'REQUEST_CHANGES'
+  yes: boolean
+  include?: readonly string[] | undefined
+  reviewCode: number
+  io: CliIo
+  deps: CliDeps
+}): Promise<number> {
+  const { report, context, ref, github, config, event, yes, include, reviewCode, io, deps } = o
+  if (!github.viewer) {
+    io.stderr(`Cannot post: ${github.tokenError ?? github.viewerError ?? 'GitHub login is required to post.'}\n`)
+    return EXIT_CODES.publishFailed
+  }
   if (!context) {
     io.stderr('Nothing was posted: the PR could not be loaded.\n')
     return EXIT_CODES.publishFailed
   }
   // What was already published comes only from own markers (AD-11), read before rendering so the preview is exact.
-  const prepared = await preparePublish(report, context, ref.value, github, config, {
+  const prepared = await preparePublish(report, context, ref, github, config, {
     event,
-    unattended: parsed.values.yes === true && !deps.isTTY,
+    unattended: yes && !deps.isTTY,
+    ...(include ? { include } : {}),
   })
   if (!prepared.ok) {
     io.stderr(`Nothing was posted: ${prepared.error.message}\n`)
     return EXIT_CODES.publishFailed
   }
   const { plan, preview } = prepared.value
-  io.stderr(formatPreview(formatPrRef(ref.value), preview))
+  io.stderr(formatPreview(formatPrRef(ref), preview))
 
-  if (!parsed.values.yes) {
-    const answer = (await deps.prompt(`Post this ${preview.event === 'APPROVE' ? 'APPROVING review' : event === 'COMMENT' ? 'review' : 'review requesting changes'} to ${formatPrRef(ref.value)}? [y/N] `)).trim().toLowerCase()
+  if (!yes) {
+    const answer = (await deps.prompt(`Post this ${preview.event === 'APPROVE' ? 'APPROVING review' : event === 'COMMENT' ? 'review' : 'review requesting changes'} to ${formatPrRef(ref)}? [y/N] `)).trim().toLowerCase()
     if (answer !== 'y' && answer !== 'yes') {
       io.stderr('Not posted.\n')
       return reviewCode
     }
   }
 
-  const { record, commitStatus: status } = await performPublish(report, plan, preview, ref.value, github, config)
+  const { record, commitStatus: status } = await performPublish(report, plan, preview, ref, github, config)
   if (status?.outcome === 'SET') io.stderr(`Set the "pr-reviewer" commit status on ${report.run.headSha?.slice(0, 7)}.\n`)
   else if (status?.outcome === 'SKIPPED_NO_PERMISSION') io.stderr('Commit status skipped: the token cannot set statuses on this repository.\n')
   else if (status?.outcome === 'FAILED') io.stderr(`Commit status not set: ${status.reason}\n`)
@@ -425,6 +513,93 @@ async function reviewCommand(args: string[], io: CliIo, deps: CliDeps, secrets: 
   }
   io.stderr(`Not posted (${record.status}): ${record.reason ?? 'unknown reason'}\n`)
   return EXIT_CODES.publishFailed
+}
+
+async function interactivePostMenu(o: {
+  report: Report
+  context: PrContext | undefined
+  local: boolean
+  ref: PrRef
+  github: GitHubConnection
+  config: ResolvedConfig
+  event: 'COMMENT' | 'REQUEST_CHANGES'
+  reviewCode: number
+  fixBundle: ReturnType<typeof buildFixBundle>
+  io: CliIo
+  deps: CliDeps
+  secrets: Secret[]
+  outDir?: string | undefined
+}): Promise<number> {
+  const { report, context, local, ref, github, config, event, reviewCode, fixBundle, io, deps, secrets, outDir } = o
+  const canPost = Boolean(!local && context && github.viewer)
+  const canOpenBrowser = Boolean(!local && context)
+  const validChoices = [canPost ? 'p' : '', canPost ? 'v' : '', 'f', canOpenBrowser ? 'o' : '', 'q'].filter(Boolean).join('/')
+  let invalid = 0
+  while (invalid < 3) {
+    renderPostRunBanner(io, { actionableFixCount: fixBundle.totalActionable, codeFixCount: fixBundle.withCodeSuggestions, canPost, canOpenBrowser })
+    const choice = (await deps.prompt(`Choose [${validChoices}]: `)).trim().toLowerCase()
+    if (!choice || choice === 'q' || choice === 'quit') return reviewCode
+    if (choice === 'p' && canPost) {
+      return publishReviewFlow({ report, context, ref, github, config, event, yes: false, reviewCode, io, deps })
+    }
+    if (choice === 'v' && canPost) {
+      const selectable = report.findings.filter((f) => !f.dismissed && f.fingerprint)
+      if (selectable.length === 0) {
+        io.stderr('No selectable findings in this report.\n')
+        continue
+      }
+      const include: string[] = []
+      let aborted = false
+      for (let i = 0; i < selectable.length; i++) {
+        const f = selectable[i]!
+        const where = f.location.path ? `${f.location.path}${f.location.startLine ? `:${f.location.startLine}` : ''}` : 'PR'
+        const meta = [f.scope, f.disposition === 'ADVISORY' ? 'advisory' : '', f.location.anchorKind === 'LINE' ? 'inline' : 'summary'].filter(Boolean).join(' · ')
+        const ans = (await deps.prompt(`  [${i + 1}/${selectable.length}] ${f.severity} · ${f.title} (${where}) [${meta}] — include? [Y/n/q] `)).trim().toLowerCase()
+        if (ans === 'q' || ans === 'quit') {
+          aborted = true
+          break
+        }
+        if (ans !== 'n' && ans !== 'no') include.push(f.fingerprint!)
+      }
+      if (aborted) continue
+      if (include.length === 0) {
+        const summaryOnly = (await deps.prompt('No findings selected. Post a summary-only review? [y/N] ')).trim().toLowerCase()
+        if (summaryOnly !== 'y' && summaryOnly !== 'yes') continue
+      }
+      return publishReviewFlow({ report, context, ref, github, config, event, yes: false, include, reviewCode, io, deps })
+    }
+    if (choice === 'f') {
+      const md = redactText(renderFixBundleMarkdown(fixBundle, formatPrRef(ref)), secrets)
+      io.stdout(`\n${md}`)
+      if (outDir) {
+        io.stderr(`(Also saved at ${join(outDir, 'fix-bundle.md')})\n`)
+      } else {
+        const save = (await deps.prompt('Save Recommended Fix Bundle to fix-bundle.md? [y/N] ')).trim().toLowerCase()
+        if (save === 'y' || save === 'yes') {
+          writeFileSync('fix-bundle.md', md)
+          io.stderr('Saved fix-bundle.md\n')
+        }
+      }
+      continue
+    }
+    if (choice === 'o' && canOpenBrowser) {
+      let server
+      try {
+        server = await startServer({ deps, config, secrets, port: 0, log: (t) => io.stderr(t), initialRun: { ref, github, report, context } })
+      } catch (e) {
+        io.stderr(`Could not start review page: ${(e as Error).message}\n`)
+        continue
+      }
+      io.stderr(`Review page ready: ${server.pageUrl}\nPress Ctrl+C to stop.\n`)
+      deps.openUrl(server.pageUrl)
+      await deps.untilStopped()
+      await server.close()
+      return reviewCode
+    }
+    invalid++
+    io.stderr(`Unknown choice "${choice}". Enter ${validChoices}.\n`)
+  }
+  return reviewCode
 }
 
 function formatPreview(pr: string, preview: PublishPreview): string {

@@ -152,7 +152,7 @@ function stepProblem(r: SandboxStepResult | undefined, okCodes: readonly number[
 // ── tsc ─────────────────────────────────────────────────────────────────
 
 function tsProjects(ctx: ValidatorContext) {
-  return sourceProjects(ctx).filter(({ project }) => project.configs.tsconfig && project.dependencies.includes('typescript'))
+  return sourceProjects(ctx).filter(({ project }) => project.configs.tsconfig && (project.dependencies.includes('typescript') || project.typescript !== undefined))
 }
 
 export const tscValidator: Validator = {
@@ -265,8 +265,8 @@ export const eslintValidator: Validator = {
       phase: 'ANALYZE' as const,
       cmd:
         mode === 'repo'
-          ? ['sh', '-c', RUN_BIN, 'run-bin', 'eslint', '-f', 'json', '--no-error-on-unmatched-pattern', ...files.map((f) => relTo(project.path, f))]
-          : [`${TOOLS}/node_modules/.bin/eslint`, '-f', 'json', '--no-error-on-unmatched-pattern', ...r.args, ...files.map((f) => relTo(project.path, f))],
+          ? ['sh', '-c', RUN_BIN, 'run-bin', 'eslint', '-f', 'json', '--no-error-on-unmatched-pattern', '--', ...files.map((f) => relTo(project.path, f))]
+          : [`${TOOLS}/node_modules/.bin/eslint`, '-f', 'json', '--no-error-on-unmatched-pattern', ...r.args, '--', ...files.map((f) => relTo(project.path, f))],
       cwd: project.path,
       timeoutMs: ANALYZE_TIMEOUT,
     }))
@@ -357,6 +357,7 @@ export const tslintValidator: Validator = {
       cmd: [
         'sh', '-c', RUN_BIN, 'run-bin', 'tslint', '--format', 'json', '-c', relTo(project.path, project.configs.tslint!),
         ...(project.configs.tsconfig ? ['-p', relTo(project.path, project.configs.tsconfig)] : []),
+        '--',
         ...files.map((f) => relTo(project.path, f)),
       ],
       cwd: project.path,

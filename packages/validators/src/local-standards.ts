@@ -3,20 +3,18 @@
 // and deterministic added-line checks for Java/Kotlin, Python, and Go.
 import type { Finding, Validator } from '@pr-reviewer/core'
 import ts from 'ts5'
-import { addedLines, finding } from './util.js'
+import { addedLines, finding, isCommentLine, isTestFile } from './util.js'
 
 const TS_JS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
 const JAVA_KT = /\.(java|kt)$/
 const PY = /\.py$/
 const GO = /\.go$/
 const SUPPORTED = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|java|kt|py|go)$/
-const TESTS = /(^|\/)(__tests__|tests?|spec|fixtures?|__mocks__)\/|\.(test|spec)\.[a-z0-9]+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$|Test\.java$/i
-const COMMENT = /^\s*(\/\/|#|\*|\/\*|--)/
 
 interface LineRule {
   id: string
   ext: RegExp
-  test: RegExp
+  test: (text: string, line: number, added: ReadonlyMap<number, string>) => boolean
   excludePath?: RegExp
   severity: Finding['severity']
   confidence: Finding['confidence']
@@ -31,7 +29,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/java-empty-catch',
     ext: JAVA_KT,
-    test: /\bcatch\s*\([^)]+\)\s*\{\s*\}/,
+    test: (t) => /\bcatch\s*\([^)]+\)\s*\{\s*\}/.test(t),
     severity: 'MINOR',
     confidence: 'HIGH',
     category: 'CORRECTNESS',
@@ -42,7 +40,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/java-print-stack-trace',
     ext: JAVA_KT,
-    test: /\.printStackTrace\s*\(/,
+    test: (t) => /\.printStackTrace\s*\(/.test(t),
     severity: 'MINOR',
     confidence: 'HIGH',
     category: 'MAINTAINABILITY',
@@ -53,7 +51,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/java-stdout',
     ext: JAVA_KT,
-    test: /\bSystem\.(out|err)\.print(?:ln|f)?\s*\(/,
+    test: (t) => /\bSystem\.(out|err)\.print(?:ln|f)?\s*\(/.test(t),
     severity: 'MINOR',
     confidence: 'HIGH',
     category: 'MAINTAINABILITY',
@@ -64,7 +62,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/java-simple-date-format',
     ext: JAVA_KT,
-    test: /\bnew\s+SimpleDateFormat\s*\(/,
+    test: (t) => /\bnew\s+SimpleDateFormat\s*\(/.test(t),
     severity: 'MAJOR',
     confidence: 'MEDIUM',
     category: 'CORRECTNESS',
@@ -75,7 +73,15 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/java-field-injection',
     ext: /\.java$/,
-    test: /^\s*@Autowired\b/,
+    test: (t, line, added) => {
+      if (!/^\s*@Autowired\b/.test(t)) return false
+      // Same-line `@Autowired private Foo foo;` vs constructor/method on next added line.
+      const rest = t.replace(/^\s*@Autowired(?:\([^)]*\))?\s*/, '')
+      const sig = rest || (added.get(line + 1) ?? '')
+      if (!sig) return false
+      if (/^[A-Za-z0-9_<>,\s]*\([^)]*\)\s*\{?/.test(sig) && !sig.includes('=')) return false
+      return true
+    },
     severity: 'INFO',
     confidence: 'HIGH',
     category: 'MAINTAINABILITY',
@@ -87,7 +93,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/py-bare-except',
     ext: PY,
-    test: /^\s*except\s*:/,
+    test: (t) => /^\s*except\s*:/.test(t),
     severity: 'MAJOR',
     confidence: 'HIGH',
     category: 'CORRECTNESS',
@@ -98,7 +104,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/py-mutable-default',
     ext: PY,
-    test: /^\s*(?:async\s+)?def\s+\w+\([^)]*=\s*(?:\[\s*\]|\{\s*\})/,
+    test: (t) => /^\s*(?:async\s+)?def\s+\w+\(.*=\s*(?:\[\s*\]|\{\s*\})\s*(?:[,)])/.test(t),
     severity: 'MAJOR',
     confidence: 'HIGH',
     category: 'CORRECTNESS',
@@ -109,7 +115,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/py-none-equality',
     ext: PY,
-    test: /(?:==|!=)\s*None\b|\bNone\s*(?:==|!=)/,
+    test: (t) => /(?:==|!=)\s*None\b|\bNone\s*(?:==|!=)/.test(t),
     severity: 'MINOR',
     confidence: 'HIGH',
     category: 'CORRECTNESS',
@@ -120,7 +126,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/py-wildcard-import',
     ext: PY,
-    test: /^\s*from\s+\S+\s+import\s+\*\s*$/,
+    test: (t) => /^\s*from\s+\S+\s+import\s+\*\s*$/.test(t),
     severity: 'MINOR',
     confidence: 'HIGH',
     category: 'MAINTAINABILITY',
@@ -132,7 +138,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
   {
     id: 'standards/go-ignored-error',
     ext: GO,
-    test: /^\s*_\s*=\s*.*\.(?:Close|Write|Flush|Unmarshal|Encode|Decode)\s*\(/,
+    test: (t) => /^\s*_\s*=\s*.*\.(?:Close|Write|Flush|Unmarshal|Encode|Decode)\s*\(/.test(t),
     severity: 'MINOR',
     confidence: 'MEDIUM',
     category: 'CORRECTNESS',
@@ -144,7 +150,7 @@ export const LOCAL_STANDARD_RULES: readonly LineRule[] = [
     id: 'standards/go-panic',
     ext: GO,
     excludePath: /(^|\/)main\.go$/,
-    test: /\bpanic\s*\(/,
+    test: (t) => /\bpanic\s*\(/.test(t),
     severity: 'MAJOR',
     confidence: 'MEDIUM',
     category: 'CORRECTNESS',
@@ -289,27 +295,33 @@ export const localStandardsValidator: Validator = {
   baseline: true,
   hermetic: true,
   supports: (ctx) =>
-    ctx.pr.files.some((f) => f.status !== 'removed' && !TESTS.test(f.path) && SUPPORTED.test(f.path))
+    ctx.pr.files.some((f) => f.status !== 'removed' && !isTestFile(f.path) && SUPPORTED.test(f.path))
       ? { applicable: true }
       : { applicable: false, reason: 'NOT_SUPPORTED', detail: 'No non-test source files changed for local standards checks.' },
   async run(ctx) {
     const findings: Finding[] = []
     let checked = 0
+    let skippedTs = 0
     for (const file of ctx.pr.files) {
-      if (file.status === 'removed' || TESTS.test(file.path) || !SUPPORTED.test(file.path)) continue
+      if (file.status === 'removed' || isTestFile(file.path) || !SUPPORTED.test(file.path)) continue
       const added = addedLines(file)
       if (added.size === 0) continue
-      checked++
-      if (TS_JS.test(file.path) && file.head?.text !== undefined) {
+      if (TS_JS.test(file.path)) {
+        if (file.head?.text === undefined) {
+          skippedTs++
+          continue
+        }
+        checked++
         findings.push(...checkJsTsAst(file.path, file.head.text, added))
         continue
       }
+      checked++
       for (const [line, text] of added) {
-        if (COMMENT.test(text)) continue
+        if (isCommentLine(text)) continue
         for (const rule of LOCAL_STANDARD_RULES) {
           if (!rule.ext.test(file.path)) continue
           if (rule.excludePath?.test(file.path)) continue
-          if (!rule.test.test(text)) continue
+          if (!rule.test(text, line, added)) continue
           findings.push(
             finding({
               ruleId: rule.id,
@@ -326,14 +338,21 @@ export const localStandardsValidator: Validator = {
         }
       }
     }
+    if (checked === 0 && skippedTs > 0) {
+      return {
+        layers: [{ layer: 'STATIC_ANALYSIS', status: 'SKIPPED', reason: 'NOT_SUPPORTED', detail: `Local JS/TS AST checks skipped: all ${skippedTs} file(s) exceeded context size limit.` }],
+        findings,
+      }
+    }
+    const skipNote = skippedTs > 0 ? ` (${skippedTs} JS/TS file(s) omitted due to size limit)` : ''
     return {
       layers: [
         {
           layer: 'STATIC_ANALYSIS',
           status: findings.length ? 'WARNING' : 'PASSED',
           detail: findings.length
-            ? `${findings.length} local standard/static issue(s) across ${checked} changed source file(s).`
-            : `Local code standards passed on ${checked} changed source file(s).`,
+            ? `${findings.length} local standard/static issue(s) across ${checked} checked source file(s)${skipNote}.`
+            : `Local code standards passed on ${checked} changed source file(s)${skipNote}.`,
         },
       ],
       findings,

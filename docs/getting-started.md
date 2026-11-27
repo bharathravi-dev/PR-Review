@@ -11,8 +11,9 @@ End-to-end guide to installing `@pr-reviewer/cli`, connecting GitHub and your Cl
 - **Cloud / Pro AI access** — any one of:
   - **Claude Pro / Max account** (via **Claude Code** CLI)
   - **ChatGPT Plus / Pro account** (via **Codex** CLI)
+  - **Local Ollama** (`--provider ollama --model <model>`) — zero cloud cost, keeps code local
   - **Cloud API key** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, OpenRouter, or any OpenAI-compatible endpoint)
-- **Optional (for sandboxed compile & lint checks):** **Docker** or **Podman** running on your machine so `tsc` and ESLint/TSLint run safely in an isolated container for JS/TS PRs.
+- **Optional (for sandboxed compile & lint checks):** **Docker** or **Podman** running on your machine so `tsc` and ESLint/TSLint run safely in an isolated container for JS/TS PRs. If no container runtime is found in an interactive terminal, the CLI runs safe in-process local checks automatically and asks your permission (`[y/N]`) before falling back to local host tools.
 
 ---
 
@@ -135,17 +136,21 @@ pr-reviewer review <owner>/<repo>#<number>
 
 #### What happens and what the output looks like
 
-1. **Deterministic & Security Checks run first** (streaming status lines to stderr):
+1. **Live 7-stage progress & deterministic checks run first** (with an animated TTY spinner showing each stage, elapsed time, and retrieved AI RAG context):
    - `CONTEXT` (`github.context`) — fetches PR diff, metadata, linked Jira/Linear tickets, and repo rules (`REVIEW.md`, `AGENTS.md`, `CLAUDE.md`, `.github/pr-reviewer.yml`, etc.) from the base branch.
+   - `EXTERNAL_RESULTS` (`ci.results`) — reads CI check statuses attached to the PR head commit.
    - `FRAMEWORK` (`framework.angular` / `framework.react`) — framework-specific checks when applicable.
-   - `DEPENDENCIES` (`deps.audit`) — checks added/upgraded lockfile dependencies against OSV vulnerabilities.
-   - `COMPILE` (`ts.tsc`) & `LINT` (`lint.eslint` / `lint.tslint`) — runs inside Docker/Podman if JS/TS is touched and a container runtime is available; otherwise marked `SKIPPED` or `NOT_APPLICABLE`.
-   - `SECURITY` (`repo.build-config-changes`, `security.patterns`) — flags risky build/CI changes and code patterns.
-   - `SECRETS` (`secrets.builtin`) — scans added lines and strips secrets before any AI call.
-   - `AI_REVIEW` (`ai.review`) — runs your configured Pro/cloud model with related callers, imports, and tests.
+   - `SYNTAX` (`syntax.local`) — in-process syntax checks (zero Docker) for TS/JS, JSON/JSONC, YAML, and `.properties` duplicate keys.
+   - `STATIC_ANALYSIS` (`standards.local`) — in-process local code standards & bug patterns (zero Docker) for TS/JS, Java/Kotlin, Python, and Go.
+   - `DEPENDENCIES` (`deps.audit`) — checks added/upgraded dependencies against OSV vulnerabilities (npm, Maven `pom.xml`, PyPI `requirements*.txt`, Go `go.mod`).
+   - `COMPILE` (`ts.tsc`) & `LINT` (`lint.eslint` / `lint.tslint`) — runs inside Docker/Podman if JS/TS is touched and a container runtime is available; if no container runtime is found, the CLI asks `[y/N]` before falling back to host execution (or skips if declined / `--no-local-tools`).
+   - `SECURITY` (`repo.build-config-changes`, `security.patterns`) — flags risky build/CI changes and multi-language OWASP security patterns.
+   - `SECRETS` (`secrets.builtin`) — scans added lines and strips secrets before any AI call or output.
+   - `AI_REVIEW` (`ai.review`) — runs your configured Pro/cloud/local model grounded with `<language_standards>`, related callers/tests, guidance files, learnings, and deterministic tool evidence.
 
 2. **Markdown Report is printed to stdout**, containing:
    - **Overall status** (`PASSED`, `PASSED_WITH_WARNINGS`, or `FAILED`) and head commit SHA
+   - **Coverage & RAG headers** — `Files checked:` (exact full-file vs. diff-only count), `AI RAG bundle:` (standards, callers/tests, guidance, learnings, tickets, tool evidence), and `Review depth:`
    - **Walkthrough** — plain-English summary, main risks, and estimated review effort (`1/5` to `5/5`)
    - **File-by-file change table**
    - **Checks table** (showing `PASSED`, `WARNING`, `FAILED`, `SKIPPED`, or `NOT_APPLICABLE`)
@@ -159,19 +164,31 @@ pr-reviewer review <owner>/<repo>#<number>
 | `--post` | Show a publish preview and ask `[y/N]` before posting to the PR |
 | `--yes` | Post immediately without interactive confirmation (requires `--post`) |
 | `--event <e>` | `COMMENT` (default) or `REQUEST_CHANGES` (requires `publish.allowRequestChanges: true` in config) |
-| `--local` | Review local branch & uncommitted changes before opening a PR (cannot combine with `--post`) |
+| `--local` | Review local branch & uncommitted changes before opening a PR (cannot combine with `--post` or `--yes`) |
 | `--base <branch>` | Base branch to diff against when using `--local` (defaults to origin's default branch) |
-| `--provider <name>` | Override default AI provider (`claude-code`, `codex`, `anthropic`, `openai`, etc.) |
+| `--allow-local-tools` | Run repository compile/lint tools locally without prompting if Docker/Podman is unavailable |
+| `--no-local-tools` | Never fall back to local host tools when Docker/Podman is unavailable (safe in-process checks still run) |
+| `--provider <name>` | Override default AI provider (`claude-code`, `codex`, `anthropic`, `openai`, `ollama`, etc.) |
 | `--model <id>` | Override model ID for that provider |
 | `--effort <level>` | `adaptive` (default), `light`, `standard`, or `deep` |
 | `--full` | Re-check every file instead of incremental review of newly changed commits |
-| `--out <dir>` | Save `report.md` and `report.json` to `<dir>` |
+| `--profile <name>` | Use a named config profile |
+| `--host <host>` / `--api-url <url>` | Override GitHub Enterprise host or API URL |
+| `--out <dir>` | Save `report.md`, `report.json`, and `fix-bundle.md` to `<dir>` |
 | `--json` | Print the report as JSON instead of Markdown |
 | `--warnings-ok` | Return exit code `0` instead of `1` on `PASSED_WITH_WARNINGS` |
 
 ---
 
-### B. Publish the Review to GitHub
+### B. Interactive Post-Review Menu & Publishing to GitHub
+
+When you run `pr-reviewer review <pr>` in an interactive terminal without `--post`, an action menu appears right below the report:
+
+- `[p]` **Post review to GitHub** (prints exact preview and confirms `[y/N]`)
+- `[v]` **Step through findings** one by one and pick which to post
+- `[f]` **View / save Recommended Fix Bundle** (`fix-bundle.md`)
+- `[o]` **Open in browser UI** — launches the local review page directly on the finished review
+- `[q]` **Quit**
 
 #### Option 1: Directly from the Command Line (`--post`)
 

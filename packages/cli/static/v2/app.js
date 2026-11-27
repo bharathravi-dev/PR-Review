@@ -1403,6 +1403,14 @@ async function boot() {
     render({ userNav: true })
     return
   }
+  const seededRun = new URLSearchParams(location.search).get('run')
+  if (seededRun) {
+    await loadReport(seededRun).catch(() => {})
+    if (state.report) {
+      go('overview')
+      return
+    }
+  }
   if (await resume().catch(() => false)) return render({ userNav: true })
   go('start')
 }

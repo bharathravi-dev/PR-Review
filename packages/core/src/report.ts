@@ -96,6 +96,29 @@ export const Report = z.looseObject({
   projects: z.array(ProjectInfo).optional(),
   /** Present when repository tools ran in a Sandbox (AD-7). */
   sandbox: z.object({ planHash: z.string(), imageDigest: z.string(), ran: z.boolean() }).optional(),
+  /** Clear accounting of how many changed files were loaded and checked. */
+  fileCoverage: z
+    .object({
+      loaded: z.number().int(),
+      fullText: z.number().int(),
+      diffOnly: z.number().int(),
+      omittedTotalLimit: z.number().int(),
+      patchTruncated: z.number().int(),
+      binary: z.number().int(),
+      filesCapReached: z.boolean(),
+    })
+    .optional(),
+  /** Grounded RAG bundle passed to the AI reviewer. */
+  ragContext: z
+    .object({
+      stacks: z.array(z.string()),
+      relatedFiles: z.number().int(),
+      guidanceFiles: z.array(z.string()),
+      learnings: z.number().int(),
+      linkedTickets: z.array(z.string()),
+      deterministicFindingsPassedToAi: z.number().int(),
+    })
+    .optional(),
   audit: z.object({
     configSources: z.record(z.string(), z.string()),
     foreignMarkers: z.number().int(),
@@ -214,6 +237,26 @@ export function renderMarkdown(report: Report): string {
   out.push(`# PR review: ${ref}${report.title ? ` — ${report.title}` : ''}`, '')
   out.push(`**Overall: ${report.overallStatus}**  ·  head \`${report.run.headSha?.slice(0, 7) ?? '?'}\``, '')
   out.push(`> ${report.coverage.headline}`, '')
+  if (report.fileCoverage) {
+    const fc = report.fileCoverage
+    const parts = [`${fc.fullText} full-file`, `${fc.diffOnly} diff-only`]
+    if (fc.omittedTotalLimit > 0) parts.push(`${fc.omittedTotalLimit} skipped full text after 350 KB cap`)
+    if (fc.patchTruncated > 0) parts.push(`${fc.patchTruncated} truncated diff`)
+    if (fc.binary > 0) parts.push(`${fc.binary} binary`)
+    out.push(`Files checked: **${fc.loaded}${fc.filesCapReached ? '+' : ''}** loaded (${parts.join(', ')})${fc.filesCapReached ? ' — PR hit 300-file loader limit' : ''}.`, '')
+  }
+  if (report.ragContext) {
+    const rc = report.ragContext
+    const segs = [
+      rc.stacks.length ? `standards [${rc.stacks.join(', ')}]` : '',
+      rc.relatedFiles ? `${rc.relatedFiles} related caller/test file(s)` : '',
+      rc.guidanceFiles.length ? `guidance (${rc.guidanceFiles.join(', ')})` : '',
+      rc.learnings ? `${rc.learnings} maintainer learning(s)` : '',
+      rc.linkedTickets.length ? `tickets (${rc.linkedTickets.join(', ')})` : '',
+      rc.deterministicFindingsPassedToAi ? `${rc.deterministicFindingsPassedToAi} deterministic finding(s) as evidence` : '',
+    ].filter(Boolean)
+    if (segs.length) out.push(`AI RAG bundle: ${segs.join(' · ')}.`, '')
+  }
   if (report.effort) out.push(`Review depth: **${report.effort.level}** (${report.effort.reasons.join('; ')})${report.incremental ? ` · incremental since \`${report.incremental.since.slice(0, 7)}\`` : ''}`, '')
   if (report.walkthrough) {
     const w = report.walkthrough
@@ -250,6 +293,7 @@ export function renderMarkdown(report: Report): string {
     if (f.impact) out.push('', `**Impact:** ${f.impact}`)
     if (f.recommendation) out.push('', `**Recommendation:** ${f.recommendation}`)
     if (f.suggestion && !f.suggestion.includes('```')) out.push('', 'Suggested change:', '', '```', f.suggestion, '```')
+    else if (f.suggestion) out.push('', 'Suggested change:', '', '````', f.suggestion, '````')
     out.push('')
   }
   if (report.ai) {

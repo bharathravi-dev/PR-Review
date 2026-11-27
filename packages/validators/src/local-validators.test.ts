@@ -101,6 +101,8 @@ describe('localStandardsValidator (no sandbox)', () => {
       '@Service',
       'public class DemoService {',
       '  @Autowired private Repo repo;',
+      '  @Autowired',
+      '  public DemoService(Repo r) {}',
       '  private final SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd");',
       '  void run() {',
       '    try { System.out.println("hi"); } catch (Exception e) {}',
@@ -111,6 +113,7 @@ describe('localStandardsValidator (no sandbox)', () => {
     const go = ['package svc', 'func f() {', '  _ = f.Close()', '  panic("boom")', '}'].join('\n')
     const c = makeCtx([
       fileWith('src/DemoService.java', java),
+      fileWith('src/Latest.java', 'public class Latest { void f() { System.out.println("ok"); } }'),
       fileWith('src/DemoServiceTest.java', 'System.out.println("ok in tests");'),
       fileWith('app.py', py),
       fileWith('svc.go', go),
@@ -131,6 +134,9 @@ describe('localStandardsValidator (no sandbox)', () => {
         'standards/go-panic',
       ]),
     )
+    // Constructor @Autowired should not be flagged as field injection; Latest.java is NOT skipped as a test file.
+    expect(out.findings.filter((f) => f.ruleId === 'standards/java-field-injection')).toHaveLength(1)
+    expect(out.findings.some((f) => f.location.path === 'src/Latest.java')).toBe(true)
     expect(out.findings.some((f) => f.location.path === 'src/DemoServiceTest.java')).toBe(false)
   })
 })

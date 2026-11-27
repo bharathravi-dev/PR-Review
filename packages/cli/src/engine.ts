@@ -279,6 +279,8 @@ export interface ExecuteReviewOptions {
   channel?: Channel | undefined
   /** Replaces the container Sandbox (Auto-Review splits it into its own job); null means none. */
   sandbox?: SandboxPort | null | undefined
+  /** Called when no container runtime is available to decide whether host fallback is permitted. */
+  allowLocalFallback?: ((reason: string) => Promise<boolean>) | undefined
   /** `review --effort`: light, standard, deep, or adaptive (the default). */
   effort?: 'adaptive' | 'light' | 'standard' | 'deep' | undefined
   /** Re-check every file with the AI, even after an earlier review (`review --full`). */
@@ -345,7 +347,17 @@ export async function executeReview(o: ExecuteReviewOptions): Promise<{ report: 
       ledger: tracked ? fileLedger(dir) : undefined,
       validators,
       installSteps,
-      sandbox: o.sandbox !== undefined ? (o.sandbox ?? undefined) : settings.sandbox?.enabled === false ? undefined : createSandbox({ runtime: settings.sandbox?.runtime }),
+      sandbox:
+        o.sandbox !== undefined
+          ? (o.sandbox ?? undefined)
+          : settings.sandbox?.enabled === false
+            ? undefined
+            : createSandbox({
+                runtime: settings.sandbox?.runtime,
+                allowLocalFallback:
+                  o.allowLocalFallback ??
+                  ((o.channel ?? 'CLI') === 'CLI' && settings.sandbox?.localFallback === 'allow' ? async () => true : undefined),
+              }),
       advisories: settings.advisories?.enabled === false ? undefined : createAdvisories({ url: settings.advisories?.url, fetch: o.deps.fetch }),
       cache: settings.cache?.enabled === false ? undefined : fileCache(cacheDir(o.deps), settings.cache?.maxMB),
       now: () => Date.now(),

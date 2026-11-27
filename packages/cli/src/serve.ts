@@ -2,8 +2,9 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { ResolvedConfig, Secret } from '@pr-reviewer/core'
+import type { PrContext, PrRef, Report, ResolvedConfig, Secret } from '@pr-reviewer/core'
 import type { CliDeps } from './deps.js'
+import type { GitHubConnection } from './engine.js'
 import { createPairingWindow, isExtensionOrigin, pairedFor, pairedOrigins } from './pairing.js'
 import { checkSchema, createReviewService, HttpError, loadAssets, PAGE_CSP, readJson, SECURITY_HEADERS, sendJson, type Principal, type UiVersion } from './review-service.js'
 
@@ -24,6 +25,8 @@ export interface ServeOptions {
    * extension origin; with `open`, a pairing code is issued for this launch.
    */
   pairing?: { dir: string; open?: boolean; computer: string; code?: string; now?: () => number } | undefined
+  /** Pre-completed CLI run to open immediately in the browser UI. */
+  initialRun?: { ref: PrRef; github: GitHubConnection; report: Report; context?: PrContext | undefined } | undefined
 }
 
 export interface RunningServer {
@@ -46,6 +49,22 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
   const assets = loadAssets('local', opts.ui)
   const service = createReviewService({ channel: 'CLI', log, maxRuns: 25 })
   const principal: Principal = { id: 'local', config: opts.config, deps: opts.deps, secrets: opts.secrets }
+  if (opts.initialRun) {
+    const r = opts.initialRun
+    service.runs.set(r.report.run.id, {
+      id: r.report.run.id,
+      owner: principal.id,
+      ref: r.ref,
+      status: 'done',
+      events: [{ schemaVersion: 1, runId: r.report.run.id, seq: 1, at: r.report.run.finishedAt, type: 'DONE', payload: { overallStatus: r.report.overallStatus, findings: r.report.findings.length } }],
+      listeners: new Set(),
+      github: r.github,
+      report: r.report,
+      context: r.context,
+      publishing: false,
+      startedAt: r.report.run.startedAt,
+    })
+  }
   let port = 0
   const allowedHosts = () => [`127.0.0.1:${port}`, `localhost:${port}`]
   const allowedOrigins = () => allowedHosts().map((h) => `http://${h}`)
@@ -143,9 +162,10 @@ export async function startServer(opts: ServeOptions): Promise<RunningServer> {
   })
   port = (server.address() as AddressInfo).port
   const url = `http://127.0.0.1:${port}`
+  const query = opts.initialRun ? `?run=${encodeURIComponent(opts.initialRun.report.run.id)}` : ''
   return {
     url,
-    pageUrl: `${url}/#token=${token}`,
+    pageUrl: `${url}/${query}#token=${token}`,
     token,
     pairCode: pairWindow?.code,
     pairExpiresAt: pairWindow?.expiresAt,

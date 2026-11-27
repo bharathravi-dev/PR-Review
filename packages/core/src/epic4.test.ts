@@ -51,9 +51,43 @@ describe('detectProjects (Story 4.1)', () => {
   })
 
   it('labels a repository with no recognised stack best-effort, never a guessed framework', async () => {
-    const { projects, notes } = await detectProjects(accessor({ 'app.py': 'print(1)', 'requirements.txt': 'flask' }), ['app.py'])
-    expect(projects).toEqual([expect.objectContaining({ path: '', language: 'unknown', support: 'best-effort', frameworks: [], changedFiles: ['app.py'] })])
-    expect(notes[0]).toContain('best-effort review (unsupported technology)')
+    const { projects, notes } = await detectProjects(accessor({ 'src/main.rs': 'fn main() {}', 'Cargo.toml': '[package]\nname = "app"' }), ['src/main.rs'])
+    expect(projects).toEqual([expect.objectContaining({ path: '', language: 'unknown', support: 'best-effort', frameworks: [], changedFiles: ['src/main.rs'] })])
+    expect(notes[0]).toContain('best-effort review')
+  })
+
+  it('inherits workspace root Angular, TypeScript, and tsconfig.lib.json for monorepo sub-packages', async () => {
+    const files = accessor({
+      'package.json': JSON.stringify({ name: 'workspace', dependencies: { '@angular/core': '^17.0.0' }, devDependencies: { typescript: '~5.2.0' } }),
+      'package-lock.json': JSON.stringify({ packages: { 'node_modules/@angular/core': { version: '17.3.0' }, 'node_modules/typescript': { version: '5.2.2' } } }),
+      'tsconfig.json': '{}',
+      'project/ws/app/package.json': JSON.stringify({ name: 'ws-app' }),
+      'project/ws/app/src/a.ts': 'export class A {}',
+      'library/ws-widget/package.json': JSON.stringify({ name: 'ws-widget' }),
+      'library/ws-widget/tsconfig.lib.json': '{}',
+      'library/ws-widget/src/b.ts': 'export class B {}',
+    })
+    const { projects } = await detectProjects(files, ['project/ws/app/src/a.ts', 'library/ws-widget/src/b.ts'])
+    const app = projects.find((p) => p.path === 'project/ws/app')!
+    const lib = projects.find((p) => p.path === 'library/ws-widget')!
+    expect(app).toMatchObject({ language: 'TypeScript', configs: { tsconfig: 'tsconfig.json' } })
+    expect(app.frameworks[0]).toMatchObject({ name: 'Angular', version: '17.3.0' })
+    expect(lib).toMatchObject({ language: 'TypeScript', configs: { tsconfig: 'library/ws-widget/tsconfig.lib.json' } })
+  })
+
+  it('detects nested Go/Python subprojects inside a polyglot root JS repo and handles unknown packageManager safely', async () => {
+    const files = accessor({
+      'package.json': JSON.stringify({ name: 'polyglot', packageManager: 'bun@1.1.0' }),
+      'backend/go.mod': 'module example.com/backend\n',
+      'backend/main.go': 'package main\nfunc main() {}\n',
+      'ml/requirements.txt': 'requests==2.32.0\n',
+      'ml/train.py': 'print(1)\n',
+      'README.md': '# Hi\n',
+    })
+    const { projects } = await detectProjects(files, ['backend/main.go', 'ml/train.py', 'README.md'])
+    expect(projects.find((p) => p.path === 'backend')).toMatchObject({ language: 'Go', packageManager: 'go' })
+    expect(projects.find((p) => p.path === 'ml')).toMatchObject({ language: 'Python', packageManager: 'pip' })
+    expect(projects.find((p) => p.path === '')).toMatchObject({ packageManager: 'unknown', changedFiles: ['README.md'] })
   })
 
   it('trusts package.json over an out-of-date lockfile, and says so', async () => {

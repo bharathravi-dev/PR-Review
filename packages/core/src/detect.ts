@@ -132,19 +132,41 @@ function nodeMajorFrom(text: string | undefined): number | undefined {
  */
 export async function detectProjects(files: FileAccessor, changedPaths: readonly string[]): Promise<{ projects: ProjectInfo[]; notes: string[] }> {
   const notes: string[] = []
-  const entries = (await files.list('HEAD')) ?? []
+  const entries = ((await files.list('HEAD')) ?? []).filter((e) => !e.path.split('/').includes('..'))
   const paths = new Set(entries.map((e) => e.path))
   const allDirs = entries.filter((e) => /(^|\/)package\.json$/.test(e.path) && !ignored(e.path)).map((e) => dirOf(e.path))
-  // Each changed file belongs to the deepest project containing it; only those projects are analysed.
+  // Each changed file belongs to the deepest project containing it; allow nested Go/Python/Java/Kotlin subprojects
+  // inside a root JS monorepo to claim their own files before falling back to root ''.
   const byDepth = [...allDirs].sort((a, b) => b.length - a.length)
   const owned = new Map<string, string[]>()
+  const rootOwnedCandidate: string[] = []
   const unowned: string[] = []
   for (const path of changedPaths) {
     const owner = byDepth.find((d) => d === '' || path.startsWith(`${d}/`))
     if (owner === undefined) unowned.push(path)
+    else if (owner === '') rootOwnedCandidate.push(path)
     else owned.set(owner, [...(owned.get(owner) ?? []), path])
   }
-  const projects: ProjectInfo[] = []
+  const otherFromRoot = otherProjects(paths, rootOwnedCandidate)
+  if (otherFromRoot.leftover.length > 0) owned.set('', otherFromRoot.leftover)
+  const projects: ProjectInfo[] = [...otherFromRoot.projects]
+
+  // Inherit workspace-root tooling (e.g. Angular monorepo sub-packages sharing root @angular/core & typescript).
+  const parsedPkgCache = new Map<string, { deps: Record<string, string>; hasAngularJson: boolean; tsconfig?: string }>()
+  const readPkgMeta = async (d: string) => {
+    if (parsedPkgCache.has(d)) return parsedPkgCache.get(d)!
+    const txt = await files.read(join(d, 'package.json'), 'HEAD')
+    let p: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } = {}
+    try {
+      p = JSON.parse(txt ?? '{}') as typeof p
+    } catch {
+      // handled per-project below
+    }
+    const ts = ['tsconfig.json', 'tsconfig.app.json', 'tsconfig.lib.json', 'tsconfig.base.json'].map((f) => join(d, f)).find((f) => paths.has(f))
+    const meta = { deps: { ...(p.dependencies ?? {}), ...(p.devDependencies ?? {}) }, hasAngularJson: paths.has(join(d, 'angular.json')), ...(ts ? { tsconfig: ts } : {}) }
+    parsedPkgCache.set(d, meta)
+    return meta
+  }
 
   for (const [dir, changedFiles] of owned) {
     const pkgText = await files.read(join(dir, 'package.json'), 'HEAD')
@@ -155,6 +177,16 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
       notes.push(`${join(dir, 'package.json')} is not valid JSON; the project's stack could not be detected.`)
     }
     const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
+    const ancestorDeps: Record<string, string> = {}
+    let ancestorTsconfig: string | undefined
+    let ancestorAngularJson = false
+    for (let d: string | undefined = dir === '' ? undefined : dirOf(dir); d !== undefined; d = d === '' ? undefined : dirOf(d)) {
+      if (!allDirs.includes(d) && d !== '') continue
+      const m = await readPkgMeta(d)
+      for (const [k, v] of Object.entries(m.deps)) if (!(k in ancestorDeps)) ancestorDeps[k] = v
+      ancestorTsconfig ??= m.tsconfig
+      if (m.hasAngularJson) ancestorAngularJson = true
+    }
 
     // The nearest lockfile at or above the project (workspaces keep one at the root).
     let lockfile: string | undefined
@@ -167,19 +199,24 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
         break
       }
     }
-    if (manager === 'unknown' && pkg.packageManager) manager = (pkg.packageManager.split('@')[0] as ProjectInfo['packageManager']) ?? 'unknown'
+    if (manager === 'unknown' && pkg.packageManager) {
+      const pm = pkg.packageManager.split('@')[0]
+      if (pm === 'npm' || pm === 'pnpm' || pm === 'yarn' || pm === 'maven' || pm === 'gradle' || pm === 'pip' || pm === 'go') {
+        manager = pm
+      }
+    }
     const lockText = lockfile ? await files.read(lockfile, 'HEAD') : undefined
     const lockDir = lockfile ? dirOf(lockfile) : ''
     const relDir = dir.startsWith(lockDir) ? dir.slice(lockDir.length).replace(/^\//, '') : dir
 
-    const version = (name: string, source: string): DetectedVersion | undefined => {
-      const declared = deps[name]
+    const versionFrom = (sourceDeps: Record<string, string>, name: string, source: string): DetectedVersion | undefined => {
+      const declared = sourceDeps[name]
       if (!declared) return undefined
       const locked = lockfile && lockText ? lockedVersion(lockfile, lockText, name, relDir) : undefined
       if (locked && withinRange(declared, locked)) return { version: locked, declared, confidence: 'HIGH', evidence: [`${source} declares ${name}@${declared}`, `${lockfile} resolves ${locked}`] }
       if (locked) {
         // The lockfile disagrees with package.json (e.g. mid-upgrade): trust the declaration, and say so.
-        notes.push(`${lockfile} resolves ${name} ${locked}, outside ${src}'s ${declared}; the lockfile looks out of date, so the declared version is used.`)
+        notes.push(`${lockfile} resolves ${name} ${locked}, outside ${source}'s ${declared}; the lockfile looks out of date, so the declared version is used.`)
         const min = minVersion(declared)
         return { ...(min ? { version: min } : {}), declared, confidence: 'MEDIUM', evidence: [`${source} declares ${name}@${declared}`, `${lockfile} resolves ${locked} (out of date)`] }
       }
@@ -188,12 +225,25 @@ export async function detectProjects(files: FileAccessor, changedPaths: readonly
     }
 
     const src = join(dir, 'package.json')
-    const frameworks = FRAMEWORKS.flatMap((f) => {
-      const v = version(f.pkg, src)
+    const ownFrameworks = FRAMEWORKS.flatMap((f) => {
+      const v = versionFrom(deps, f.pkg, src)
       return v ? [{ name: f.name, checks: f.checks, ...v }] : []
     })
-    const tsconfig = ['tsconfig.json', 'tsconfig.app.json'].map((f) => join(dir, f)).find((f) => paths.has(f))
-    const typescript = version('typescript', src)
+    const touchesTs = changedFiles.some((f) => /\.(ts|tsx|mts|cts)$/.test(f))
+    const touchesHtml = changedFiles.some((f) => f.endsWith('.html'))
+    const inheritedFrameworks =
+      ownFrameworks.length === 0 && (touchesTs || touchesHtml || ancestorAngularJson)
+        ? FRAMEWORKS.flatMap((f) => {
+            if (f.name !== 'Angular' && !touchesTs) return []
+            const v = versionFrom(ancestorDeps, f.pkg, 'workspace root')
+            return v ? [{ name: f.name, checks: f.checks, ...v }] : []
+          })
+        : []
+    const frameworks = ownFrameworks.length ? ownFrameworks : inheritedFrameworks
+
+    const ownTsconfig = ['tsconfig.json', 'tsconfig.app.json', 'tsconfig.lib.json'].map((f) => join(dir, f)).find((f) => paths.has(f))
+    const tsconfig = ownTsconfig ?? (touchesTs ? ancestorTsconfig : undefined)
+    const typescript = versionFrom(deps, 'typescript', src) ?? (touchesTs || ownTsconfig ? versionFrom(ancestorDeps, 'typescript', 'workspace root') : undefined)
     const eslint = ESLINT_CONFIGS.map((f) => join(dir, f)).find((f) => paths.has(f)) ?? (pkgText?.includes('"eslintConfig"') ? src : undefined)
     const tslint = paths.has(join(dir, 'tslint.json')) ? join(dir, 'tslint.json') : undefined
     const angularJson = paths.has(join(dir, 'angular.json')) ? join(dir, 'angular.json') : undefined

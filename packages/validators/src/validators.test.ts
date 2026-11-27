@@ -144,7 +144,9 @@ describe('build, tool, and CI configuration changes (Story 4.5)', () => {
 describe('dependency audit (Story 4.8)', () => {
   const lock = (deps: Record<string, string>) => JSON.stringify({ lockfileVersion: 3, packages: { '': {}, ...Object.fromEntries(Object.entries(deps).map(([n, v]) => [`node_modules/${n}`, { version: v }])) } })
 
-  it('parses npm, yarn, and pnpm lockfiles', () => {
+  it('parses npm (including workspace keys without node_modules), yarn, and pnpm lockfiles', () => {
+    const wsLock = JSON.stringify({ lockfileVersion: 3, packages: { '': {}, 'packages/core': { version: '1.0.0' }, 'node_modules/lodash': { version: '4.17.20' } } })
+    expect([...lockedPackages('package-lock.json', wsLock)]).toEqual([['packages/core', new Set(['1.0.0'])], ['lodash', new Set(['4.17.20'])]])
     expect([...lockedPackages('package-lock.json', lock({ lodash: '4.17.20', '@a/b': '1.0.0' }))]).toEqual([['lodash', new Set(['4.17.20'])], ['@a/b', new Set(['1.0.0'])]])
     expect(lockedPackages('yarn.lock', 'lodash@^4.17.0:\n  version "4.17.21"\n  resolved "x"\n\n"@a/b@^1.0.0":\n  version "1.2.0"\n').get('@a/b')).toEqual(new Set(['1.2.0']))
     expect(lockedPackages('pnpm-lock.yaml', 'packages:\n  /lodash@4.17.21:\n    resolution: x\n  /@a/b@1.2.0:\n    resolution: y\n').get('lodash')).toEqual(new Set(['4.17.21']))
@@ -185,7 +187,7 @@ describe('Sandbox tools (Story 4.6)', () => {
     const old = ctx([added('src/a.ts', 'x')], [project({ nodeMajor: 14, configs: { tsconfig: 'tsconfig.json', tslint: 'tslint.json' } })])
     expect(installSteps(old).map((s) => s.id)).toEqual(['install:.'])
     expect(eslintValidator.supports(old)).toMatchObject({ applicable: false })
-    expect(tslintValidator.sandboxSteps!(old)[0]!.cmd.slice(-5)).toEqual(['-c', 'tslint.json', '-p', 'tsconfig.json', 'src/a.ts'])
+    expect(tslintValidator.sandboxSteps!(old)[0]!.cmd.slice(-6)).toEqual(['-c', 'tslint.json', '-p', 'tsconfig.json', '--', 'src/a.ts'])
   })
 
   it('parses tsc output, counts errors outside changed files as pre-existing, and reports install failures', async () => {

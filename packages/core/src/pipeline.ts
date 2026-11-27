@@ -20,7 +20,7 @@ import type { Finding, LayerId, LayerResult } from './findings.js'
 import type { PrRef } from './pr-ref.js'
 import type { GitHubReader } from './ports.js'
 import { redactContext, type SecretScanOutcome } from './redact.js'
-import { redactText } from './secret.js'
+import { redactText, type Secret } from './secret.js'
 import { compareFindings, evaluateGate, FPV, Report, type Channel } from './report.js'
 import { DEFAULT_CONTEXT_LIMITS, type ContextLimits, type PrContext } from './schemas.js'
 import { retrieveLanguageStandards } from './standards-rag.js'
@@ -227,9 +227,9 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     },
   )
   limitations.push(...executed.notes)
-  emit('STAGE_FINISHED', { stage: 'validate', findings: executed.findings.length, ...(executed.sandbox ? { sandbox: true } : {}) })
+  emit('STAGE_FINISHED', { stage: 'validate', findings: executed.findings.length, ...(executed.sandbox ? { sandbox: true, ...(executed.sandbox.hostFallback ? { hostFallback: true } : {}) } : {}) })
 
-  // execute (deterministic and file-only Validators)
+  // execute (secret scanning + RAG context retrieval: related callers/tests, repo usages, and language standards)
   emit('STAGE_STARTED', { stage: 'execute' })
   let scan: ReturnType<SecretScanner>
   try {
@@ -243,7 +243,6 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     }
   }
   record(scan.layer)
-  emit('STAGE_FINISHED', { stage: 'execute' })
 
   // Adaptive effort: light skips verification and asks for clear defects only; deep turns verification on and asks for
   // extra care. Related code stays at every level: small changes break callers too.
@@ -287,21 +286,37 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
       } else limitations.push('Related files were left out of the AI review: they could not be scanned for secrets.')
     }
   }
+  const retrievedStandards = retrieveLanguageStandards({ projects: detected.projects, changedPaths: ctx.files.map((f) => f.path) })
+  emit('STAGE_FINISHED', { stage: 'execute', relatedFiles: related.length, stacks: retrievedStandards.map((s) => s.stack) })
 
   // redact → review
   const aiFindings: Finding[] = []
   let ai: Report['ai']
   let walkthrough: Walkthrough | undefined
   let incremental: Report['incremental']
+  let aiAttempted = false
   const redacted = redactContext(ctx, scan)
+  const deterministicCountForAi = scan.findings.length + (input.review?.toolResults === false ? 0 : executed.findings.length)
   if (!redacted.ok) {
     record({ layer: 'AI_REVIEW', validator: 'ai.review', status: 'SKIPPED', reason: 'SECRET_SCAN_UNAVAILABLE', detail: redacted.error.message, durationMs: 0 })
   } else {
+    aiAttempted = true
     const candidates: ProviderCandidate[] = ports.providers
       ? [...ports.providers]
       : [{ name: ports.provider?.id ?? 'anthropic', provider: ports.provider, unavailableReason: ports.providerUnavailableReason ?? 'No AI Provider is configured.', model: input.review?.model }]
     const first = candidates.find((c) => c.provider)
-    if (first) emit('STAGE_STARTED', { stage: 'review', provider: first.name, ...(first.model ? { model: first.model } : {}), effort: effort.level })
+    emit('STAGE_STARTED', {
+      stage: 'review',
+      ...(first ? { provider: first.name, ...(first.model ? { model: first.model } : {}) } : {}),
+      effort: effort.level,
+      rag: {
+        stacks: retrievedStandards.map((s) => s.stack),
+        relatedFiles: related.length,
+        guidanceFiles: repoConfig.guidance.map((g) => g.path),
+        learnings: learnings.length,
+        deterministicFindings: deterministicCountForAi,
+      },
+    })
     // Incremental (roadmap item 4): after an earlier review of this PR, the AI re-checks only files changed since then.
     let aiCtx = redacted.value
     if (input.review?.incremental !== false && input.reviewerId !== undefined && ports.github.changedPathsBetween) {
@@ -334,10 +349,10 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
         input.review?.toolResults === false
           ? undefined
           : {
-              findings: executed.findings.map((f) => ({ ...f, title: redactText(f.title, scan.values), location: { ...f.location, ...(f.location.path ? { path: redactText(f.location.path, scan.values) } : {}) } })),
-              layers: [...layers],
+              findings: executed.findings.map((f) => redactFinding(f, scan.values)),
+              layers: [...layers].map((l) => ({ ...l, ...(l.detail ? { detail: redactText(l.detail, scan.values) } : {}) })),
             },
-      languageStandards: retrieveLanguageStandards({ projects: detected.projects, changedPaths: ctx.files.map((f) => f.path) }),
+      languageStandards: retrievedStandards,
       now: ports.now,
       channel: input.channel,
       limits: input.costLimits,
@@ -351,12 +366,14 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     if (outcome.attempts.length > 0) {
       ai = { attempts: outcome.attempts, droppedFindings: { schema: 0, grounding: outcome.dropped, ...(outcome.unverified ? { verification: outcome.unverified } : {}) }, partial: outcome.partial }
     }
-    if (first) emit('STAGE_FINISHED', { stage: 'review', status: outcome.layer.status, ...(outcome.provider ? { provider: outcome.provider, model: outcome.model } : {}) })
+    emit('STAGE_FINISHED', { stage: 'review', status: outcome.layer.status, ...(outcome.provider ? { provider: outcome.provider, model: outcome.model } : {}) })
   }
 
   emit('STAGE_STARTED', { stage: 'dedupe' })
   const headPaths = new Set(((await files.list('HEAD')) ?? []).map((e) => e.path))
-  const normalized = normalize(ctx, [...scan.findings, ...executed.findings, ...aiFindings], headPaths)
+  const safeExecutedFindings = executed.findings.map((f) => redactFinding(f, scan.values))
+  const safeAiFindings = aiFindings.map((f) => redactFinding(f, scan.values))
+  const normalized = normalize(ctx, [...scan.findings, ...safeExecutedFindings, ...safeAiFindings], headPaths)
   const quiet = quietFindings(await dedupe(ctx, normalized), { styleFindings: input.review?.styleFindings })
   let deduped = quiet.findings
   limitations.push(...quiet.notes)
@@ -369,11 +386,13 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
   }
   emit('STAGE_FINISHED', { stage: 'dedupe' })
   emit('FINDING_COUNT', { count: deduped.length, dismissed: deduped.filter((f) => f.dismissed).length })
+  const safeLayers = layers.map((l) => ({ ...l, ...(l.detail ? { detail: redactText(l.detail, scan.values) } : {}) }))
+  const safeLimitations = limitations.map((n) => redactText(n, scan.values))
   const report = await finish({
-    ctx,
-    layers,
+    ctx: { ...ctx, title: redactText(ctx.title, scan.values) },
+    layers: safeLayers,
     findings: deduped,
-    limitations,
+    limitations: safeLimitations,
     redactions: scan.values.length,
     ...(ai ? { ai } : {}),
     projects: detected.projects,
@@ -384,6 +403,27 @@ export async function runReviewWithContext(input: ReviewInput, ports: EnginePort
     ...(executed.sandbox ? { sandbox: executed.sandbox } : {}),
     ...(incremental ? { incremental } : {}),
     effort,
+    fileCoverage: {
+      loaded: ctx.files.length,
+      fullText: ctx.files.filter((f) => f.head?.text !== undefined).length,
+      diffOnly: ctx.files.filter((f) => f.head?.text === undefined && !f.binary && f.status !== 'removed').length,
+      omittedTotalLimit: ctx.files.filter((f) => f.head?.omitted === 'total_limit').length,
+      patchTruncated: ctx.files.filter((f) => f.patchTruncated).length,
+      binary: ctx.files.filter((f) => f.binary).length,
+      filesCapReached: ctx.truncated.some((n) => /first \d+ changed files were loaded/i.test(n)),
+    },
+    ...(aiAttempted
+      ? {
+          ragContext: {
+            stacks: retrievedStandards.map((s) => s.stack),
+            relatedFiles: related.length,
+            guidanceFiles: repoConfig.guidance.map((g) => g.path),
+            learnings: learnings.length,
+            linkedTickets: tickets.map((t) => t.key),
+            deterministicFindingsPassedToAi: deterministicCountForAi,
+          },
+        }
+      : {}),
   })
   return { report, context: ctx }
 }
@@ -411,6 +451,20 @@ async function readFeedback(
   await Promise.all(Array.from({ length: Math.min(5, own.length) }, worker))
   if (failure) return { ok: false, reason: failure }
   return { ok: true, dismissals: readDismissals(published.value, rid, FPV, prAuthor, thumbs) }
+}
+
+function redactFinding(f: Finding, values: readonly Secret[]): Finding {
+  if (values.length === 0) return f
+  return {
+    ...f,
+    title: redactText(f.title, values),
+    description: redactText(f.description, values),
+    ...(f.impact ? { impact: redactText(f.impact, values) } : {}),
+    ...(f.recommendation ? { recommendation: redactText(f.recommendation, values) } : {}),
+    ...(f.suggestion ? { suggestion: redactText(f.suggestion, values) } : {}),
+    ...(f.evidence ? { evidence: redactText(f.evidence, values) } : {}),
+    ...(f.location.path ? { location: { ...f.location, path: redactText(f.location.path, values) } } : {}),
+  }
 }
 
 function elapsed(ports: EnginePorts, since: number): number {
@@ -507,6 +561,8 @@ async function assemble(a: {
   sandbox?: { planHash: string; imageDigest: string; ran: boolean }
   incremental?: Report['incremental']
   effort?: Report['effort']
+  fileCoverage?: Report['fileCoverage']
+  ragContext?: Report['ragContext']
 }): Promise<Report> {
   const { input, ctx } = a
   const gate = evaluateGate(a.layers, a.findings, {
@@ -559,6 +615,8 @@ async function assemble(a: {
     ...(a.relatedFiles?.length ? { relatedFiles: a.relatedFiles } : {}),
     ...(a.incremental ? { incremental: a.incremental } : {}),
     ...(a.effort ? { effort: a.effort } : {}),
+    ...(a.fileCoverage ? { fileCoverage: a.fileCoverage } : {}),
+    ...(a.ragContext ? { ragContext: a.ragContext } : {}),
     ...(a.repo?.guidance.length ? { guidanceFiles: a.repo.guidance } : {}),
     ...(a.sandbox ? { sandbox: a.sandbox } : {}),
     audit: {

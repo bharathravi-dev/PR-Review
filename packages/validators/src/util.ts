@@ -16,3 +16,14 @@ export function finding(f: Omit<Finding, 'scope' | 'sourceFamily'> & { sourceFam
 
 export const relTo = (dir: string, path: string) => (dir && path.startsWith(`${dir}/`) ? path.slice(dir.length + 1) : path)
 export const joinPath = (dir: string, path: string) => (dir ? `${dir}/${path}` : path)
+
+const TEST_PATH = /(^|\/)(__tests__|tests?|spec|fixtures?|__mocks__)\/|\.(test|spec)\.[a-z0-9]+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/i
+const JAVA_TEST_CLASS = /Test\.java$/
+
+export function isTestFile(path: string): boolean {
+  return TEST_PATH.test(path) || JAVA_TEST_CLASS.test(path)
+}
+
+export function isCommentLine(text: string): boolean {
+  return /^\s*(\/\/|#|\*|\/\*|--)/.test(text)
+}

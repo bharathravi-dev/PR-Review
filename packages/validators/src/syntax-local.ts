@@ -5,7 +5,7 @@ import ts from 'ts5'
 import { finding } from './util.js'
 
 const TS_JS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
-const JSONC_NAMES = /(^|\/)(tsconfig[^/]*|\.eslintrc[^/]*)\.json$/
+const JSONC_NAMES = /(^|\/)(tsconfig[^/]*|jsconfig[^/]*|\.eslintrc[^/]*)\.json$|(^|\/)\.vscode\/[^/]+\.json$/
 const JSON_FILE = /\.json$/
 const YAML_FILE = /\.ya?ml$/
 const PROPS_FILE = /\.properties$/
@@ -102,6 +102,12 @@ function checkYaml(path: string, text: string): Finding[] {
   ]
 }
 
+function hasLineContinuation(raw: string): boolean {
+  let backslashes = 0
+  for (let i = raw.length - 1; i >= 0 && raw[i] === '\\'; i--) backslashes++
+  return backslashes % 2 === 1
+}
+
 function checkProperties(path: string, text: string): Finding[] {
   const seen = new Map<string, number>()
   const findings: Finding[] = []
@@ -110,12 +116,12 @@ function checkProperties(path: string, text: string): Finding[] {
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]!
     if (continuation) {
-      continuation = raw.endsWith('\\')
+      continuation = hasLineContinuation(raw)
       continue
     }
     const trimmed = raw.trim()
     if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) continue
-    continuation = raw.endsWith('\\')
+    continuation = hasLineContinuation(raw)
     const eq = trimmed.search(/[=:]/)
     if (eq <= 0) continue
     const key = trimmed.slice(0, eq).trim()
@@ -155,22 +161,33 @@ export const localSyntaxValidator: Validator = {
   async run(ctx) {
     const findings: Finding[] = []
     let checked = 0
+    let skipped = 0
     for (const file of ctx.pr.files) {
       if (file.status === 'removed' || !SUPPORTED_FILE.test(file.path)) continue
       const text = file.head?.text
-      if (text === undefined) continue
+      if (text === undefined) {
+        skipped++
+        continue
+      }
       checked++
       if (TS_JS.test(file.path)) findings.push(...checkTsJsSyntax(file.path, text))
       else if (JSON_FILE.test(file.path)) findings.push(...checkJsonSyntax(file.path, text))
       else if (YAML_FILE.test(file.path)) findings.push(...checkYaml(file.path, text))
       else if (PROPS_FILE.test(file.path)) findings.push(...checkProperties(file.path, text))
     }
+    if (checked === 0 && skipped > 0) {
+      return {
+        layers: [{ layer: 'SYNTAX', status: 'SKIPPED', reason: 'NOT_SUPPORTED', detail: `Syntax check skipped: all ${skipped} file(s) exceeded context size limit.` }],
+        findings,
+      }
+    }
+    const skipNote = skipped > 0 ? ` (${skipped} omitted due to size limit)` : ''
     return {
       layers: [
         {
           layer: 'SYNTAX',
-          status: findings.some((f) => f.severity === 'MAJOR' || f.severity === 'CRITICAL' || f.severity === 'BLOCKER') ? 'WARNING' : findings.length ? 'WARNING' : 'PASSED',
-          detail: findings.length ? `${findings.length} syntax issue(s) across ${checked} checked file(s).` : `Syntax checks passed on ${checked} changed file(s).`,
+          status: findings.length ? 'WARNING' : 'PASSED',
+          detail: findings.length ? `${findings.length} syntax issue(s) across ${checked} checked file(s)${skipNote}.` : `Syntax checks passed on ${checked} changed file(s)${skipNote}.`,
         },
       ],
       findings,

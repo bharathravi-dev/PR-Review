@@ -24,7 +24,8 @@ export function lockedPackages(path: string, text: string | undefined): Map<stri
       if (lock.packages) {
         for (const [key, v] of Object.entries(lock.packages)) {
           if (!key || v.link || !v.version) continue
-          add(v.name ?? key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length), v.version)
+          const idx = key.lastIndexOf('node_modules/')
+          add(v.name ?? (idx === -1 ? key : key.slice(idx + 'node_modules/'.length)), v.version)
         }
       } else {
         const walk = (deps: Record<string, { version?: string; dependencies?: unknown }> | undefined) => {
@@ -39,8 +40,22 @@ export function lockedPackages(path: string, text: string | undefined): Map<stri
       return out
     }
   } else if (path.endsWith('yarn.lock')) {
-    // Blocks start with `"name@range", name@range:` and contain `version "x"` (v1) or `version: x` (berry).
-    for (const m of text.matchAll(/^"?((?:@[^@/\s"]+\/)?[^@\s",]+)@[^\n]*:\n(?:[ \t]+[^\n]*\n)*?[ \t]+version:? "?([^"\n]+)"?/gm)) add(m[1]!, m[2]!)
+    // Line-by-line parser avoids catastrophic regex backtracking on large/malformed yarn.lock files.
+    let currentPkgs: string[] = []
+    for (const raw of text.split(/\r?\n/)) {
+      if (!raw || raw.startsWith('#')) continue
+      if (!raw.startsWith(' ') && !raw.startsWith('\t') && raw.endsWith(':')) {
+        currentPkgs = []
+        for (const part of raw.slice(0, -1).split(',')) {
+          const entry = part.trim().replace(/^"|"$/g, '')
+          const at = entry.lastIndexOf('@')
+          if (at > 0) currentPkgs.push(entry.slice(0, at))
+        }
+      } else if (currentPkgs.length > 0) {
+        const vm = /^\s+version(?::\s*|\s+)"?([^"\s]+)"?/.exec(raw)
+        if (vm) for (const pkg of currentPkgs) add(pkg, vm[1]!)
+      }
+    }
   } else if (path.endsWith('pnpm-lock.yaml')) {
     for (const m of text.matchAll(/^ {2}['"]?\/?((?:@[^@/\s'"]+\/)?[^@/\s'"(]+)[@/](\d+\.\d+\.\d+[^:'"\s(]*)/gm)) add(m[1]!, m[2]!)
   }
@@ -126,7 +141,7 @@ export const dependencyAuditValidator: Validator = {
   baseline: false,
   hermetic: false,
   supports(ctx) {
-    return ctx.pr.files.some((f) => SUPPORTED_DEP_FILE.test(f.path) || /(^|\/)package\.json$/.test(f.path))
+    return ctx.pr.files.some((f) => SUPPORTED_DEP_FILE.test(f.path) || (f.status !== 'removed' && /(^|\/)package\.json$/.test(f.path)))
       ? { applicable: true }
       : { applicable: false, reason: 'NOT_SUPPORTED', detail: 'No dependency changes in this PR.' }
   },
@@ -151,7 +166,14 @@ export const dependencyAuditValidator: Validator = {
         notes.push(`${f.path} could not be read`)
         continue
       }
-      const baseText = f.status === 'added' ? undefined : await ctx.files.read(f.previousPath ?? f.path, 'BASE')
+      let baseText: string | undefined
+      if (f.status !== 'added') {
+        baseText = await ctx.files.read(f.previousPath ?? f.path, 'BASE')
+        if (baseText === undefined) {
+          notes.push(`${f.previousPath ?? f.path} base version could not be read (e.g. >1 MB), skipped diff audit`)
+          continue
+        }
+      }
       const headPkgs = parsedDependencies(f.path, head)?.packages ?? new Map()
       const basePkgs = parsedDependencies(f.path, baseText)?.packages ?? new Map()
       for (const [name, versions] of headPkgs) {

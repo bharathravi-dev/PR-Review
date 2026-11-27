@@ -13,6 +13,7 @@ export interface GitLabOptions {
 
 export const gitlabApiUrl = (host: string) => `https://${host}/api/v4`
 const pid = (r: RepoRef) => encodeURIComponent(`${r.owner}/${r.repo}`)
+const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024
 const mrPath = (r: PrRef) => `/projects/${pid(r)}/merge_requests/${r.number}`
 const webUrl = (r: PrRef) => `https://${r.host}/${r.owner}/${r.repo}/-/merge_requests/${r.number}`
 
@@ -120,7 +121,12 @@ export class GitLabReader implements GitHubReader {
 
   async downloadArchive(repo: RepoRef, sha: string): Promise<Result<Uint8Array>> {
     const r = await this.#c.request('GET', `/projects/${pid(repo)}/repository/archive.tar.gz?sha=${encodeURIComponent(sha)}`)
-    return r.ok ? ok(new Uint8Array(await r.value.arrayBuffer())) : r
+    if (!r.ok) return r
+    const len = Number(r.value.headers.get('content-length') ?? 0)
+    if (len > MAX_ARCHIVE_BYTES) return err('archive_too_large', `Repository archive is too large (${Math.round(len / 1_048_576)} MB; max 500 MB).`)
+    const bytes = new Uint8Array(await r.value.arrayBuffer())
+    if (bytes.byteLength > MAX_ARCHIVE_BYTES) return err('archive_too_large', `Repository archive exceeds 500 MB limit.`)
+    return ok(bytes)
   }
 
   async listOpenPulls(repo: { host: string; owner: string; repo: string }, limit: number): Promise<Result<PullSummary[]>> {
