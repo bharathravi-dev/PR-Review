@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PR Reviewer",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Review GitHub pull requests from a side panel with your own AI key or your pr-reviewer. Nothing is posted until you press Post.",
   "minimum_chrome_version": "116",
   "action": {
